@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar, ComposedChart, Legend } from "recharts";
-import store from "./store.js";
+import store, { getCurrentUserId, setUserId } from "./store.js";
 import { DEFAULT_FOODS, DEFAULT_EX, TARGETS, COLORS } from "./data.js";
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -307,42 +307,53 @@ export default function App() {
   const [exHour, setExHour] = useState(nowHour());
   const [showAddFood, setShowAddFood] = useState(false);
   const [showAddEx, setShowAddEx] = useState(false);
+  const [showSync, setShowSync] = useState(false);
+  const [syncId, setSyncId] = useState("");
   const [showManage, setShowManage] = useState(false);
   const [manageTab, setManageTab] = useState("food");
 
   const FOOD_DB = useMemo(() => [...DEFAULT_FOODS, ...customFoods], [customFoods]);
   const EX_DB = useMemo(() => [...DEFAULT_EX, ...customEx], [customEx]);
 
-  // 초기 로드
+  // 초기 로드 (Firebase 비동기)
   useEffect(() => {
-    const cf = store.get("custom-foods");
-    if (cf) setCustomFoods(cf);
-    const ce = store.get("custom-exercises");
-    if (ce) setCustomEx(ce);
-    const body = store.get("bodylog");
-    if (body) setBodyLog(body);
+    async function loadAll() {
+      try {
+        const cf = await store.get("custom-foods");
+        if (cf) setCustomFoods(cf);
+        const ce = await store.get("custom-exercises");
+        if (ce) setCustomEx(ce);
+        const body = await store.get("bodylog");
+        if (body) setBodyLog(body);
 
-    // 모든 일자 데이터 로드
-    const keys = store.list("day:");
-    const data = {};
-    keys.forEach(k => {
-      const d = store.get(k);
-      if (d) data[k.replace("day:", "")] = d;
-    });
-    setAllDays(data);
-    setLoaded(true);
+        const keys = await store.list("day:");
+        const data = {};
+        for (const k of keys) {
+          const d = await store.get(k);
+          if (d) data[k.replace("day:", "")] = d;
+        }
+        setAllDays(data);
+      } catch (e) { console.error("Load error:", e); }
+      setLoaded(true);
+    }
+    loadAll();
   }, []);
 
   // 날짜 변경 시 해당 날 데이터 로드
   useEffect(() => {
-    const data = store.get(`day:${date}`);
-    if (data) { setMeals(data.meals || []); setExercises(data.exercises || []); }
-    else { setMeals([]); setExercises([]); }
-  }, [date]);
+    async function loadDay() {
+      try {
+        const data = await store.get(`day:${date}`);
+        if (data) { setMeals(data.meals || []); setExercises(data.exercises || []); }
+        else { setMeals([]); setExercises([]); }
+      } catch { setMeals([]); setExercises([]); }
+    }
+    if (loaded) loadDay();
+  }, [date, loaded]);
 
-  const saveDay = (d, m, e) => {
-    store.set(`day:${d}`, { meals: m, exercises: e });
+  const saveDay = async (d, m, e) => {
     setAllDays(prev => ({ ...prev, [d]: { meals: m, exercises: e } }));
+    await store.set(`day:${d}`, { meals: m, exercises: e });
   };
 
   const addMeal = (food, q) => {
@@ -366,27 +377,35 @@ export default function App() {
   };
   const removeExercise = (idx) => { const ne = exercises.filter((_, i) => i !== idx); setExercises(ne); saveDay(date, meals, ne); };
 
-  const addBody = (w, muscle, fatPct) => {
+  const addBody = async (w, muscle, fatPct) => {
     const entry = { date, weight: parseFloat(w), muscle: parseFloat(muscle) || 0, fatPct: parseFloat(fatPct) || 0 };
     const nl = [...bodyLog.filter(b => b.date !== date), entry].sort((a, b) => a.date.localeCompare(b.date));
-    setBodyLog(nl); store.set("bodylog", nl);
+    setBodyLog(nl); await store.set("bodylog", nl);
   };
 
-  const saveCustomFood = (food) => {
+  const saveCustomFood = async (food) => {
     const nf = [...customFoods, { ...food, custom: true }];
-    setCustomFoods(nf); store.set("custom-foods", nf); setShowAddFood(false);
+    setCustomFoods(nf); await store.set("custom-foods", nf); setShowAddFood(false);
   };
-  const deleteCustomFood = (idx) => {
+  const deleteCustomFood = async (idx) => {
     const nf = customFoods.filter((_, i) => i !== idx);
-    setCustomFoods(nf); store.set("custom-foods", nf);
+    setCustomFoods(nf); await store.set("custom-foods", nf);
   };
-  const saveCustomEx = (ex) => {
+  const saveCustomEx = async (ex) => {
     const ne = [...customEx, { ...ex, custom: true }];
-    setCustomEx(ne); store.set("custom-exercises", ne); setShowAddEx(false);
+    setCustomEx(ne); await store.set("custom-exercises", ne); setShowAddEx(false);
   };
-  const deleteCustomEx = (idx) => {
+  const deleteCustomEx = async (idx) => {
     const ne = customEx.filter((_, i) => i !== idx);
-    setCustomEx(ne); store.set("custom-exercises", ne);
+    setCustomEx(ne); await store.set("custom-exercises", ne);
+  };
+
+  // 동기화 ID 적용
+  const applySyncId = () => {
+    if (syncId.trim()) {
+      setUserId(syncId.trim());
+      window.location.reload();
+    }
   };
 
   const totals = useMemo(() => {
@@ -424,6 +443,7 @@ export default function App() {
           <div style={{ fontSize: 11, color: "#787570", fontFamily: "monospace" }}>목표 체지방 15% · 체중 72~75kg</div>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <button onClick={() => setShowSync(true)} style={{ background: "#222", border: "1px solid rgba(90,158,111,0.3)", borderRadius: 6, color: "#5a9e6f", padding: "6px 10px", fontSize: 11, cursor: "pointer" }}>동기화</button>
           <button onClick={() => setShowManage(true)} style={{ background: "#222", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, color: "#aaa", padding: "6px 10px", fontSize: 11, cursor: "pointer" }}>DB관리</button>
           <input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ background: "#222", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, color: "#e8e4dc", padding: "6px 10px", fontSize: 12, fontFamily: "monospace" }} />
         </div>
@@ -597,6 +617,34 @@ export default function App() {
           ))}
           <div style={{ fontSize: 12, color: "#555", marginTop: 12 }}>기본 DB ({DEFAULT_EX.length}개)는 삭제 불가</div>
         </>)}
+      </Modal>
+
+      {/* Sync Modal */}
+      <Modal open={showSync} onClose={() => setShowSync(false)} title="기기 간 동기화">
+        <div style={{ background: "rgba(90,158,111,0.08)", border: "1px solid rgba(90,158,111,0.2)", borderRadius: 8, padding: 14, marginBottom: 16, fontSize: 13, lineHeight: 1.7, color: "#e8e4dc" }}>
+          데이터는 Firebase 클라우드에 자동 저장됩니다.<br/>
+          다른 기기에서 같은 데이터를 보려면 아래 동기화 ID를 복사해서 다른 기기에 입력하세요.
+        </div>
+
+        <div style={{ fontSize: 12, color: "#787570", marginBottom: 6 }}>나의 동기화 ID</div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+          <input readOnly value={getCurrentUserId()} style={{ flex: 1, padding: "10px 12px", background: "#222", border: "1px solid rgba(90,158,111,0.3)", borderRadius: 6, color: "#5a9e6f", fontSize: 14, fontFamily: "monospace", boxSizing: "border-box" }} />
+          <button onClick={() => { navigator.clipboard.writeText(getCurrentUserId()); alert("복사됨!"); }}
+            style={{ padding: "10px 16px", background: "#5a9e6f", border: "none", borderRadius: 6, color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>복사</button>
+        </div>
+
+        <div style={{ borderTop: "1px solid rgba(255,255,255,0.07)", paddingTop: 16 }}>
+          <div style={{ fontSize: 12, color: "#787570", marginBottom: 6 }}>다른 기기의 ID 입력 (데이터 가져오기)</div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            <input value={syncId} onChange={e => setSyncId(e.target.value)} placeholder="예: user_a1b2c3d4"
+              style={{ flex: 1, padding: "10px 12px", background: "#222", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, color: "#e8e4dc", fontSize: 14, fontFamily: "monospace", boxSizing: "border-box" }} />
+            <button onClick={applySyncId} disabled={!syncId.trim()}
+              style={{ padding: "10px 16px", background: syncId.trim() ? "#4a8fc9" : "#333", border: "none", borderRadius: 6, color: syncId.trim() ? "#fff" : "#666", fontSize: 13, fontWeight: 500, cursor: syncId.trim() ? "pointer" : "not-allowed" }}>적용</button>
+          </div>
+          <div style={{ fontSize: 11, color: "#e05252", lineHeight: 1.6 }}>
+            ⚠ ID를 적용하면 페이지가 새로고침되며, 해당 ID의 데이터로 전환됩니다.
+          </div>
+        </div>
       </Modal>
     </div>
   );

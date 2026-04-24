@@ -1,74 +1,101 @@
-// localStorage 기반 저장소 (오프라인에서도 작동)
-const DB_PREFIX = 'dt_';
+// Firebase Firestore 기반 저장소 (기기 간 동기화)
+import { db } from "./firebase.js";
+import { doc, getDoc, setDoc, deleteDoc, collection, getDocs } from "firebase/firestore";
+
+// 고유 사용자 ID (기기 공통으로 같은 데이터 접근)
+function getUserId() {
+  let uid = localStorage.getItem("dt_userId");
+  if (!uid) {
+    uid = "user_" + Math.random().toString(36).slice(2, 10);
+    localStorage.setItem("dt_userId", uid);
+  }
+  return uid;
+}
+
+// 다른 기기에서 같은 데이터를 보려면 같은 userId 설정
+export function setUserId(id) {
+  localStorage.setItem("dt_userId", id);
+}
+
+export function getCurrentUserId() {
+  return getUserId();
+}
 
 const store = {
-  get(key) {
+  async get(key) {
     try {
-      const raw = localStorage.getItem(DB_PREFIX + key);
-      return raw ? JSON.parse(raw) : null;
-    } catch { return null; }
+      const uid = getUserId();
+      const docRef = doc(db, "users", uid, "data", key);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        return snap.data().value;
+      }
+      // Fallback: localStorage 마이그레이션
+      const local = localStorage.getItem("dt_" + key);
+      if (local) {
+        const parsed = JSON.parse(local);
+        await setDoc(docRef, { value: parsed, updatedAt: new Date().toISOString() });
+        return parsed;
+      }
+      return null;
+    } catch (e) {
+      console.error("Firebase get error:", e);
+      const local = localStorage.getItem("dt_" + key);
+      return local ? JSON.parse(local) : null;
+    }
   },
 
-  set(key, value) {
+  async set(key, value) {
     try {
-      localStorage.setItem(DB_PREFIX + key, JSON.stringify(value));
+      const uid = getUserId();
+      const docRef = doc(db, "users", uid, "data", key);
+      await setDoc(docRef, { value, updatedAt: new Date().toISOString() });
+      localStorage.setItem("dt_" + key, JSON.stringify(value));
       return true;
     } catch (e) {
-      console.error('Storage error:', e);
+      console.error("Firebase set error:", e);
+      localStorage.setItem("dt_" + key, JSON.stringify(value));
       return false;
     }
   },
 
-  delete(key) {
+  async delete(key) {
     try {
-      localStorage.removeItem(DB_PREFIX + key);
+      const uid = getUserId();
+      await deleteDoc(doc(db, "users", uid, "data", key));
+      localStorage.removeItem("dt_" + key);
       return true;
     } catch { return false; }
   },
 
-  list(prefix) {
-    const keys = [];
-    const fullPrefix = DB_PREFIX + prefix;
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k.startsWith(fullPrefix)) {
-        keys.push(k.replace(DB_PREFIX, ''));
-      }
-    }
-    return keys;
-  },
-
-  // 전체 데이터 백업 (JSON)
-  exportAll() {
-    const data = {};
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k.startsWith(DB_PREFIX)) {
-        data[k] = localStorage.getItem(k);
-      }
-    }
-    return JSON.stringify(data);
-  },
-
-  // 백업에서 복원
-  importAll(jsonStr) {
+  async list(prefix) {
     try {
-      const data = JSON.parse(jsonStr);
-      Object.entries(data).forEach(([k, v]) => {
-        localStorage.setItem(k, v);
+      const uid = getUserId();
+      const colRef = collection(db, "users", uid, "data");
+      const snap = await getDocs(colRef);
+      const keys = [];
+      snap.forEach(d => {
+        if (d.id.startsWith(prefix)) keys.push(d.id);
       });
-      return true;
-    } catch { return false; }
-  },
-
-  // 전체 삭제
-  clearAll() {
-    const keys = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k.startsWith(DB_PREFIX)) keys.push(k);
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith("dt_" + prefix)) {
+          const cleanKey = k.replace("dt_", "");
+          if (!keys.includes(cleanKey)) keys.push(cleanKey);
+        }
+      }
+      return keys;
+    } catch (e) {
+      console.error("Firebase list error:", e);
+      const keys = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith("dt_" + prefix)) {
+          keys.push(k.replace("dt_", ""));
+        }
+      }
+      return keys;
     }
-    keys.forEach(k => localStorage.removeItem(k));
   }
 };
 
