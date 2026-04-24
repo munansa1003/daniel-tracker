@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<rect width="512" height="512" rx="80" fill="#0f0f0f"/>
+<text x="256" y="200" font-family="Arial" font-size="120" font-weight="bold" fill="#4a8fc9" text-anchor="middle">DT</text>
+<text x="256" y="340" font-family="Arial" font-size="48" fill="#787570" text-anchor="middle">TRACKER</text>
+<rect x="130" y="370" width="252" height="8" rx="4" fill="#2a2a2a"/>
+<rect x="130" y="370" width="160" height="8" rx="4" fill="#5a9e6f"/>
+</svg>
