@@ -1,10 +1,26 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar, ComposedChart, Legend } from "recharts";
 import store, { getCurrentUserId, setUserId } from "./store.js";
-import { DEFAULT_FOODS, DEFAULT_EX, TARGETS, COLORS } from "./data.js";
+import { DEFAULT_FOODS, DEFAULT_EX, TARGETS as DEFAULT_TARGETS, COLORS } from "./data.js";
 
 const today = () => new Date().toISOString().slice(0, 10);
 const nowHour = () => new Date().getHours();
+
+// 체중 기반 목표 단탄지 계산 (Mifflin-St Jeor, 활동계수 1.55, 20% 적자)
+function calcTargets(weight) {
+  const bmr = 10 * weight + 6.25 * 175 - 5 * 35 + 5;
+  const tdee = bmr * 1.55;
+  const k = Math.round(tdee * 0.80);
+  const p = Math.round(weight * 2.2);
+  const f = Math.round(weight * 0.8);
+  const c = Math.round((k - p * 4 - f * 9) / 4);
+  return { p, c, f, k, weight: Math.round(weight * 10) / 10 };
+}
+
+// 배열을 시간순으로 정렬
+function sortByHour(arr) {
+  return [...arr].sort((a, b) => (a.hour || 0) - (b.hour || 0));
+}
 
 /* ───── 공통 컴포넌트 ───── */
 function ProgressBar({ value, max, color, label, unit = "g" }) {
@@ -193,11 +209,11 @@ function EditMealForm({ meal, onSave, onCancel, onDelete }) {
 }
 
 /* ───── 운동 수정 폼 ───── */
-function EditExForm({ exercise, onSave, onCancel, onDelete }) {
+function EditExForm({ exercise, onSave, onCancel, onDelete, weight }) {
   const [duration, setDuration] = useState(String(exercise.duration));
   const [hour, setHour] = useState(exercise.hour || 0);
   const is = { width: "100%", padding: "10px 12px", background: "#222", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, color: "#e8e4dc", fontSize: 14, boxSizing: "border-box", marginBottom: 8 };
-  const estKcal = Math.round((exercise.m * TARGETS.weight * (parseInt(duration) || 30)) / 60);
+  const estKcal = Math.round((exercise.m * (weight || 77.5) * (parseInt(duration) || 30)) / 60);
   return (
     <div>
       <div style={{ background: "#222", borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 13 }}>
@@ -498,13 +514,13 @@ export default function App() {
     const serving = parseFloat(q) || 1;
     const hour = parseInt(mealHour) || nowHour();
     const entry = { ...food, serving, ts: Date.now(), hour };
-    const nm = [...meals, entry];
+    const nm = sortByHour([...meals, entry]);
     setMeals(nm); saveDay(date, nm, exercises);
     setSearch(""); setQty({});
   };
   const removeMeal = (idx) => { const nm = meals.filter((_, i) => i !== idx); setMeals(nm); saveDay(date, nm, exercises); };
   const editMeal = (idx, updated) => {
-    const nm = meals.map((m, i) => i === idx ? { ...m, ...updated } : m);
+    const nm = sortByHour(meals.map((m, i) => i === idx ? { ...m, ...updated } : m));
     setMeals(nm); saveDay(date, nm, exercises); setEditMealIdx(null);
   };
 
@@ -513,13 +529,13 @@ export default function App() {
     const kcal = Math.round((ex.m * TARGETS.weight * duration) / 60);
     const hour = parseInt(exHour) || nowHour();
     const entry = { ...ex, duration, kcal, ts: Date.now(), hour };
-    const ne = [...exercises, entry];
+    const ne = sortByHour([...exercises, entry]);
     setExercises(ne); saveDay(date, meals, ne);
     setExSearch(""); setExMin({});
   };
   const removeExercise = (idx) => { const ne = exercises.filter((_, i) => i !== idx); setExercises(ne); saveDay(date, meals, ne); };
   const editExercise = (idx, updated) => {
-    const ne = exercises.map((e, i) => i === idx ? { ...e, ...updated, kcal: Math.round((e.m * TARGETS.weight * (updated.duration || e.duration)) / 60) } : e);
+    const ne = sortByHour(exercises.map((e, i) => i === idx ? { ...e, ...updated, kcal: Math.round((e.m * TARGETS.weight * (updated.duration || e.duration)) / 60) } : e));
     setExercises(ne); saveDay(date, meals, ne); setEditExIdx(null);
   };
 
@@ -564,6 +580,22 @@ export default function App() {
     }
   };
 
+  // 월 평균 체중 기반 동적 목표 계산
+  const TARGETS = useMemo(() => {
+    const currentMonth = date.slice(0, 7); // "2026-04"
+    const monthEntries = bodyLog.filter(b => b.date.startsWith(currentMonth));
+    let avgWeight;
+    if (monthEntries.length > 0) {
+      avgWeight = monthEntries.reduce((s, b) => s + b.weight, 0) / monthEntries.length;
+    } else if (bodyLog.length > 0) {
+      // 해당 월 기록 없으면 가장 최근 기록 사용
+      avgWeight = bodyLog[bodyLog.length - 1].weight;
+    } else {
+      avgWeight = DEFAULT_TARGETS.weight; // 기본값 77.5
+    }
+    return calcTargets(avgWeight);
+  }, [bodyLog, date]);
+
   const totals = useMemo(() => {
     let p = 0, c = 0, f = 0, k = 0;
     meals.forEach(m => { const s = m.serving; p += m.p * s; c += m.c * s; f += m.f * s; k += m.k * s; });
@@ -596,7 +628,7 @@ export default function App() {
       <div style={{ padding: "16px 20px 12px", borderBottom: "1px solid rgba(255,255,255,0.07)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <div style={{ fontSize: 18, fontWeight: 600 }}>Daniel Tracker</div>
-          <div style={{ fontSize: 11, color: "#787570", fontFamily: "monospace" }}>목표 체지방 15% · 체중 72~75kg</div>
+          <div style={{ fontSize: 11, color: "#787570", fontFamily: "monospace" }}>목표 체지방 15% · 기준 {TARGETS.weight}kg ({date.slice(0, 7)}월 평균)</div>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <button onClick={() => setShowSync(true)} style={{ background: "#222", border: "1px solid rgba(90,158,111,0.3)", borderRadius: 6, color: "#5a9e6f", padding: "6px 10px", fontSize: 11, cursor: "pointer" }}>동기화</button>
@@ -789,7 +821,7 @@ export default function App() {
 
       {/* Edit Exercise Modal */}
       <Modal open={editExIdx !== null} onClose={() => setEditExIdx(null)} title="운동 수정">
-        {editExIdx !== null && exercises[editExIdx] && <EditExForm exercise={exercises[editExIdx]} onSave={(updated) => editExercise(editExIdx, updated)} onCancel={() => setEditExIdx(null)} onDelete={() => { removeExercise(editExIdx); setEditExIdx(null); }} />}
+        {editExIdx !== null && exercises[editExIdx] && <EditExForm exercise={exercises[editExIdx]} onSave={(updated) => editExercise(editExIdx, updated)} onCancel={() => setEditExIdx(null)} onDelete={() => { removeExercise(editExIdx); setEditExIdx(null); }} weight={TARGETS.weight} />}
       </Modal>
 
       {/* Sync Modal */}
