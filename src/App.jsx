@@ -139,6 +139,75 @@ function AddExForm({ initialName, onSave, onCancel }) {
   );
 }
 
+/* ───── 식단 수정 폼 ───── */
+function EditMealForm({ meal, onSave, onCancel, onDelete }) {
+  const [serving, setServing] = useState(String(meal.serving));
+  const [hour, setHour] = useState(meal.hour || 0);
+  const is = { width: "100%", padding: "10px 12px", background: "#222", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, color: "#e8e4dc", fontSize: 14, boxSizing: "border-box", marginBottom: 8 };
+  return (
+    <div>
+      <div style={{ background: "#222", borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 13 }}>
+        <div style={{ fontWeight: 500, marginBottom: 4 }}>{meal.n}</div>
+        <div style={{ color: "#787570", fontFamily: "monospace", fontSize: 12 }}>P{meal.p} · C{meal.c} · F{meal.f} · {meal.k}kcal (1회분)</div>
+      </div>
+      <div style={{ fontSize: 12, color: "#787570", marginBottom: 4 }}>수량 (서빙)</div>
+      <input type="number" step="0.1" min="0.1" value={serving} onChange={e => setServing(e.target.value)} style={is} />
+      <div style={{ fontSize: 12, color: "#787570", marginBottom: 4 }}>식사 시간</div>
+      <select value={hour} onChange={e => setHour(parseInt(e.target.value))}
+        style={{ ...is, fontFamily: "monospace" }}>
+        {Array.from({ length: 24 }, (_, h) => (
+          <option key={h} value={h}>{String(h).padStart(2, "0")}:00 {h < 6 ? "새벽" : h < 12 ? "오전" : h < 18 ? "오후" : "저녁"}</option>
+        ))}
+      </select>
+      {parseFloat(serving) > 0 && (
+        <div style={{ background: "#222", borderRadius: 6, padding: 10, marginBottom: 12, fontSize: 12, fontFamily: "monospace", color: "#aaa" }}>
+          합계: P{Math.round(meal.p * parseFloat(serving))} C{Math.round(meal.c * parseFloat(serving))} F{Math.round(meal.f * parseFloat(serving))} · {Math.round(meal.k * parseFloat(serving))}kcal
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={onDelete} style={{ padding: 12, background: "rgba(224,82,82,0.15)", border: "1px solid rgba(224,82,82,0.3)", borderRadius: 8, color: "#e05252", fontSize: 14, cursor: "pointer" }}>삭제</button>
+        <button onClick={onCancel} style={{ flex: 1, padding: 12, background: "#333", border: "none", borderRadius: 8, color: "#aaa", fontSize: 14, cursor: "pointer" }}>취소</button>
+        <button onClick={() => onSave({ serving: parseFloat(serving) || 1, hour })}
+          style={{ flex: 1, padding: 12, background: "#4a8fc9", border: "none", borderRadius: 8, color: "#fff", fontSize: 14, fontWeight: 500, cursor: "pointer" }}>저장</button>
+      </div>
+    </div>
+  );
+}
+
+/* ───── 운동 수정 폼 ───── */
+function EditExForm({ exercise, onSave, onCancel, onDelete }) {
+  const [duration, setDuration] = useState(String(exercise.duration));
+  const [hour, setHour] = useState(exercise.hour || 0);
+  const is = { width: "100%", padding: "10px 12px", background: "#222", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, color: "#e8e4dc", fontSize: 14, boxSizing: "border-box", marginBottom: 8 };
+  const estKcal = Math.round((exercise.m * TARGETS.weight * (parseInt(duration) || 30)) / 60);
+  return (
+    <div>
+      <div style={{ background: "#222", borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 13 }}>
+        <div style={{ fontWeight: 500, marginBottom: 4 }}>{exercise.n}</div>
+        <div style={{ color: "#787570", fontSize: 12 }}>MET {exercise.m}</div>
+      </div>
+      <div style={{ fontSize: 12, color: "#787570", marginBottom: 4 }}>운동 시간 (분)</div>
+      <input type="number" min="1" value={duration} onChange={e => setDuration(e.target.value)} style={is} />
+      <div style={{ fontSize: 12, color: "#787570", marginBottom: 4 }}>시간대</div>
+      <select value={hour} onChange={e => setHour(parseInt(e.target.value))}
+        style={{ ...is, fontFamily: "monospace" }}>
+        {Array.from({ length: 24 }, (_, h) => (
+          <option key={h} value={h}>{String(h).padStart(2, "0")}:00 {h < 6 ? "새벽" : h < 12 ? "오전" : h < 18 ? "오후" : "저녁"}</option>
+        ))}
+      </select>
+      <div style={{ background: "#222", borderRadius: 6, padding: 10, marginBottom: 12, fontSize: 12, fontFamily: "monospace", color: "#aaa" }}>
+        예상 소모: -{estKcal} kcal
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={onDelete} style={{ padding: 12, background: "rgba(224,82,82,0.15)", border: "1px solid rgba(224,82,82,0.3)", borderRadius: 8, color: "#e05252", fontSize: 14, cursor: "pointer" }}>삭제</button>
+        <button onClick={onCancel} style={{ flex: 1, padding: 12, background: "#333", border: "none", borderRadius: 8, color: "#aaa", fontSize: 14, cursor: "pointer" }}>취소</button>
+        <button onClick={() => onSave({ duration: parseInt(duration) || 30, hour })}
+          style={{ flex: 1, padding: 12, background: "#5a9e6f", border: "none", borderRadius: 8, color: "#fff", fontSize: 14, fontWeight: 500, cursor: "pointer" }}>저장</button>
+      </div>
+    </div>
+  );
+}
+
 /* ───── 체성분 탭 ───── */
 function BodyTab({ bodyLog, addBody, date }) {
   const [w, setW] = useState("");
@@ -309,6 +378,8 @@ export default function App() {
   const [showAddEx, setShowAddEx] = useState(false);
   const [showSync, setShowSync] = useState(false);
   const [syncId, setSyncId] = useState("");
+  const [editMealIdx, setEditMealIdx] = useState(null);
+  const [editExIdx, setEditExIdx] = useState(null);
   const [showManage, setShowManage] = useState(false);
   const [manageTab, setManageTab] = useState("food");
 
@@ -365,6 +436,10 @@ export default function App() {
     setSearch(""); setQty({});
   };
   const removeMeal = (idx) => { const nm = meals.filter((_, i) => i !== idx); setMeals(nm); saveDay(date, nm, exercises); };
+  const editMeal = (idx, updated) => {
+    const nm = meals.map((m, i) => i === idx ? { ...m, ...updated } : m);
+    setMeals(nm); saveDay(date, nm, exercises); setEditMealIdx(null);
+  };
 
   const addExercise = (ex, min) => {
     const duration = parseInt(min) || 30;
@@ -376,6 +451,10 @@ export default function App() {
     setExSearch(""); setExMin({});
   };
   const removeExercise = (idx) => { const ne = exercises.filter((_, i) => i !== idx); setExercises(ne); saveDay(date, meals, ne); };
+  const editExercise = (idx, updated) => {
+    const ne = exercises.map((e, i) => i === idx ? { ...e, ...updated, kcal: Math.round((e.m * TARGETS.weight * (updated.duration || e.duration)) / 60) } : e);
+    setExercises(ne); saveDay(date, meals, ne); setEditExIdx(null);
+  };
 
   const addBody = async (w, muscle, fatPct) => {
     const entry = { date, weight: parseFloat(w), muscle: parseFloat(muscle) || 0, fatPct: parseFloat(fatPct) || 0 };
@@ -526,8 +605,11 @@ export default function App() {
           <div style={{ fontSize: 13, color: "#787570", marginBottom: 8 }}>오늘 기록 ({meals.length}건)</div>
           {meals.map((m, i) => (
             <div key={i} style={{ ...cs, padding: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div><span style={{ color: "#4a8fc9", fontSize: 11, marginRight: 6, fontFamily: "monospace" }}>{String(m.hour || 0).padStart(2, "0")}시</span><span style={{ fontSize: 13 }}>{m.n}</span><span style={{ color: "#787570", fontSize: 12, marginLeft: 4 }}>×{m.serving}</span><div style={{ fontSize: 11, color: "#555", fontFamily: "monospace" }}>P{Math.round(m.p * m.serving)} C{Math.round(m.c * m.serving)} F{Math.round(m.f * m.serving)} · {Math.round(m.k * m.serving)}kcal</div></div>
-              <button onClick={() => removeMeal(i)} style={{ padding: "4px 10px", background: "rgba(224,82,82,0.15)", border: "1px solid rgba(224,82,82,0.3)", borderRadius: 6, color: "#e05252", fontSize: 12, cursor: "pointer" }}>삭제</button>
+              <div style={{ flex: 1, cursor: "pointer" }} onClick={() => setEditMealIdx(i)}><span style={{ color: "#4a8fc9", fontSize: 11, marginRight: 6, fontFamily: "monospace" }}>{String(m.hour || 0).padStart(2, "0")}시</span><span style={{ fontSize: 13 }}>{m.n}</span><span style={{ color: "#787570", fontSize: 12, marginLeft: 4 }}>×{m.serving}</span><div style={{ fontSize: 11, color: "#555", fontFamily: "monospace" }}>P{Math.round(m.p * m.serving)} C{Math.round(m.c * m.serving)} F{Math.round(m.f * m.serving)} · {Math.round(m.k * m.serving)}kcal</div></div>
+              <div style={{ display: "flex", gap: 4 }}>
+                <button onClick={() => setEditMealIdx(i)} style={{ padding: "4px 10px", background: "rgba(74,143,201,0.15)", border: "1px solid rgba(74,143,201,0.3)", borderRadius: 6, color: "#4a8fc9", fontSize: 12, cursor: "pointer" }}>수정</button>
+                <button onClick={() => removeMeal(i)} style={{ padding: "4px 10px", background: "rgba(224,82,82,0.15)", border: "1px solid rgba(224,82,82,0.3)", borderRadius: 6, color: "#e05252", fontSize: 12, cursor: "pointer" }}>삭제</button>
+              </div>
             </div>
           ))}
         </>)}
@@ -566,8 +648,11 @@ export default function App() {
           <div style={{ fontSize: 13, color: "#787570", marginBottom: 8 }}>오늘 운동 (소모: {exTotal}kcal)</div>
           {exercises.map((e, i) => (
             <div key={i} style={{ ...cs, padding: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div><span style={{ color: "#4a8fc9", fontSize: 11, marginRight: 6, fontFamily: "monospace" }}>{String(e.hour || 0).padStart(2, "0")}시</span><span style={{ fontSize: 13 }}>{e.n}</span><span style={{ color: "#787570", fontSize: 12, marginLeft: 4 }}>{e.duration}분</span><div style={{ fontSize: 11, color: "#4a8fc9", fontFamily: "monospace" }}>-{e.kcal} kcal</div></div>
-              <button onClick={() => removeExercise(i)} style={{ padding: "4px 10px", background: "rgba(224,82,82,0.15)", border: "1px solid rgba(224,82,82,0.3)", borderRadius: 6, color: "#e05252", fontSize: 12, cursor: "pointer" }}>삭제</button>
+              <div style={{ flex: 1, cursor: "pointer" }} onClick={() => setEditExIdx(i)}><span style={{ color: "#4a8fc9", fontSize: 11, marginRight: 6, fontFamily: "monospace" }}>{String(e.hour || 0).padStart(2, "0")}시</span><span style={{ fontSize: 13 }}>{e.n}</span><span style={{ color: "#787570", fontSize: 12, marginLeft: 4 }}>{e.duration}분</span><div style={{ fontSize: 11, color: "#4a8fc9", fontFamily: "monospace" }}>-{e.kcal} kcal</div></div>
+              <div style={{ display: "flex", gap: 4 }}>
+                <button onClick={() => setEditExIdx(i)} style={{ padding: "4px 10px", background: "rgba(74,143,201,0.15)", border: "1px solid rgba(74,143,201,0.3)", borderRadius: 6, color: "#4a8fc9", fontSize: 12, cursor: "pointer" }}>수정</button>
+                <button onClick={() => removeExercise(i)} style={{ padding: "4px 10px", background: "rgba(224,82,82,0.15)", border: "1px solid rgba(224,82,82,0.3)", borderRadius: 6, color: "#e05252", fontSize: 12, cursor: "pointer" }}>삭제</button>
+              </div>
             </div>
           ))}
         </>)}
@@ -617,6 +702,16 @@ export default function App() {
           ))}
           <div style={{ fontSize: 12, color: "#555", marginTop: 12 }}>기본 DB ({DEFAULT_EX.length}개)는 삭제 불가</div>
         </>)}
+      </Modal>
+
+      {/* Edit Meal Modal */}
+      <Modal open={editMealIdx !== null} onClose={() => setEditMealIdx(null)} title="식단 수정">
+        {editMealIdx !== null && meals[editMealIdx] && <EditMealForm meal={meals[editMealIdx]} onSave={(updated) => editMeal(editMealIdx, updated)} onCancel={() => setEditMealIdx(null)} onDelete={() => { removeMeal(editMealIdx); setEditMealIdx(null); }} />}
+      </Modal>
+
+      {/* Edit Exercise Modal */}
+      <Modal open={editExIdx !== null} onClose={() => setEditExIdx(null)} title="운동 수정">
+        {editExIdx !== null && exercises[editExIdx] && <EditExForm exercise={exercises[editExIdx]} onSave={(updated) => editExercise(editExIdx, updated)} onCancel={() => setEditExIdx(null)} onDelete={() => { removeExercise(editExIdx); setEditExIdx(null); }} />}
       </Modal>
 
       {/* Sync Modal */}
