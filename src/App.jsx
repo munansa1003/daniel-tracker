@@ -338,6 +338,8 @@ function getYearKey(ds) { return ds.slice(0, 4); }
 /* ───── 통계 탭 ───── */
 function StatsTab({ bodyLog, allDays }) {
   const [period, setPeriod] = useState("week");
+  const [rangeStart, setRangeStart] = useState("");
+  const [rangeEnd, setRangeEnd] = useState("");
 
   const periodData = useMemo(() => {
     const entries = Object.entries(allDays);
@@ -364,6 +366,57 @@ function StatsTab({ bodyLog, allDays }) {
     }));
     return h.map(x => ({ ...x, kcal: Math.round(x.kcal), p: Math.round(x.p), c: Math.round(x.c), f: Math.round(x.f) }));
   }, [allDays]);
+
+  // 기간 지정 분석 데이터
+  const rangeAnalysis = useMemo(() => {
+    if (!rangeStart || !rangeEnd || rangeStart > rangeEnd) return null;
+    
+    // 식단/운동 데이터
+    const entries = Object.entries(allDays).filter(([d]) => d >= rangeStart && d <= rangeEnd);
+    if (!entries.length) return null;
+    
+    let totalP = 0, totalC = 0, totalF = 0, totalK = 0, totalEx = 0;
+    entries.forEach(([, data]) => {
+      const a = aggregateDay(data);
+      totalP += a.p; totalC += a.c; totalF += a.f; totalK += a.k; totalEx += a.ex;
+    });
+    const days = entries.length;
+    
+    // 일별 데이터 (차트용)
+    const dailyData = entries.sort(([a], [b]) => a.localeCompare(b)).map(([d, data]) => {
+      const a = aggregateDay(data);
+      return { d: d.slice(5), p: Math.round(a.p), c: Math.round(a.c), f: Math.round(a.f), k: Math.round(a.k), ex: Math.round(a.ex), net: Math.round(a.net) };
+    });
+    
+    // 체성분 변화
+    const startBody = bodyLog.filter(b => b.date >= rangeStart).sort((a, b) => a.date.localeCompare(b.date))[0];
+    const endBody = [...bodyLog.filter(b => b.date <= rangeEnd)].sort((a, b) => b.date.localeCompare(a.date))[0];
+    
+    let bodyChange = null;
+    if (startBody && endBody && startBody.date !== endBody.date) {
+      bodyChange = {
+        startDate: startBody.date,
+        endDate: endBody.date,
+        startWeight: startBody.weight, endWeight: endBody.weight,
+        startFat: startBody.fatPct, endFat: endBody.fatPct,
+        startMuscle: startBody.muscle, endMuscle: endBody.muscle,
+        dWeight: endBody.weight - startBody.weight,
+        dFat: endBody.fatPct - startBody.fatPct,
+        dMuscle: endBody.muscle - startBody.muscle,
+      };
+    }
+    
+    // 체성분 추이 (차트용)
+    const bodyTrend = bodyLog.filter(b => b.date >= rangeStart && b.date <= rangeEnd)
+      .map(b => ({ d: b.date.slice(5), weight: b.weight, fat: b.fatPct, muscle: b.muscle }));
+    
+    return {
+      days, pAvg: Math.round(totalP / days), cAvg: Math.round(totalC / days),
+      fAvg: Math.round(totalF / days), kAvg: Math.round(totalK / days),
+      exAvg: Math.round(totalEx / days), netAvg: Math.round((totalK - totalEx) / days),
+      dailyData, bodyChange, bodyTrend
+    };
+  }, [allDays, bodyLog, rangeStart, rangeEnd]);
 
   const exportCSV = useCallback(() => {
     const rows = [];
@@ -401,7 +454,8 @@ function StatsTab({ bodyLog, allDays }) {
         <button onClick={() => setPeriod("week")} style={{ ...pBtn("week"), borderRadius: "8px 0 0 8px" }}>주간</button>
         <button onClick={() => setPeriod("month")} style={pBtn("month")}>월간</button>
         <button onClick={() => setPeriod("year")} style={pBtn("year")}>연간</button>
-        <button onClick={() => setPeriod("hourly")} style={{ ...pBtn("hourly"), borderRadius: "0 8px 8px 0" }}>시간대</button>
+        <button onClick={() => setPeriod("hourly")} style={pBtn("hourly")}>시간대</button>
+        <button onClick={() => setPeriod("range")} style={{ ...pBtn("range"), borderRadius: "0 8px 8px 0" }}>기간</button>
       </div>
 
       {period === "hourly" && (<>
@@ -415,7 +469,100 @@ function StatsTab({ bodyLog, allDays }) {
         </div>
       </>)}
 
-      {period !== "hourly" && periodData.length > 0 && (<>
+      {/* 기간 지정 분석 */}
+      {period === "range" && (<>
+        <div style={{ background: "#191919", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 10, padding: 16, marginBottom: 12 }}>
+          <div style={{ fontSize: 13, color: "#787570", marginBottom: 10 }}>기간 선택</div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input type="date" value={rangeStart} onChange={e => setRangeStart(e.target.value)}
+              style={{ flex: 1, padding: "8px 10px", background: "#222", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, color: "#e8e4dc", fontSize: 13, fontFamily: "monospace" }} />
+            <span style={{ color: "#787570", fontSize: 13 }}>~</span>
+            <input type="date" value={rangeEnd} onChange={e => setRangeEnd(e.target.value)}
+              style={{ flex: 1, padding: "8px 10px", background: "#222", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, color: "#e8e4dc", fontSize: 13, fontFamily: "monospace" }} />
+          </div>
+        </div>
+
+        {rangeAnalysis && (<>
+          {/* 체성분 변화 비교 */}
+          {rangeAnalysis.bodyChange && (
+            <div style={{ background: "#191919", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 10, padding: 16, marginBottom: 12 }}>
+              <div style={{ fontSize: 13, color: "#787570", marginBottom: 12 }}>체성분 변화 ({rangeAnalysis.bodyChange.startDate} → {rangeAnalysis.bodyChange.endDate})</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                {[
+                  { l: "체중", s: rangeAnalysis.bodyChange.startWeight, e: rangeAnalysis.bodyChange.endWeight, d: rangeAnalysis.bodyChange.dWeight, u: "kg", good: rangeAnalysis.bodyChange.dWeight <= 0 },
+                  { l: "체지방률", s: rangeAnalysis.bodyChange.startFat, e: rangeAnalysis.bodyChange.endFat, d: rangeAnalysis.bodyChange.dFat, u: "%", good: rangeAnalysis.bodyChange.dFat <= 0 },
+                  { l: "골격근량", s: rangeAnalysis.bodyChange.startMuscle, e: rangeAnalysis.bodyChange.endMuscle, d: rangeAnalysis.bodyChange.dMuscle, u: "kg", good: rangeAnalysis.bodyChange.dMuscle >= 0 }
+                ].map((x, i) => (
+                  <div key={i} style={{ background: "#222", borderRadius: 8, padding: 12, textAlign: "center" }}>
+                    <div style={{ fontSize: 11, color: "#787570" }}>{x.l}</div>
+                    <div style={{ fontSize: 11, color: "#555", fontFamily: "monospace", margin: "4px 0" }}>{x.s} → {x.e}{x.u}</div>
+                    <div style={{ fontSize: 18, fontWeight: 500, fontFamily: "monospace", color: x.good ? "#5a9e6f" : "#e05252" }}>
+                      {x.d >= 0 ? "+" : ""}{x.d.toFixed(1)}{x.u}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "flex", justifyContent: "center", gap: 16, marginTop: 10 }}>
+                <span style={{ fontSize: 12, color: "#787570" }}>기록 일수: <span style={{ color: "#e8e4dc", fontFamily: "monospace" }}>{rangeAnalysis.days}일</span></span>
+                <span style={{ fontSize: 12, color: "#787570" }}>기간: <span style={{ color: "#e8e4dc", fontFamily: "monospace" }}>{Math.round((new Date(rangeEnd) - new Date(rangeStart)) / 86400000)}일</span></span>
+              </div>
+            </div>
+          )}
+
+          {/* 기간 평균 영양소 */}
+          <div style={{ background: "#191919", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 10, padding: 16, marginBottom: 12 }}>
+            <div style={{ fontSize: 13, color: "#787570", marginBottom: 10 }}>기간 일평균</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6 }}>
+              {[
+                { l: "단백질", v: rangeAnalysis.pAvg, u: "g", c: COLORS.p },
+                { l: "탄수", v: rangeAnalysis.cAvg, u: "g", c: COLORS.c },
+                { l: "지방", v: rangeAnalysis.fAvg, u: "g", c: COLORS.f },
+                { l: "섭취", v: rangeAnalysis.kAvg, u: "", c: "#5a9e6f" },
+                { l: "Net", v: rangeAnalysis.netAvg, u: "", c: "#e05252" }
+              ].map((x, i) => (
+                <div key={i} style={{ background: "#222", borderRadius: 8, padding: 10, textAlign: "center" }}>
+                  <div style={{ fontSize: 10, color: "#787570" }}>{x.l}</div>
+                  <div style={{ fontSize: 16, fontWeight: 500, fontFamily: "monospace", color: x.c, marginTop: 4 }}>{x.v}</div>
+                  <div style={{ fontSize: 10, color: "#555" }}>{x.u || "kcal"}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 일별 칼로리 추이 */}
+          {rangeAnalysis.dailyData.length > 1 && (
+            <div style={{ background: "#191919", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 10, padding: 16, marginBottom: 12 }}>
+              <div style={{ fontSize: 13, color: "#787570", marginBottom: 12 }}>일별 칼로리 추이</div>
+              <div style={{ height: 200 }}><ResponsiveContainer><ComposedChart data={rangeAnalysis.dailyData}><XAxis dataKey="d" tick={{ fill: "#787570", fontSize: 9 }} interval={Math.max(0, Math.floor(rangeAnalysis.dailyData.length / 8))} /><YAxis tick={{ fill: "#787570", fontSize: 10 }} /><Tooltip contentStyle={{ background: "#222", border: "1px solid #333", fontSize: 12 }} /><Legend wrapperStyle={{ fontSize: 11 }} /><Bar dataKey="k" fill="#5a9e6f" name="섭취" radius={[2, 2, 0, 0]} /><Line type="monotone" dataKey="net" stroke="#e05252" strokeWidth={2} name="Net" dot={false} /></ComposedChart></ResponsiveContainer></div>
+            </div>
+          )}
+
+          {/* 일별 영양소 추이 */}
+          {rangeAnalysis.dailyData.length > 1 && (
+            <div style={{ background: "#191919", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 10, padding: 16, marginBottom: 12 }}>
+              <div style={{ fontSize: 13, color: "#787570", marginBottom: 12 }}>일별 영양소 추이</div>
+              <div style={{ height: 200 }}><ResponsiveContainer><BarChart data={rangeAnalysis.dailyData}><XAxis dataKey="d" tick={{ fill: "#787570", fontSize: 9 }} interval={Math.max(0, Math.floor(rangeAnalysis.dailyData.length / 8))} /><YAxis tick={{ fill: "#787570", fontSize: 10 }} /><Tooltip contentStyle={{ background: "#222", border: "1px solid #333", fontSize: 12 }} /><Legend wrapperStyle={{ fontSize: 11 }} /><Bar dataKey="p" fill={COLORS.p} name="단백질" radius={[2, 2, 0, 0]} /><Bar dataKey="c" fill={COLORS.c} name="탄수" radius={[2, 2, 0, 0]} /><Bar dataKey="f" fill={COLORS.f} name="지방" radius={[2, 2, 0, 0]} /></BarChart></ResponsiveContainer></div>
+            </div>
+          )}
+
+          {/* 체성분 추이 그래프 */}
+          {rangeAnalysis.bodyTrend.length >= 2 && (
+            <div style={{ background: "#191919", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 10, padding: 16, marginBottom: 12 }}>
+              <div style={{ fontSize: 13, color: "#787570", marginBottom: 12 }}>체성분 추이</div>
+              <div style={{ height: 200 }}><ResponsiveContainer><LineChart data={rangeAnalysis.bodyTrend}><XAxis dataKey="d" tick={{ fill: "#787570", fontSize: 10 }} /><YAxis yAxisId="l" tick={{ fill: "#787570", fontSize: 10 }} /><YAxis yAxisId="r" orientation="right" tick={{ fill: "#787570", fontSize: 10 }} /><Tooltip contentStyle={{ background: "#222", border: "1px solid #333", fontSize: 12 }} /><Legend wrapperStyle={{ fontSize: 11 }} /><Line yAxisId="l" type="monotone" dataKey="weight" stroke="#4a8fc9" strokeWidth={2} dot={{ r: 2 }} name="체중(kg)" /><Line yAxisId="r" type="monotone" dataKey="fat" stroke="#e05252" strokeWidth={2} dot={{ r: 2 }} name="체지방(%)" /></LineChart></ResponsiveContainer></div>
+            </div>
+          )}
+        </>)}
+
+        {!rangeAnalysis && rangeStart && rangeEnd && (
+          <div style={{ textAlign: "center", padding: 24, color: "#555", fontSize: 13 }}>해당 기간에 데이터가 없습니다</div>
+        )}
+        {(!rangeStart || !rangeEnd) && (
+          <div style={{ textAlign: "center", padding: 24, color: "#555", fontSize: 13 }}>시작일과 종료일을 선택하세요</div>
+        )}
+      </>)}
+
+      {period !== "hourly" && period !== "range" && periodData.length > 0 && (<>
         <div style={{ background: "#191919", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 10, padding: 16, marginBottom: 12 }}>
           <div style={{ fontSize: 13, color: "#787570", marginBottom: 12 }}>{period === "week" ? "주간" : period === "month" ? "월간" : "연간"} 칼로리 & Net</div>
           <div style={{ height: 200 }}><ResponsiveContainer><ComposedChart data={periodData}><XAxis dataKey="key" tick={{ fill: "#787570", fontSize: 10 }} tickFormatter={k => k.split("-").slice(-1)[0]} /><YAxis tick={{ fill: "#787570", fontSize: 10 }} /><Tooltip contentStyle={{ background: "#222", border: "1px solid #333", fontSize: 12 }} /><Legend wrapperStyle={{ fontSize: 11 }} /><Bar dataKey="kAvg" fill="#5a9e6f" name="섭취" radius={[3, 3, 0, 0]} /><Bar dataKey="exAvg" fill="#4a8fc9" name="운동" radius={[3, 3, 0, 0]} /><Line type="monotone" dataKey="netAvg" stroke="#e05252" strokeWidth={2} name="Net" dot={{ r: 3 }} /></ComposedChart></ResponsiveContainer></div>
@@ -426,7 +573,7 @@ function StatsTab({ bodyLog, allDays }) {
         </div>
       </>)}
 
-      {bodyLog.length >= 2 && (
+      {bodyLog.length >= 2 && period !== "range" && (
         <div style={{ background: "#191919", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 10, padding: 16, marginBottom: 12 }}>
           <div style={{ fontSize: 13, color: "#787570", marginBottom: 12 }}>체중 & 체지방 추이</div>
           <div style={{ height: 200 }}><ResponsiveContainer><LineChart data={bodyLog.slice(-30).map(b => ({ d: b.date.slice(5), weight: b.weight, fat: b.fatPct }))}><XAxis dataKey="d" tick={{ fill: "#787570", fontSize: 10 }} /><YAxis yAxisId="l" tick={{ fill: "#787570", fontSize: 10 }} /><YAxis yAxisId="r" orientation="right" tick={{ fill: "#787570", fontSize: 10 }} /><Tooltip contentStyle={{ background: "#222", border: "1px solid #333", fontSize: 12 }} /><Legend wrapperStyle={{ fontSize: 11 }} /><Line yAxisId="l" type="monotone" dataKey="weight" stroke="#4a8fc9" strokeWidth={2} dot={{ r: 2 }} name="체중(kg)" /><Line yAxisId="r" type="monotone" dataKey="fat" stroke="#e05252" strokeWidth={2} dot={{ r: 2 }} name="체지방(%)" /></LineChart></ResponsiveContainer></div>
@@ -633,7 +780,7 @@ export default function App() {
       <div style={{ padding: "16px 20px 12px", borderBottom: "1px solid rgba(255,255,255,0.07)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <div style={{ fontSize: 18, fontWeight: 600 }}>Daniel Body Plan</div>
-          <div style={{ fontSize: 11, color: "#787570", fontFamily: "monospace" }}>체지방 15% · 기준 {TARGETS.weight}kg ({date.slice(0, 7)}월 평균)</div>
+          <div style={{ fontSize: 11, color: "#787570", fontFamily: "monospace" }}>체지방 15%</div>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <button onClick={() => setShowSync(true)} style={{ background: "#222", border: "1px solid rgba(90,158,111,0.3)", borderRadius: 6, color: "#5a9e6f", padding: "6px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>SYN</button>
@@ -690,7 +837,6 @@ export default function App() {
         {tab === "diet" && (<>
           <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
             <input type="text" placeholder="음식 검색..." value={search} onChange={e => setSearch(e.target.value)} style={{ flex: 1, padding: "10px 12px", background: "#191919", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, color: "#e8e4dc", fontSize: 14, boxSizing: "border-box" }} />
-            <button onClick={() => setShowAddFood(true)} style={{ padding: "10px 16px", background: "#d4943a", border: "none", borderRadius: 6, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>+ 새 음식</button>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "8px 12px", background: "#191919", borderRadius: 8, border: "1px solid rgba(255,255,255,0.07)" }}>
             <span style={{ fontSize: 13, color: "#787570" }}>식사 시간</span>
@@ -715,7 +861,7 @@ export default function App() {
                 </div>
               </div>
             ))}
-            {!filteredFoods.length && <div style={{ textAlign: "center", padding: 24, color: "#555", fontSize: 13 }}>검색 결과 없음<br /><button onClick={() => setShowAddFood(true)} style={{ marginTop: 8, padding: "8px 16px", background: "#d4943a", border: "none", borderRadius: 6, color: "#fff", fontSize: 13, cursor: "pointer" }}>직접 추가</button></div>}
+            {!filteredFoods.length && search.trim() && <div style={{ textAlign: "center", padding: 24, color: "#555", fontSize: 13 }}>검색 결과 없음</div>}
           </div>
           <div style={{ fontSize: 13, color: "#787570", marginBottom: 8 }}>오늘 기록 ({meals.length}건)</div>
           {meals.map((m, i) => (
@@ -733,7 +879,6 @@ export default function App() {
         {tab === "exercise" && (<>
           <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
             <input type="text" placeholder="운동 검색..." value={exSearch} onChange={e => setExSearch(e.target.value)} style={{ flex: 1, padding: "10px 12px", background: "#191919", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, color: "#e8e4dc", fontSize: 14, boxSizing: "border-box" }} />
-            <button onClick={() => setShowAddEx(true)} style={{ padding: "10px 16px", background: "#d4943a", border: "none", borderRadius: 6, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>+ 새 운동</button>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "8px 12px", background: "#191919", borderRadius: 8, border: "1px solid rgba(255,255,255,0.07)" }}>
             <span style={{ fontSize: 13, color: "#787570" }}>운동 시간</span>
