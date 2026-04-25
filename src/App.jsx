@@ -478,7 +478,7 @@ export default function App() {
         const ce = await store.get("custom-exercises");
         if (ce) setCustomEx(ce);
         const body = await store.get("bodylog");
-        if (body) setBodyLog(body);
+        if (body) setBodyLog([...body].sort((a, b) => a.date.localeCompare(b.date)));
 
         const keys = await store.list("day:");
         const data = {};
@@ -493,13 +493,15 @@ export default function App() {
     loadAll();
   }, []);
 
-  // 날짜 변경 시 해당 날 데이터 로드
+  // 날짜 변경 시 해당 날 데이터 로드 (시간순 정렬 적용)
   useEffect(() => {
     async function loadDay() {
       try {
         const data = await store.get(`day:${date}`);
-        if (data) { setMeals(data.meals || []); setExercises(data.exercises || []); }
-        else { setMeals([]); setExercises([]); }
+        if (data) {
+          setMeals(sortByHour(data.meals || []));
+          setExercises(sortByHour(data.exercises || []));
+        } else { setMeals([]); setExercises([]); }
       } catch { setMeals([]); setExercises([]); }
     }
     if (loaded) loadDay();
@@ -546,7 +548,7 @@ export default function App() {
   };
 
   const editBody = async (idx, updated) => {
-    const nl = bodyLog.map((b, i) => i === idx ? { ...b, ...updated } : b);
+    const nl = bodyLog.map((b, i) => i === idx ? { ...b, ...updated } : b).sort((a, b) => a.date.localeCompare(b.date));
     setBodyLog(nl); await store.set("bodylog", nl);
   };
 
