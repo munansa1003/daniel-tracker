@@ -39,10 +39,10 @@ function MiniDonut({ value, max, color, size = 72 }) {
     data = [{ v: pct }, { v: 1 - pct }];
     colors = [color, "#2a2a2a"];
   } else {
-    const basePct = max / value;
     const overPct = (value - max) / value;
-    data = [{ v: basePct }, { v: overPct }];
-    colors = [color, darkColor];
+    const basePct = max / value;
+    data = [{ v: overPct }, { v: basePct }];
+    colors = [darkColor, color];
   }
   return (
     <div style={{ width: size, height: size }}>
