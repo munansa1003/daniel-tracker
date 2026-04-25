@@ -632,12 +632,12 @@ export default function App() {
       {/* Header */}
       <div style={{ padding: "16px 20px 12px", borderBottom: "1px solid rgba(255,255,255,0.07)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
-          <div style={{ fontSize: 18, fontWeight: 600 }}>Daniel Tracker</div>
-          <div style={{ fontSize: 11, color: "#787570", fontFamily: "monospace" }}>목표 체지방 15% · 기준 {TARGETS.weight}kg ({date.slice(0, 7)}월 평균)</div>
+          <div style={{ fontSize: 18, fontWeight: 600 }}>Daniel Body Plan</div>
+          <div style={{ fontSize: 11, color: "#787570", fontFamily: "monospace" }}>체지방 15% · 기준 {TARGETS.weight}kg ({date.slice(0, 7)}월 평균)</div>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <button onClick={() => setShowSync(true)} style={{ background: "#222", border: "1px solid rgba(90,158,111,0.3)", borderRadius: 6, color: "#5a9e6f", padding: "6px 10px", fontSize: 11, cursor: "pointer" }}>동기화</button>
-          <button onClick={() => setShowManage(true)} style={{ background: "#222", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, color: "#aaa", padding: "6px 10px", fontSize: 11, cursor: "pointer" }}>DB관리</button>
+          <button onClick={() => setShowSync(true)} style={{ background: "#222", border: "1px solid rgba(90,158,111,0.3)", borderRadius: 6, color: "#5a9e6f", padding: "6px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>SYN</button>
+          <button onClick={() => setShowManage(true)} style={{ background: "#222", border: "1px solid rgba(74,143,201,0.3)", borderRadius: 6, color: "#4a8fc9", padding: "6px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>DB</button>
           <input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ background: "#222", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, color: "#e8e4dc", padding: "6px 10px", fontSize: 12, fontFamily: "monospace" }} />
         </div>
       </div>
@@ -706,7 +706,7 @@ export default function App() {
             {filteredFoods.map((f, i) => (
               <div key={i} style={{ ...cs, padding: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: 500 }}>{f.n}{f.custom && <span style={{ marginLeft: 6, fontSize: 10, color: "#d4943a", background: "rgba(212,148,58,0.12)", padding: "1px 6px", borderRadius: 4 }}>직접추가</span>}</div>
+                  <div style={{ fontSize: 14, fontWeight: 500 }}>{f.n}</div>
                   <div style={{ fontSize: 11, color: "#787570", fontFamily: "monospace", marginTop: 2 }}>P{f.p} · C{f.c} · F{f.f} · {f.k}kcal</div>
                 </div>
                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -749,7 +749,7 @@ export default function App() {
             {filteredEx.map((e, i) => (
               <div key={i} style={{ ...cs, padding: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: 500 }}>{e.n}{e.custom && <span style={{ marginLeft: 6, fontSize: 10, color: "#d4943a", background: "rgba(212,148,58,0.12)", padding: "1px 6px", borderRadius: 4 }}>직접추가</span>}</div>
+                  <div style={{ fontSize: 14, fontWeight: 500 }}>{e.n}</div>
                   <div style={{ fontSize: 11, color: "#787570" }}>MET {e.m} {e.memo && `· ${e.memo}`}</div>
                 </div>
                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
