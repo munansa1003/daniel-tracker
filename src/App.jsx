@@ -8,27 +8,45 @@ const nowHour = () => new Date().getHours();
 
 /* ───── 공통 컴포넌트 ───── */
 function ProgressBar({ value, max, color, label, unit = "g" }) {
-  const pct = Math.min((value / max) * 100, 100);
   const over = value > max;
+  const pct = Math.min((value / max) * 100, 100);
+  const darkColor = color === "#5a9e6f" ? "#2a6a3f" : color === "#4a8fc9" ? "#1e3f66" : "#801818";
+  const basePct = over ? (max / value) * 100 : pct;
+  const overPct = over ? ((value - max) / value) * 100 : 0;
   return (
     <div style={{ marginBottom: 12 }}>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}>
         <span style={{ color: "#aaa" }}>{label}</span>
-        <span style={{ fontFamily: "monospace", color: over ? "#e05252" : "#e8e4dc" }}>{Math.round(value)}{unit} / {max}{unit}</span>
+        <span style={{ fontFamily: "monospace", color: over ? "#e05252" : "#e8e4dc" }}>
+          {Math.round(value)}{unit} / {max}{unit}
+          {over && <span style={{ color: "#e05252", marginLeft: 4 }}>(+{Math.round(value - max)})</span>}
+        </span>
       </div>
-      <div style={{ height: 8, background: "#2a2a2a", borderRadius: 4, overflow: "hidden" }}>
-        <div style={{ width: `${pct}%`, height: "100%", background: over ? "#e05252" : color, borderRadius: 4, transition: "width 0.4s" }} />
+      <div style={{ height: 8, background: "#2a2a2a", borderRadius: 4, overflow: "hidden", display: "flex" }}>
+        <div style={{ width: over ? `${basePct}%` : `${pct}%`, height: "100%", background: color, transition: "width 0.4s" }} />
+        {over && <div style={{ width: `${overPct}%`, height: "100%", background: darkColor, transition: "width 0.4s" }} />}
       </div>
     </div>
   );
 }
 
 function MiniDonut({ value, max, color, size = 72 }) {
-  const pct = Math.min(value / max, 1);
-  const data = [{ v: pct }, { v: 1 - pct }];
+  const over = value > max;
+  const darkColor = color === "#4a8fc9" ? "#1e3f66" : color === "#d4943a" ? "#7a4a10" : "#801818";
+  let data, colors;
+  if (!over) {
+    const pct = Math.min(value / max, 1);
+    data = [{ v: pct }, { v: 1 - pct }];
+    colors = [color, "#2a2a2a"];
+  } else {
+    const basePct = max / value;
+    const overPct = (value - max) / value;
+    data = [{ v: basePct }, { v: overPct }];
+    colors = [color, darkColor];
+  }
   return (
     <div style={{ width: size, height: size }}>
-      <ResponsiveContainer><PieChart><Pie data={data} dataKey="v" innerRadius="70%" outerRadius="100%" startAngle={90} endAngle={-270} stroke="none"><Cell fill={color} /><Cell fill="#2a2a2a" /></Pie></PieChart></ResponsiveContainer>
+      <ResponsiveContainer><PieChart><Pie data={data} dataKey="v" innerRadius="70%" outerRadius="100%" startAngle={90} endAngle={-270} stroke="none">{data.map((_, i) => <Cell key={i} fill={colors[i]} />)}</Pie></PieChart></ResponsiveContainer>
     </div>
   );
 }
@@ -209,12 +227,40 @@ function EditExForm({ exercise, onSave, onCancel, onDelete }) {
 }
 
 /* ───── 체성분 탭 ───── */
-function BodyTab({ bodyLog, addBody, date }) {
+function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody }) {
   const [w, setW] = useState("");
   const [m, setM] = useState("");
   const [fp, setFp] = useState("");
+  const [editIdx, setEditIdx] = useState(null);
+  const [ew, setEw] = useState("");
+  const [em, setEm] = useState("");
+  const [efp, setEfp] = useState("");
   const existing = bodyLog.find(b => b.date === date);
   const is = { width: "100%", padding: "10px 12px", background: "#222", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, color: "#e8e4dc", fontSize: 14, boxSizing: "border-box", marginBottom: 8 };
+
+  const startEdit = (idx) => {
+    const b = bodyLog[bodyLog.length - 1 - idx]; // reversed display
+    setEditIdx(idx);
+    setEw(String(b.weight));
+    setEm(String(b.muscle));
+    setEfp(String(b.fatPct));
+  };
+
+  const saveEdit = () => {
+    const realIdx = bodyLog.length - 1 - editIdx;
+    if (onEditBody && ew) {
+      onEditBody(realIdx, { weight: parseFloat(ew), muscle: parseFloat(em) || 0, fatPct: parseFloat(efp) || 0 });
+    }
+    setEditIdx(null);
+  };
+
+  const handleDelete = (displayIdx) => {
+    const realIdx = bodyLog.length - 1 - displayIdx;
+    if (onDeleteBody && confirm("이 기록을 삭제할까요?")) {
+      onDeleteBody(realIdx);
+    }
+  };
+
   return (
     <>
       <div style={{ background: "#191919", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 10, padding: 16, marginBottom: 12 }}>
@@ -228,9 +274,30 @@ function BodyTab({ bodyLog, addBody, date }) {
       </div>
       <div style={{ fontSize: 13, color: "#787570", marginBottom: 8 }}>최근 기록</div>
       {bodyLog.slice(-10).reverse().map((b, i) => (
-        <div key={i} style={{ background: "#191919", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 8, padding: 12, marginBottom: 8, display: "flex", justifyContent: "space-between", fontSize: 13, color: "#e8e4dc" }}>
-          <span style={{ fontFamily: "monospace", color: "#787570" }}>{b.date}</span>
-          <span>{b.weight}kg · 근육 {b.muscle}kg · 체지방 {b.fatPct}%</span>
+        <div key={i}>
+          {editIdx === i ? (
+            <div style={{ background: "#191919", border: "1px solid rgba(74,143,201,0.3)", borderRadius: 8, padding: 12, marginBottom: 8 }}>
+              <div style={{ fontSize: 12, color: "#4a8fc9", marginBottom: 8, fontFamily: "monospace" }}>{b.date} 수정 중</div>
+              <input type="number" step="0.1" placeholder="체중" value={ew} onChange={e => setEw(e.target.value)} style={{ ...is, marginBottom: 6 }} />
+              <input type="number" step="0.1" placeholder="골격근량" value={em} onChange={e => setEm(e.target.value)} style={{ ...is, marginBottom: 6 }} />
+              <input type="number" step="0.1" placeholder="체지방률" value={efp} onChange={e => setEfp(e.target.value)} style={{ ...is, marginBottom: 8 }} />
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={() => setEditIdx(null)} style={{ flex: 1, padding: 8, background: "#333", border: "none", borderRadius: 6, color: "#aaa", fontSize: 13, cursor: "pointer" }}>취소</button>
+                <button onClick={saveEdit} style={{ flex: 1, padding: 8, background: "#4a8fc9", border: "none", borderRadius: 6, color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>저장</button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ background: "#191919", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 8, padding: 12, marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, color: "#e8e4dc" }}>
+              <div style={{ flex: 1, cursor: "pointer" }} onClick={() => startEdit(i)}>
+                <span style={{ fontFamily: "monospace", color: "#787570", marginRight: 8 }}>{b.date}</span>
+                <span>{b.weight}kg · 근육 {b.muscle}kg · 체지방 {b.fatPct}%</span>
+              </div>
+              <div style={{ display: "flex", gap: 4 }}>
+                <button onClick={() => startEdit(i)} style={{ padding: "4px 8px", background: "rgba(74,143,201,0.15)", border: "1px solid rgba(74,143,201,0.3)", borderRadius: 6, color: "#4a8fc9", fontSize: 11, cursor: "pointer" }}>수정</button>
+                <button onClick={() => handleDelete(i)} style={{ padding: "4px 8px", background: "rgba(224,82,82,0.15)", border: "1px solid rgba(224,82,82,0.3)", borderRadius: 6, color: "#e05252", fontSize: 11, cursor: "pointer" }}>삭제</button>
+              </div>
+            </div>
+          )}
         </div>
       ))}
     </>
@@ -462,6 +529,16 @@ export default function App() {
     setBodyLog(nl); await store.set("bodylog", nl);
   };
 
+  const editBody = async (idx, updated) => {
+    const nl = bodyLog.map((b, i) => i === idx ? { ...b, ...updated } : b);
+    setBodyLog(nl); await store.set("bodylog", nl);
+  };
+
+  const deleteBody = async (idx) => {
+    const nl = bodyLog.filter((_, i) => i !== idx);
+    setBodyLog(nl); await store.set("bodylog", nl);
+  };
+
   const saveCustomFood = async (food) => {
     const nf = [...customFoods, { ...food, custom: true }];
     setCustomFoods(nf); await store.set("custom-foods", nf); setShowAddFood(false);
@@ -541,8 +618,9 @@ export default function App() {
                 <div key={x.l} style={{ textAlign: "center" }}>
                   <MiniDonut value={x.v} max={x.t} color={x.c} />
                   <div style={{ fontSize: 11, color: "#787570", marginTop: 4 }}>{x.l}</div>
-                  <div style={{ fontSize: 13, fontFamily: "monospace", fontWeight: 500 }}>{x.v}g</div>
+                  <div style={{ fontSize: 13, fontFamily: "monospace", fontWeight: 500, color: x.v > x.t ? "#e8e4dc" : "#e8e4dc" }}>{x.v}g</div>
                   <div style={{ fontSize: 10, color: "#555" }}>/ {x.t}g</div>
+                  {x.v > x.t && <div style={{ fontSize: 10, color: "#e05252", fontFamily: "monospace" }}>+{x.v - x.t}g 초과</div>}
                 </div>
               ))}
             </div>
@@ -657,7 +735,7 @@ export default function App() {
           ))}
         </>)}
 
-        {tab === "body" && <BodyTab bodyLog={bodyLog} addBody={addBody} date={date} />}
+        {tab === "body" && <BodyTab bodyLog={bodyLog} addBody={addBody} date={date} onEditBody={editBody} onDeleteBody={deleteBody} />}
         {tab === "stats" && <StatsTab bodyLog={bodyLog} allDays={allDays} />}
       </div>
 
