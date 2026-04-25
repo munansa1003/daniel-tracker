@@ -607,11 +607,11 @@ export default function App() {
   const netKcal = totals.k - exTotal;
 
   const filteredFoods = useMemo(() => {
-    if (!search.trim()) return FOOD_DB.slice(0, 25);
+    if (!search.trim()) return [];
     return FOOD_DB.filter(f => f.n.toLowerCase().includes(search.toLowerCase()));
   }, [search, FOOD_DB]);
   const filteredEx = useMemo(() => {
-    if (!exSearch.trim()) return EX_DB;
+    if (!exSearch.trim()) return [];
     return EX_DB.filter(e => e.n.toLowerCase().includes(exSearch.toLowerCase()));
   }, [exSearch, EX_DB]);
 
