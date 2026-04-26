@@ -505,7 +505,7 @@ function getMonthKey(ds) { return ds.slice(0, 7); }
 function getYearKey(ds) { return ds.slice(0, 4); }
 
 /* ───── 통계 탭 ───── */
-function StatsTab({ bodyLog, allDays }) {
+function StatsTab({ bodyLog, allDays, onBackup }) {
   const [period, setPeriod] = useState("week");
   const [rangeStart, setRangeStart] = useState("");
   const [rangeEnd, setRangeEnd] = useState("");
@@ -586,21 +586,6 @@ function StatsTab({ bodyLog, allDays }) {
       dailyData, bodyChange, bodyTrend
     };
   }, [allDays, bodyLog, rangeStart, rangeEnd]);
-
-  const exportCSV = useCallback(() => {
-    const rows = [];
-    rows.push(["=== 일별 요약 ==="]); rows.push(["날짜", "P(g)", "C(g)", "F(g)", "K(kcal)", "운동(kcal)", "Net(kcal)"]);
-    Object.entries(allDays).sort().forEach(([d, data]) => { const a = aggregateDay(data); rows.push([d, Math.round(a.p), Math.round(a.c), Math.round(a.f), Math.round(a.k), Math.round(a.ex), Math.round(a.net)]); });
-    rows.push([]); rows.push(["=== 식단 상세 ==="]); rows.push(["날짜", "시간", "음식", "수량", "P(g)", "C(g)", "F(g)", "K(kcal)"]);
-    Object.entries(allDays).sort().forEach(([d, data]) => (data.meals || []).forEach(m => rows.push([d, `${String(m.hour || 0).padStart(2, "0")}:00`, m.n, m.serving, (m.p * m.serving).toFixed(1), (m.c * m.serving).toFixed(1), (m.f * m.serving).toFixed(1), Math.round(m.k * m.serving)])));
-    rows.push([]); rows.push(["=== 운동 상세 ==="]); rows.push(["날짜", "시간", "운동", "시간(분)", "소모(kcal)", "MET"]);
-    Object.entries(allDays).sort().forEach(([d, data]) => (data.exercises || []).forEach(e => rows.push([d, `${String(e.hour || 0).padStart(2, "0")}:00`, e.n, e.duration, e.kcal, e.m])));
-    rows.push([]); rows.push(["=== 체성분 ==="]); rows.push(["날짜", "체중(kg)", "골격근량(kg)", "체지방률(%)"]);
-    bodyLog.forEach(b => rows.push([b.date, b.weight, b.muscle, b.fatPct]));
-    const csv = "\uFEFF" + rows.map(r => r.map(v => { const s = String(v ?? ""); return s.includes(",") || s.includes('"') ? `"${s.replace(/"/g, '""')}"` : s; }).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `daniel_tracker_${today()}.csv`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-  }, [allDays, bodyLog]);
 
   const latest = bodyLog[bodyLog.length - 1];
   const first = bodyLog[0];
@@ -749,7 +734,7 @@ function StatsTab({ bodyLog, allDays }) {
         </div>
       )}
 
-      <button onClick={exportCSV} disabled={totalDays === 0}
+      <button onClick={onBackup} disabled={totalDays === 0}
         style={{ width: "100%", padding: 14, background: totalDays === 0 ? "#333" : "#5a9e6f", border: "none", borderRadius: 10, color: "#fff", fontSize: 14, fontWeight: 500, cursor: totalDays === 0 ? "not-allowed" : "pointer", marginTop: 8 }}>
         {totalDays === 0 ? "데이터 없음" : "📥 CSV로 내보내기 (엑셀 호환)"}
       </button>
@@ -817,9 +802,19 @@ function MainApp({ user, onLogout }) {
   const [editExIdx, setEditExIdx] = useState(null);
   const [showManage, setShowManage] = useState(false);
   const [manageTab, setManageTab] = useState("food");
+  const [lastBackup, setLastBackup] = useState(null);
+  const [justBacked, setJustBacked] = useState(false);
+  const [yesterdayData, setYesterdayData] = useState({ meals: [], exercises: [] });
 
   const FOOD_DB = useMemo(() => [...DEFAULT_FOODS, ...customFoods], [customFoods]);
   const EX_DB = useMemo(() => [...DEFAULT_EX, ...customEx], [customEx]);
+
+  // 어제 날짜 계산
+  const getYesterday = useCallback((d) => {
+    const dt = new Date(d);
+    dt.setDate(dt.getDate() - 1);
+    return dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0");
+  }, []);
 
   // 초기 로드 (Firebase 비동기)
   useEffect(() => {
@@ -831,6 +826,9 @@ function MainApp({ user, onLogout }) {
         if (ce) setCustomEx(ce);
         const body = await store.get("bodylog");
         if (body) setBodyLog([...body].sort((a, b) => a.date.localeCompare(b.date)));
+
+        const lb = await store.get("lastBackup");
+        if (lb) setLastBackup(lb);
 
         const keys = await store.list("day:");
         const data = {};
@@ -845,7 +843,7 @@ function MainApp({ user, onLogout }) {
     loadAll();
   }, []);
 
-  // 날짜 변경 시 해당 날 데이터 로드 (시간순 정렬 적용)
+  // 날짜 변경 시 해당 날 + 어제 데이터 로드 (시간순 정렬 적용)
   useEffect(() => {
     async function loadDay() {
       try {
@@ -854,10 +852,17 @@ function MainApp({ user, onLogout }) {
           setMeals(sortByHour(data.meals || []));
           setExercises(sortByHour(data.exercises || []));
         } else { setMeals([]); setExercises([]); }
-      } catch { setMeals([]); setExercises([]); }
+
+        // 어제 데이터 로드
+        const yd = getYesterday(date);
+        const yData = await store.get(`day:${yd}`);
+        if (yData) {
+          setYesterdayData({ meals: yData.meals || [], exercises: yData.exercises || [] });
+        } else { setYesterdayData({ meals: [], exercises: [] }); }
+      } catch { setMeals([]); setExercises([]); setYesterdayData({ meals: [], exercises: [] }); }
     }
     if (loaded) loadDay();
-  }, [date, loaded]);
+  }, [date, loaded, getYesterday]);
 
   const saveDay = async (d, m, e) => {
     setAllDays(prev => ({ ...prev, [d]: { meals: m, exercises: e } }));
@@ -926,6 +931,65 @@ function MainApp({ user, onLogout }) {
     setCustomEx(ne); await store.set("custom-exercises", ne);
   };
 
+  // 어제 기록 복사 (개별)
+  const copyMealFromYesterday = (meal) => {
+    const hour = meal.hour || 12;
+    const entry = { ...meal, ts: Date.now(), hour };
+    const nm = sortByHour([...meals, entry]);
+    setMeals(nm); saveDay(date, nm, exercises);
+  };
+
+  const copyExFromYesterday = (ex) => {
+    const hour = ex.hour || 12;
+    const entry = { ...ex, ts: Date.now(), hour };
+    const ne = sortByHour([...exercises, entry]);
+    setExercises(ne); saveDay(date, meals, ne);
+  };
+
+  // 어제 전체 복사
+  const copyAllMealsFromYesterday = () => {
+    const newMeals = yesterdayData.meals.map(m => ({ ...m, ts: Date.now() }));
+    const nm = sortByHour([...meals, ...newMeals]);
+    setMeals(nm); saveDay(date, nm, exercises);
+  };
+
+  const copyAllExFromYesterday = () => {
+    const newEx = yesterdayData.exercises.map(e => ({ ...e, ts: Date.now() }));
+    const ne = sortByHour([...exercises, ...newEx]);
+    setExercises(ne); saveDay(date, meals, ne);
+  };
+
+  // 백업 (CSV 내보내기 + 날짜 기록)
+  const doBackup = async () => {
+    // CSV 생성
+    const rows = [];
+    rows.push(["=== 일별 요약 ==="]); rows.push(["날짜","P(g)","C(g)","F(g)","K(kcal)","운동(kcal)","Net(kcal)"]);
+    Object.entries(allDays).sort().forEach(([d, data]) => { const a = aggregateDay(data); rows.push([d, Math.round(a.p), Math.round(a.c), Math.round(a.f), Math.round(a.k), Math.round(a.ex), Math.round(a.net)]); });
+    rows.push([]); rows.push(["=== 식단 상세 ==="]); rows.push(["날짜","시간","음식","수량","P(g)","C(g)","F(g)","K(kcal)"]);
+    Object.entries(allDays).sort().forEach(([d, data]) => (data.meals || []).forEach(m => rows.push([d, `${String(m.hour||0).padStart(2,"0")}:00`, m.n, m.serving, (m.p*m.serving).toFixed(1), (m.c*m.serving).toFixed(1), (m.f*m.serving).toFixed(1), Math.round(m.k*m.serving)])));
+    rows.push([]); rows.push(["=== 운동 상세 ==="]); rows.push(["날짜","시간","운동","시간(분)","소모(kcal)","MET"]);
+    Object.entries(allDays).sort().forEach(([d, data]) => (data.exercises || []).forEach(e => rows.push([d, `${String(e.hour||0).padStart(2,"0")}:00`, e.n, e.duration, e.kcal, e.m])));
+    rows.push([]); rows.push(["=== 체성분 ==="]); rows.push(["날짜","체중(kg)","골격근량(kg)","체지방률(%)"]);
+    bodyLog.forEach(b => rows.push([b.date, b.weight, b.muscle, b.fatPct]));
+    const csv = "\uFEFF" + rows.map(r => r.map(v => { const s = String(v ?? ""); return s.includes(",") || s.includes('"') ? `"${s.replace(/"/g,'""')}"` : s; }).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `daniel_tracker_${today()}.csv`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+
+    // 백업 날짜 기록
+    const now = today();
+    setLastBackup(now);
+    setJustBacked(true);
+    await store.set("lastBackup", now);
+    setTimeout(() => setJustBacked(false), 5000);
+  };
+
+  // 백업 경과 일수 계산
+  const backupDaysAgo = useMemo(() => {
+    if (!lastBackup) return 999;
+    const diff = (new Date(today()) - new Date(lastBackup)) / 86400000;
+    return Math.floor(diff);
+  }, [lastBackup]);
+
   // 월 평균 체중 기반 동적 목표 계산
   const TARGETS = useMemo(() => {
     const currentMonth = date.slice(0, 7); // "2026-04"
@@ -986,6 +1050,24 @@ function MainApp({ user, onLogout }) {
       <div style={{ padding: "16px 20px 80px" }}>
         {/* HOME */}
         {tab === "home" && (<>
+          {/* 백업 알림 */}
+          {justBacked ? (
+            <div style={{ background: "rgba(90,158,111,0.08)", border: "1px solid rgba(90,158,111,0.2)", borderRadius: 10, padding: 12, marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div>
+                <div style={{ fontSize: 13, color: "#5a9e6f", fontWeight: 500 }}>백업 완료</div>
+                <div style={{ fontSize: 11, color: "#787570", marginTop: 2 }}>마지막 백업: 오늘</div>
+              </div>
+              <div style={{ fontSize: 18, color: "#5a9e6f" }}>✓</div>
+            </div>
+          ) : backupDaysAgo >= 7 && (
+            <div onClick={doBackup} style={{ background: "rgba(212,148,58,0.1)", border: "1px solid rgba(212,148,58,0.25)", borderRadius: 10, padding: 12, marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
+              <div>
+                <div style={{ fontSize: 13, color: "#d4943a", fontWeight: 500 }}>백업을 해주세요</div>
+                <div style={{ fontSize: 11, color: "#787570", marginTop: 2 }}>마지막 백업: {lastBackup ? `${backupDaysAgo}일 전` : "없음"}</div>
+              </div>
+              <div style={{ background: "#d4943a", borderRadius: 8, padding: "8px 14px", fontSize: 12, color: "#fff", fontWeight: 500 }}>백업</div>
+            </div>
+          )}
           <div style={cs}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
               <span style={{ fontSize: 13, color: "#787570" }}>오늘의 요약</span>
@@ -1030,6 +1112,30 @@ function MainApp({ user, onLogout }) {
 
         {/* DIET */}
         {tab === "diet" && (<>
+          {/* 어제 식단 빠른 복사 */}
+          {yesterdayData.meals.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 13, color: "#787570", marginBottom: 8 }}>어제 먹은 것</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                {[...new Map(yesterdayData.meals.map(m => [m.n + "_" + m.serving, m])).values()].map((m, i) => (
+                  <div key={i} onClick={() => copyMealFromYesterday(m)}
+                    style={{ background: "#222", border: "1px solid rgba(74,143,201,0.2)", borderRadius: 20, padding: "6px 12px", fontSize: 12, display: "flex", alignItems: "center", gap: 4, cursor: "pointer", color: "#e8e4dc" }}>
+                    <span>{m.n}{m.serving !== 1 ? ` ×${m.serving}` : ""}</span>
+                    <span style={{ color: "#4a8fc9", fontSize: 14 }}>+</span>
+                  </div>
+                ))}
+              </div>
+              <div onClick={copyAllMealsFromYesterday}
+                style={{ background: "rgba(74,143,201,0.08)", border: "1px solid rgba(74,143,201,0.2)", borderRadius: 10, padding: "10px 14px", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
+                <div>
+                  <div style={{ fontSize: 13, color: "#4a8fc9", fontWeight: 500 }}>어제 식단 전체 복사</div>
+                  <div style={{ fontSize: 11, color: "#787570", marginTop: 2 }}>{yesterdayData.meals.length}건 · {Math.round(yesterdayData.meals.reduce((s, m) => s + m.k * m.serving, 0)).toLocaleString()} kcal</div>
+                </div>
+                <div style={{ color: "#4a8fc9", fontSize: 18 }}>↓</div>
+              </div>
+            </div>
+          )}
+
           <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
             <input type="text" placeholder="음식 검색..." value={search} onChange={e => setSearch(e.target.value)} style={{ flex: 1, padding: "10px 12px", background: "#191919", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, color: "#e8e4dc", fontSize: 14, boxSizing: "border-box" }} />
           </div>
@@ -1072,6 +1178,30 @@ function MainApp({ user, onLogout }) {
 
         {/* EXERCISE */}
         {tab === "exercise" && (<>
+          {/* 어제 운동 빠른 복사 */}
+          {yesterdayData.exercises.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 13, color: "#787570", marginBottom: 8 }}>어제 운동</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                {yesterdayData.exercises.map((e, i) => (
+                  <div key={i} onClick={() => copyExFromYesterday(e)}
+                    style={{ background: "#222", border: "1px solid rgba(90,158,111,0.2)", borderRadius: 20, padding: "6px 12px", fontSize: 12, display: "flex", alignItems: "center", gap: 4, cursor: "pointer", color: "#e8e4dc" }}>
+                    <span>{e.n} {e.duration}분</span>
+                    <span style={{ color: "#5a9e6f", fontSize: 14 }}>+</span>
+                  </div>
+                ))}
+              </div>
+              <div onClick={copyAllExFromYesterday}
+                style={{ background: "rgba(90,158,111,0.08)", border: "1px solid rgba(90,158,111,0.2)", borderRadius: 10, padding: "10px 14px", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
+                <div>
+                  <div style={{ fontSize: 13, color: "#5a9e6f", fontWeight: 500 }}>어제 운동 전체 복사</div>
+                  <div style={{ fontSize: 11, color: "#787570", marginTop: 2 }}>{yesterdayData.exercises.length}건 · {Math.round(yesterdayData.exercises.reduce((s, e) => s + (e.kcal || 0), 0)).toLocaleString()} kcal</div>
+                </div>
+                <div style={{ color: "#5a9e6f", fontSize: 18 }}>↓</div>
+              </div>
+            </div>
+          )}
+
           <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
             <input type="text" placeholder="운동 검색..." value={exSearch} onChange={e => setExSearch(e.target.value)} style={{ flex: 1, padding: "10px 12px", background: "#191919", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, color: "#e8e4dc", fontSize: 14, boxSizing: "border-box" }} />
           </div>
@@ -1113,7 +1243,7 @@ function MainApp({ user, onLogout }) {
         </>)}
 
         {tab === "body" && <BodyTab bodyLog={bodyLog} addBody={addBody} date={date} onEditBody={editBody} onDeleteBody={deleteBody} />}
-        {tab === "stats" && <StatsTab bodyLog={bodyLog} allDays={allDays} />}
+        {tab === "stats" && <StatsTab bodyLog={bodyLog} allDays={allDays} onBackup={doBackup} />}
       </div>
 
       {/* Bottom Nav */}
