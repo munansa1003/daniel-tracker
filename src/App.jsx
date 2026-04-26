@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar, ComposedChart, Legend } from "recharts";
-import store, { getCurrentUserId, setUserId } from "./store.js";
+import store, { getCurrentUserId, setUserId, logout, getProfiles, saveProfiles } from "./store.js";
 import { DEFAULT_FOODS, DEFAULT_EX, TARGETS as DEFAULT_TARGETS, COLORS } from "./data.js";
 
 const today = () => {
@@ -10,8 +10,8 @@ const today = () => {
 const nowHour = () => new Date().getHours();
 
 // 체중 기반 목표 단탄지 계산 (Mifflin-St Jeor, 활동계수 1.55, 20% 적자)
-function calcTargets(weight) {
-  const bmr = 10 * weight + 6.25 * 175 - 5 * 35 + 5;
+function calcTargets(weight, height = 175, age = 35) {
+  const bmr = 10 * weight + 6.25 * height - 5 * age + 5;
   const tdee = bmr * 1.55;
   const k = Math.round(tdee * 0.80);
   const p = Math.round(weight * 2.2);
@@ -113,6 +113,128 @@ function MiniDonut({ value, max, color, size = 72 }) {
   return (
     <div style={{ width: size, height: size }}>
       <ResponsiveContainer><PieChart><Pie data={data} dataKey="v" innerRadius="70%" outerRadius="100%" startAngle={90} endAngle={-270} stroke="none">{data.map((_, i) => <Cell key={i} fill={colors[i]} />)}</Pie></PieChart></ResponsiveContainer>
+    </div>
+  );
+}
+
+// 프로필 색상 팔레트
+const PROFILE_COLORS = ["#4a8fc9", "#d4943a", "#5a9e6f", "#9b7dc9", "#e05252", "#d4c43a", "#4ac9a8", "#c94a7d"];
+
+// 로그인 화면 (A안 - 프로필 선택형)
+function LoginScreen({ onLogin }) {
+  const [profiles, setProfiles] = useState([]);
+  const [showNew, setShowNew] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getProfiles().then(p => { setProfiles(p); setLoading(false); });
+  }, []);
+
+  const handleCreate = async (profile) => {
+    const newProfiles = [...profiles, profile];
+    setProfiles(newProfiles);
+    await saveProfiles(newProfiles);
+    setShowNew(false);
+    onLogin(profile);
+  };
+
+  const handleDelete = async (idx) => {
+    if (!confirm(`"${profiles[idx].name}" 프로필을 삭제할까요?\n모든 데이터가 삭제됩니다.`)) return;
+    const newProfiles = profiles.filter((_, i) => i !== idx);
+    setProfiles(newProfiles);
+    await saveProfiles(newProfiles);
+  };
+
+  if (loading) return <div style={{ background: "#0f0f0f", color: "#787570", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>로딩 중...</div>;
+
+  return (
+    <div style={{ background: "#0f0f0f", color: "#e8e4dc", minHeight: "100vh", maxWidth: 480, margin: "0 auto", padding: "60px 24px" }}>
+      <div style={{ textAlign: "center", marginBottom: 32 }}>
+        <div style={{ fontSize: 24, fontWeight: 600, marginBottom: 6 }}>Daniel Body Plan</div>
+        <div style={{ fontSize: 13, color: "#787570" }}>사용자를 선택하세요</div>
+      </div>
+
+      {showNew ? (
+        <ProfileSetup onSave={handleCreate} onCancel={() => setShowNew(false)} colorIdx={profiles.length} />
+      ) : (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+            {profiles.map((p, i) => (
+              <div key={i} onClick={() => onLogin(p)}
+                style={{ background: "#191919", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: "18px 10px", textAlign: "center", cursor: "pointer", position: "relative" }}>
+                <button onClick={(e) => { e.stopPropagation(); handleDelete(i); }}
+                  style={{ position: "absolute", top: 6, right: 8, background: "none", border: "none", color: "#555", fontSize: 14, cursor: "pointer" }}>✕</button>
+                <div style={{ width: 52, height: 52, borderRadius: "50%", background: p.color || PROFILE_COLORS[i % PROFILE_COLORS.length], margin: "0 auto 10px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 500, color: "#fff" }}>
+                  {p.name.charAt(0).toUpperCase()}
+                </div>
+                <div style={{ fontSize: 15, fontWeight: 500 }}>{p.name}</div>
+                <div style={{ fontSize: 11, color: "#787570", marginTop: 4 }}>목표 체지방 {p.targetFat}%</div>
+              </div>
+            ))}
+
+            <div onClick={() => setShowNew(true)}
+              style={{ background: "#191919", border: "1px dashed rgba(255,255,255,0.15)", borderRadius: 14, padding: "18px 10px", textAlign: "center", cursor: "pointer" }}>
+              <div style={{ width: 52, height: 52, borderRadius: "50%", background: "#333", margin: "0 auto 10px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, color: "#787570" }}>+</div>
+              <div style={{ fontSize: 15, color: "#787570" }}>새 사용자</div>
+              <div style={{ fontSize: 11, color: "#555", marginTop: 4 }}>추가하기</div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// 프로필 설정 (새 사용자 등록)
+function ProfileSetup({ onSave, onCancel, colorIdx }) {
+  const [name, setName] = useState("");
+  const [height, setHeight] = useState("");
+  const [age, setAge] = useState("");
+  const [targetFat, setTargetFat] = useState("15");
+  const color = PROFILE_COLORS[(colorIdx || 0) % PROFILE_COLORS.length];
+
+  const valid = name.trim() && parseFloat(height) > 0 && parseInt(age) > 0;
+  const is = { width: "100%", padding: "12px", background: "#222", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, color: "#e8e4dc", fontSize: 15, boxSizing: "border-box", marginBottom: 10 };
+
+  return (
+    <div style={{ background: "#191919", borderRadius: 14, padding: 20 }}>
+      <div style={{ textAlign: "center", marginBottom: 20 }}>
+        <div style={{ width: 60, height: 60, borderRadius: "50%", background: color, margin: "0 auto 10px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, fontWeight: 500, color: "#fff" }}>
+          {name ? name.charAt(0).toUpperCase() : "?"}
+        </div>
+        <div style={{ fontSize: 14, color: "#787570" }}>새 프로필 만들기</div>
+      </div>
+
+      <div style={{ fontSize: 12, color: "#787570", marginBottom: 4 }}>이름 (아이디) *</div>
+      <input value={name} onChange={e => setName(e.target.value)} placeholder="예: Daniel" style={is} />
+
+      <div style={{ fontSize: 12, color: "#787570", marginBottom: 4 }}>키 (cm) *</div>
+      <input type="number" value={height} onChange={e => setHeight(e.target.value)} placeholder="예: 175" style={is} />
+
+      <div style={{ fontSize: 12, color: "#787570", marginBottom: 4 }}>나이 *</div>
+      <input type="number" value={age} onChange={e => setAge(e.target.value)} placeholder="예: 35" style={is} />
+
+      <div style={{ fontSize: 12, color: "#787570", marginBottom: 4 }}>목표 체지방률 (%)</div>
+      <input type="number" value={targetFat} onChange={e => setTargetFat(e.target.value)} placeholder="예: 15" style={is} />
+
+      {valid && (
+        <div style={{ background: "#222", borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 12, color: "#787570", lineHeight: 1.7 }}>
+          미리보기: {name} · {height}cm · {age}세 · 목표 체지방 {targetFat}%
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={onCancel} style={{ flex: 1, padding: 14, background: "#333", border: "none", borderRadius: 10, color: "#aaa", fontSize: 15, cursor: "pointer" }}>취소</button>
+        <button disabled={!valid} onClick={() => onSave({
+          id: name.trim().toLowerCase().replace(/\s+/g, "_"),
+          name: name.trim(),
+          height: parseFloat(height),
+          age: parseInt(age),
+          targetFat: parseFloat(targetFat) || 15,
+          color,
+          createdAt: new Date().toISOString()
+        })} style={{ flex: 1, padding: 14, background: valid ? "#4a8fc9" : "#333", border: "none", borderRadius: 10, color: valid ? "#fff" : "#666", fontSize: 15, fontWeight: 600, cursor: valid ? "pointer" : "not-allowed" }}>시작하기</button>
+      </div>
     </div>
   );
 }
@@ -638,7 +760,42 @@ function StatsTab({ bodyLog, allDays }) {
 /* ═══════════════════════════════════════════════ */
 /*                    MAIN APP                     */
 /* ═══════════════════════════════════════════════ */
+// 앱 래퍼 (로그인 관리)
 export default function App() {
+  const [user, setUser] = useState(null);
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    // 이전 로그인 세션 확인
+    const savedId = getCurrentUserId();
+    if (savedId) {
+      getProfiles().then(profiles => {
+        const found = profiles.find(p => p.id === savedId);
+        if (found) setUser(found);
+        setChecking(false);
+      });
+    } else {
+      setChecking(false);
+    }
+  }, []);
+
+  const handleLogin = (profile) => {
+    setUserId(profile.id);
+    setUser(profile);
+  };
+
+  const handleLogout = () => {
+    logout();
+    setUser(null);
+  };
+
+  if (checking) return <div style={{ background: "#0f0f0f", color: "#787570", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>로딩 중...</div>;
+  if (!user) return <LoginScreen onLogin={handleLogin} />;
+  return <MainApp user={user} onLogout={handleLogout} />;
+}
+
+// 메인 앱
+function MainApp({ user, onLogout }) {
   const [tab, setTab] = useState("home");
   const [date, setDate] = useState(today());
   const [meals, setMeals] = useState([]);
@@ -656,8 +813,6 @@ export default function App() {
   const [exHour, setExHour] = useState(nowHour());
   const [showAddFood, setShowAddFood] = useState(false);
   const [showAddEx, setShowAddEx] = useState(false);
-  const [showSync, setShowSync] = useState(false);
-  const [syncId, setSyncId] = useState("");
   const [editMealIdx, setEditMealIdx] = useState(null);
   const [editExIdx, setEditExIdx] = useState(null);
   const [showManage, setShowManage] = useState(false);
@@ -771,14 +926,6 @@ export default function App() {
     setCustomEx(ne); await store.set("custom-exercises", ne);
   };
 
-  // 동기화 ID 적용
-  const applySyncId = () => {
-    if (syncId.trim()) {
-      setUserId(syncId.trim());
-      window.location.reload();
-    }
-  };
-
   // 월 평균 체중 기반 동적 목표 계산
   const TARGETS = useMemo(() => {
     const currentMonth = date.slice(0, 7); // "2026-04"
@@ -792,8 +939,8 @@ export default function App() {
     } else {
       avgWeight = DEFAULT_TARGETS.weight; // 기본값 77.5
     }
-    return calcTargets(avgWeight);
-  }, [bodyLog, date]);
+    return calcTargets(avgWeight, user.height || 175, user.age || 35);
+  }, [bodyLog, date, user]);
 
   const totals = useMemo(() => {
     let p = 0, c = 0, f = 0, k = 0;
@@ -827,10 +974,10 @@ export default function App() {
       <div style={{ padding: "16px 20px 12px", borderBottom: "1px solid rgba(255,255,255,0.07)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <div style={{ fontSize: 18, fontWeight: 600 }}>Daniel Body Plan</div>
-          <div style={{ fontSize: 11, color: "#787570", fontFamily: "monospace" }}>체지방 15%</div>
+          <div style={{ fontSize: 11, color: "#787570", fontFamily: "monospace" }}>체지방 {user.targetFat || 15}% · {user.name}</div>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <button onClick={() => setShowSync(true)} style={{ background: "#222", border: "1px solid rgba(90,158,111,0.3)", borderRadius: 6, color: "#5a9e6f", padding: "6px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>SYN</button>
+          <button onClick={onLogout} style={{ background: "#222", border: "1px solid rgba(224,82,82,0.3)", borderRadius: 6, color: "#e05252", padding: "6px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>OUT</button>
           <button onClick={() => setShowManage(true)} style={{ background: "#222", border: "1px solid rgba(74,143,201,0.3)", borderRadius: 6, color: "#4a8fc9", padding: "6px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>DB</button>
           <input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ background: "#222", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, color: "#e8e4dc", padding: "6px 10px", fontSize: 12, fontFamily: "monospace" }} />
         </div>
@@ -1020,34 +1167,6 @@ export default function App() {
       {/* Edit Exercise Modal */}
       <Modal open={editExIdx !== null} onClose={() => setEditExIdx(null)} title="운동 수정">
         {editExIdx !== null && exercises[editExIdx] && <EditExForm exercise={exercises[editExIdx]} onSave={(updated) => editExercise(editExIdx, updated)} onCancel={() => setEditExIdx(null)} onDelete={() => { removeExercise(editExIdx); setEditExIdx(null); }} weight={TARGETS.weight} />}
-      </Modal>
-
-      {/* Sync Modal */}
-      <Modal open={showSync} onClose={() => setShowSync(false)} title="기기 간 동기화">
-        <div style={{ background: "rgba(90,158,111,0.08)", border: "1px solid rgba(90,158,111,0.2)", borderRadius: 8, padding: 14, marginBottom: 16, fontSize: 13, lineHeight: 1.7, color: "#e8e4dc" }}>
-          데이터는 Firebase 클라우드에 자동 저장됩니다.<br/>
-          다른 기기에서 같은 데이터를 보려면 아래 동기화 ID를 복사해서 다른 기기에 입력하세요.
-        </div>
-
-        <div style={{ fontSize: 12, color: "#787570", marginBottom: 6 }}>나의 동기화 ID</div>
-        <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-          <input readOnly value={getCurrentUserId()} style={{ flex: 1, padding: "10px 12px", background: "#222", border: "1px solid rgba(90,158,111,0.3)", borderRadius: 6, color: "#5a9e6f", fontSize: 14, fontFamily: "monospace", boxSizing: "border-box" }} />
-          <button onClick={() => { navigator.clipboard.writeText(getCurrentUserId()); alert("복사됨!"); }}
-            style={{ padding: "10px 16px", background: "#5a9e6f", border: "none", borderRadius: 6, color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>복사</button>
-        </div>
-
-        <div style={{ borderTop: "1px solid rgba(255,255,255,0.07)", paddingTop: 16 }}>
-          <div style={{ fontSize: 12, color: "#787570", marginBottom: 6 }}>다른 기기의 ID 입력 (데이터 가져오기)</div>
-          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-            <input value={syncId} onChange={e => setSyncId(e.target.value)} placeholder="예: user_a1b2c3d4"
-              style={{ flex: 1, padding: "10px 12px", background: "#222", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, color: "#e8e4dc", fontSize: 14, fontFamily: "monospace", boxSizing: "border-box" }} />
-            <button onClick={applySyncId} disabled={!syncId.trim()}
-              style={{ padding: "10px 16px", background: syncId.trim() ? "#4a8fc9" : "#333", border: "none", borderRadius: 6, color: syncId.trim() ? "#fff" : "#666", fontSize: 13, fontWeight: 500, cursor: syncId.trim() ? "pointer" : "not-allowed" }}>적용</button>
-          </div>
-          <div style={{ fontSize: 11, color: "#e05252", lineHeight: 1.6 }}>
-            ⚠ ID를 적용하면 페이지가 새로고침되며, 해당 ID의 데이터로 전환됩니다.
-          </div>
-        </div>
       </Modal>
     </div>
   );
