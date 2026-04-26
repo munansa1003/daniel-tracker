@@ -125,6 +125,9 @@ function LoginScreen({ onLogin }) {
   const [profiles, setProfiles] = useState([]);
   const [showNew, setShowNew] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [pwModal, setPwModal] = useState(null); // 비밀번호 입력 대상 프로필
+  const [pw, setPw] = useState("");
+  const [pwError, setPwError] = useState(false);
 
   useEffect(() => {
     getProfiles().then(p => { setProfiles(p); setLoading(false); });
@@ -145,6 +148,25 @@ function LoginScreen({ onLogin }) {
     await saveProfiles(newProfiles);
   };
 
+  const handleProfileClick = (profile) => {
+    if (profile.password) {
+      setPwModal(profile);
+      setPw("");
+      setPwError(false);
+    } else {
+      onLogin(profile);
+    }
+  };
+
+  const handlePwSubmit = () => {
+    if (pw === pwModal.password) {
+      setPwModal(null);
+      onLogin(pwModal);
+    } else {
+      setPwError(true);
+    }
+  };
+
   if (loading) return <div style={{ background: "#0f0f0f", color: "#787570", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>로딩 중...</div>;
 
   return (
@@ -160,7 +182,7 @@ function LoginScreen({ onLogin }) {
         <>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
             {profiles.map((p, i) => (
-              <div key={i} onClick={() => onLogin(p)}
+              <div key={i} onClick={() => handleProfileClick(p)}
                 style={{ background: "#191919", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: "18px 10px", textAlign: "center", cursor: "pointer", position: "relative" }}>
                 <button onClick={(e) => { e.stopPropagation(); handleDelete(i); }}
                   style={{ position: "absolute", top: 6, right: 8, background: "none", border: "none", color: "#555", fontSize: 14, cursor: "pointer" }}>✕</button>
@@ -169,6 +191,7 @@ function LoginScreen({ onLogin }) {
                 </div>
                 <div style={{ fontSize: 15, fontWeight: 500 }}>{p.name}</div>
                 <div style={{ fontSize: 11, color: "#787570", marginTop: 4 }}>목표 체지방 {p.targetFat}%</div>
+                {p.password && <div style={{ fontSize: 10, color: "#555", marginTop: 4 }}>🔒</div>}
               </div>
             ))}
 
@@ -181,19 +204,48 @@ function LoginScreen({ onLogin }) {
           </div>
         </>
       )}
+
+      {/* 비밀번호 입력 모달 */}
+      {pwModal && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div onClick={() => setPwModal(null)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.65)" }} />
+          <div style={{ position: "relative", width: "90%", maxWidth: 340, background: "#191919", borderRadius: 16, padding: 24 }}>
+            <div style={{ textAlign: "center", marginBottom: 20 }}>
+              <div style={{ width: 52, height: 52, borderRadius: "50%", background: pwModal.color || "#4a8fc9", margin: "0 auto 10px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 500, color: "#fff" }}>
+                {pwModal.name.charAt(0).toUpperCase()}
+              </div>
+              <div style={{ fontSize: 16, fontWeight: 500 }}>{pwModal.name}</div>
+            </div>
+            <div style={{ fontSize: 12, color: "#787570", marginBottom: 6 }}>비밀번호</div>
+            <input type="password" value={pw} onChange={e => { setPw(e.target.value); setPwError(false); }}
+              onKeyDown={e => e.key === "Enter" && handlePwSubmit()}
+              placeholder="비밀번호를 입력하세요"
+              autoFocus
+              style={{ width: "100%", padding: 12, background: "#222", border: `1px solid ${pwError ? "#e05252" : "rgba(255,255,255,0.12)"}`, borderRadius: 8, color: "#e8e4dc", fontSize: 15, boxSizing: "border-box", marginBottom: 6 }} />
+            {pwError && <div style={{ fontSize: 12, color: "#e05252", marginBottom: 8 }}>비밀번호가 틀렸습니다</div>}
+            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              <button onClick={() => setPwModal(null)} style={{ flex: 1, padding: 12, background: "#333", border: "none", borderRadius: 10, color: "#aaa", fontSize: 14, cursor: "pointer" }}>취소</button>
+              <button onClick={handlePwSubmit} style={{ flex: 1, padding: 12, background: "#4a8fc9", border: "none", borderRadius: 10, color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>로그인</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// 프로필 설정 (새 사용자 등록)
+// 프로필 설정 (새 사용자 등록 + 비밀번호)
 function ProfileSetup({ onSave, onCancel, colorIdx }) {
   const [name, setName] = useState("");
   const [height, setHeight] = useState("");
   const [age, setAge] = useState("");
   const [targetFat, setTargetFat] = useState("15");
+  const [password, setPassword] = useState("");
+  const [pwConfirm, setPwConfirm] = useState("");
   const color = PROFILE_COLORS[(colorIdx || 0) % PROFILE_COLORS.length];
 
   const valid = name.trim() && parseFloat(height) > 0 && parseInt(age) > 0;
+  const pwMatch = !password || password === pwConfirm;
   const is = { width: "100%", padding: "12px", background: "#222", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, color: "#e8e4dc", fontSize: 15, boxSizing: "border-box", marginBottom: 10 };
 
   return (
@@ -217,23 +269,29 @@ function ProfileSetup({ onSave, onCancel, colorIdx }) {
       <div style={{ fontSize: 12, color: "#787570", marginBottom: 4 }}>목표 체지방률 (%)</div>
       <input type="number" value={targetFat} onChange={e => setTargetFat(e.target.value)} placeholder="예: 15" style={is} />
 
-      {valid && (
-        <div style={{ background: "#222", borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 12, color: "#787570", lineHeight: 1.7 }}>
-          미리보기: {name} · {height}cm · {age}세 · 목표 체지방 {targetFat}%
-        </div>
+      <div style={{ fontSize: 12, color: "#787570", marginBottom: 4 }}>비밀번호 (선택 — 비워두면 비밀번호 없이 사용)</div>
+      <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="비밀번호" style={is} />
+      {password && (
+        <>
+          <div style={{ fontSize: 12, color: "#787570", marginBottom: 4 }}>비밀번호 확인</div>
+          <input type="password" value={pwConfirm} onChange={e => setPwConfirm(e.target.value)} placeholder="비밀번호 다시 입력"
+            style={{ ...is, borderColor: pwConfirm && !pwMatch ? "#e05252" : "rgba(255,255,255,0.12)" }} />
+          {pwConfirm && !pwMatch && <div style={{ fontSize: 12, color: "#e05252", marginBottom: 8 }}>비밀번호가 일치하지 않습니다</div>}
+        </>
       )}
 
-      <div style={{ display: "flex", gap: 8 }}>
+      <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
         <button onClick={onCancel} style={{ flex: 1, padding: 14, background: "#333", border: "none", borderRadius: 10, color: "#aaa", fontSize: 15, cursor: "pointer" }}>취소</button>
-        <button disabled={!valid} onClick={() => onSave({
+        <button disabled={!valid || !pwMatch} onClick={() => onSave({
           id: name.trim().toLowerCase().replace(/\s+/g, "_"),
           name: name.trim(),
           height: parseFloat(height),
           age: parseInt(age),
           targetFat: parseFloat(targetFat) || 15,
+          password: password || null,
           color,
           createdAt: new Date().toISOString()
-        })} style={{ flex: 1, padding: 14, background: valid ? "#4a8fc9" : "#333", border: "none", borderRadius: 10, color: valid ? "#fff" : "#666", fontSize: 15, fontWeight: 600, cursor: valid ? "pointer" : "not-allowed" }}>시작하기</button>
+        })} style={{ flex: 1, padding: 14, background: valid && pwMatch ? "#4a8fc9" : "#333", border: "none", borderRadius: 10, color: valid && pwMatch ? "#fff" : "#666", fontSize: 15, fontWeight: 600, cursor: valid && pwMatch ? "pointer" : "not-allowed" }}>시작하기</button>
       </div>
     </div>
   );
@@ -703,7 +761,7 @@ function StatsTab({ bodyLog, allDays, onBackup }) {
           {rangeAnalysis.bodyTrend.length >= 2 && (
             <div style={{ background: "#191919", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 10, padding: 16, marginBottom: 12 }}>
               <div style={{ fontSize: 13, color: "#787570", marginBottom: 12 }}>체성분 추이</div>
-              <div style={{ height: 200 }}><ResponsiveContainer><LineChart data={rangeAnalysis.bodyTrend}><XAxis dataKey="d" tick={{ fill: "#787570", fontSize: 10 }} /><YAxis yAxisId="l" tick={{ fill: "#787570", fontSize: 10 }} /><YAxis yAxisId="r" orientation="right" tick={{ fill: "#787570", fontSize: 10 }} /><Tooltip contentStyle={{ background: "#222", border: "1px solid #333", fontSize: 12 }} /><Legend wrapperStyle={{ fontSize: 11 }} /><Line yAxisId="l" type="monotone" dataKey="weight" stroke="#4a8fc9" strokeWidth={2} dot={{ r: 2 }} name="체중(kg)" /><Line yAxisId="r" type="monotone" dataKey="fat" stroke="#e05252" strokeWidth={2} dot={{ r: 2 }} name="체지방(%)" /></LineChart></ResponsiveContainer></div>
+              <div style={{ height: 200 }}><ResponsiveContainer><LineChart data={rangeAnalysis.bodyTrend}><XAxis dataKey="d" tick={{ fill: "#787570", fontSize: 10 }} /><YAxis yAxisId="l" domain={['dataMin - 1', 'dataMax + 1']} tick={{ fill: "#787570", fontSize: 10 }} /><YAxis yAxisId="r" orientation="right" domain={['dataMin - 1', 'dataMax + 1']} tick={{ fill: "#787570", fontSize: 10 }} /><Tooltip contentStyle={{ background: "#222", border: "1px solid #333", fontSize: 12 }} /><Legend wrapperStyle={{ fontSize: 11 }} /><Line yAxisId="l" type="monotone" dataKey="weight" stroke="#4a8fc9" strokeWidth={2} dot={{ r: 2 }} name="체중(kg)" /><Line yAxisId="r" type="monotone" dataKey="fat" stroke="#e05252" strokeWidth={2} dot={{ r: 2 }} name="체지방(%)" /></LineChart></ResponsiveContainer></div>
             </div>
           )}
         </>)}
@@ -730,7 +788,7 @@ function StatsTab({ bodyLog, allDays, onBackup }) {
       {bodyLog.length >= 2 && period !== "range" && (
         <div style={{ background: "#191919", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 10, padding: 16, marginBottom: 12 }}>
           <div style={{ fontSize: 13, color: "#787570", marginBottom: 12 }}>체중 & 체지방 추이</div>
-          <div style={{ height: 200 }}><ResponsiveContainer><LineChart data={bodyLog.slice(-30).map(b => ({ d: b.date.slice(5), weight: b.weight, fat: b.fatPct }))}><XAxis dataKey="d" tick={{ fill: "#787570", fontSize: 10 }} /><YAxis yAxisId="l" tick={{ fill: "#787570", fontSize: 10 }} /><YAxis yAxisId="r" orientation="right" tick={{ fill: "#787570", fontSize: 10 }} /><Tooltip contentStyle={{ background: "#222", border: "1px solid #333", fontSize: 12 }} /><Legend wrapperStyle={{ fontSize: 11 }} /><Line yAxisId="l" type="monotone" dataKey="weight" stroke="#4a8fc9" strokeWidth={2} dot={{ r: 2 }} name="체중(kg)" /><Line yAxisId="r" type="monotone" dataKey="fat" stroke="#e05252" strokeWidth={2} dot={{ r: 2 }} name="체지방(%)" /></LineChart></ResponsiveContainer></div>
+          <div style={{ height: 200 }}><ResponsiveContainer><LineChart data={bodyLog.slice(-30).map(b => ({ d: b.date.slice(5), weight: b.weight, fat: b.fatPct }))}><XAxis dataKey="d" tick={{ fill: "#787570", fontSize: 10 }} /><YAxis yAxisId="l" domain={['dataMin - 1', 'dataMax + 1']} tick={{ fill: "#787570", fontSize: 10 }} /><YAxis yAxisId="r" orientation="right" domain={['dataMin - 1', 'dataMax + 1']} tick={{ fill: "#787570", fontSize: 10 }} /><Tooltip contentStyle={{ background: "#222", border: "1px solid #333", fontSize: 12 }} /><Legend wrapperStyle={{ fontSize: 11 }} /><Line yAxisId="l" type="monotone" dataKey="weight" stroke="#4a8fc9" strokeWidth={2} dot={{ r: 2 }} name="체중(kg)" /><Line yAxisId="r" type="monotone" dataKey="fat" stroke="#e05252" strokeWidth={2} dot={{ r: 2 }} name="체지방(%)" /></LineChart></ResponsiveContainer></div>
         </div>
       )}
 

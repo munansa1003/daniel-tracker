@@ -21,13 +21,19 @@ export function logout() {
   localStorage.removeItem("dt_currentUser");
 }
 
-// 프로필 목록 관리 (모든 사용자 공유)
+// 프로필 목록 관리 (모든 사용자 공유 — 보안 규칙 호환 경로 사용)
 export async function getProfiles() {
   try {
-    const docRef = doc(db, "app", "profiles");
+    const docRef = doc(db, "users", "_shared", "data", "profiles");
     const snap = await getDoc(docRef);
-    if (snap.exists()) return snap.data().list || [];
-    return [];
+    if (snap.exists()) {
+      const list = snap.data().list || [];
+      localStorage.setItem("dt_profiles", JSON.stringify(list));
+      return list;
+    }
+    // localStorage fallback
+    const local = localStorage.getItem("dt_profiles");
+    return local ? JSON.parse(local) : [];
   } catch (e) {
     console.error("getProfiles error:", e);
     const local = localStorage.getItem("dt_profiles");
@@ -37,7 +43,7 @@ export async function getProfiles() {
 
 export async function saveProfiles(list) {
   try {
-    await setDoc(doc(db, "app", "profiles"), { list, updatedAt: new Date().toISOString() });
+    await setDoc(doc(db, "users", "_shared", "data", "profiles"), { list, updatedAt: new Date().toISOString() });
     localStorage.setItem("dt_profiles", JSON.stringify(list));
   } catch (e) {
     console.error("saveProfiles error:", e);
