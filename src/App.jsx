@@ -1059,7 +1059,7 @@ function MainApp({ user, onLogout }) {
               </div>
               <div style={{ fontSize: 18, color: "#5a9e6f" }}>✓</div>
             </div>
-          ) : backupDaysAgo >= 7 && (
+          ) : backupDaysAgo >= 15 && (
             <div onClick={doBackup} style={{ background: "rgba(212,148,58,0.1)", border: "1px solid rgba(212,148,58,0.25)", borderRadius: 10, padding: 12, marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
               <div>
                 <div style={{ fontSize: 13, color: "#d4943a", fontWeight: 500 }}>백업을 해주세요</div>
