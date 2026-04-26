@@ -25,6 +25,53 @@ function sortByHour(arr) {
   return [...arr].sort((a, b) => (a.hour || 0) - (b.hour || 0));
 }
 
+// Net 칼로리 카드 (신호등 스타일)
+function NetCalCard({ intake, exercise }) {
+  const net = Math.round(intake - exercise);
+  let status, color, emoji;
+  if (net < 1500) { status = "위험"; color = "#e05252"; emoji = "🔴"; }
+  else if (net < 1800) { status = "주의"; color = "#d4943a"; emoji = "🟡"; }
+  else if (net <= 2100) { status = "적정"; color = "#5a9e6f"; emoji = "🟢"; }
+  else { status = "초과"; color = "#d4943a"; emoji = "🟡"; }
+
+  const zones = [
+    { l: "위험", r: "~1,500", c: "#e05252", bg: "rgba(224,82,82,0.1)", active: net < 1500 },
+    { l: "주의", r: "1,500~1,800", c: "#d4943a", bg: "rgba(212,148,58,0.1)", active: net >= 1500 && net < 1800 },
+    { l: "적정", r: "1,800~2,100", c: "#5a9e6f", bg: "rgba(90,158,111,0.1)", active: net >= 1800 && net <= 2100 },
+    { l: "초과", r: "2,100~", c: "#d4943a", bg: "rgba(212,148,58,0.1)", active: net > 2100 }
+  ];
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ background: `${color}11`, border: `1px solid ${color}33`, borderRadius: 10, padding: "12px 14px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ fontSize: 11, color: "#787570", marginBottom: 2 }}>Net 칼로리</div>
+            <div style={{ fontSize: 22, fontWeight: 500, fontFamily: "monospace", color }}>
+              {net.toLocaleString()} <span style={{ fontSize: 12, color: "#787570" }}>kcal</span>
+            </div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 20 }}>{emoji}</div>
+            <div style={{ fontSize: 11, color }}>{status}</div>
+          </div>
+        </div>
+        <div style={{ marginTop: 8, fontSize: 12, color: "#787570", lineHeight: 1.5 }}>
+          섭취 {Math.round(intake).toLocaleString()} - 운동 {Math.round(exercise).toLocaleString()} = <span style={{ color: "#e8e4dc" }}>Net {net.toLocaleString()}</span>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+        {zones.map((z, i) => (
+          <div key={i} style={{ flex: 1, background: z.bg, borderRadius: 8, padding: "6px 4px", textAlign: "center", border: z.active ? `1px solid ${z.c}55` : "1px solid transparent" }}>
+            <div style={{ fontSize: 10, color: z.c, marginBottom: 2 }}>{z.l}</div>
+            <div style={{ fontSize: 10, fontFamily: "monospace", color: z.c }}>{z.r}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ───── 공통 컴포넌트 ───── */
 function ProgressBar({ value, max, color, label, unit = "g" }) {
   const over = value > max;
@@ -810,6 +857,7 @@ export default function App() {
             </div>
             <ProgressBar value={totals.k} max={TARGETS.k} color="#5a9e6f" label="섭취 칼로리" unit="kcal" />
             <ProgressBar value={exTotal} max={600} color="#4a8fc9" label="운동 소모" unit="kcal" />
+            <NetCalCard intake={totals.k} exercise={exTotal} />
           </div>
           <div style={cs}>
             <div style={{ fontSize: 13, color: "#787570", marginBottom: 10 }}>오늘 먹은 것 ({meals.length}건)</div>
