@@ -931,30 +931,30 @@ function MainApp({ user, onLogout }) {
     setCustomEx(ne); await store.set("custom-exercises", ne);
   };
 
-  // 어제 기록 복사 (개별)
+  // 어제 기록 복사 (개별) — 시간은 현재 선택된 시간 사용
   const copyMealFromYesterday = (meal) => {
-    const hour = meal.hour || 12;
-    const entry = { ...meal, ts: Date.now(), hour };
+    const entry = { ...meal, ts: Date.now(), hour: parseInt(mealHour) || nowHour() };
     const nm = sortByHour([...meals, entry]);
     setMeals(nm); saveDay(date, nm, exercises);
   };
 
   const copyExFromYesterday = (ex) => {
-    const hour = ex.hour || 12;
-    const entry = { ...ex, ts: Date.now(), hour };
+    const entry = { ...ex, ts: Date.now(), hour: parseInt(exHour) || nowHour() };
     const ne = sortByHour([...exercises, entry]);
     setExercises(ne); saveDay(date, meals, ne);
   };
 
-  // 어제 전체 복사
+  // 어제 전체 복사 — 시간은 현재 선택된 시간 사용
   const copyAllMealsFromYesterday = () => {
-    const newMeals = yesterdayData.meals.map(m => ({ ...m, ts: Date.now() }));
+    const hour = parseInt(mealHour) || nowHour();
+    const newMeals = yesterdayData.meals.map(m => ({ ...m, ts: Date.now(), hour }));
     const nm = sortByHour([...meals, ...newMeals]);
     setMeals(nm); saveDay(date, nm, exercises);
   };
 
   const copyAllExFromYesterday = () => {
-    const newEx = yesterdayData.exercises.map(e => ({ ...e, ts: Date.now() }));
+    const hour = parseInt(exHour) || nowHour();
+    const newEx = yesterdayData.exercises.map(e => ({ ...e, ts: Date.now(), hour }));
     const ne = sortByHour([...exercises, ...newEx]);
     setExercises(ne); saveDay(date, meals, ne);
   };
@@ -1112,6 +1112,18 @@ function MainApp({ user, onLogout }) {
 
         {/* DIET */}
         {tab === "diet" && (<>
+          {/* 시간 선택 (먼저) */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "8px 12px", background: "#191919", borderRadius: 8, border: "1px solid rgba(255,255,255,0.07)" }}>
+            <span style={{ fontSize: 13, color: "#787570" }}>식사 시간</span>
+            <select value={mealHour} onChange={e => setMealHour(parseInt(e.target.value))}
+              style={{ flex: 1, padding: "6px 8px", background: "#222", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, color: "#e8e4dc", fontSize: 14, fontFamily: "monospace" }}>
+              {Array.from({ length: 24 }, (_, h) => (
+                <option key={h} value={h}>{String(h).padStart(2, "0")}:00 {h < 6 ? "새벽" : h < 12 ? "오전" : h < 18 ? "오후" : "저녁"}</option>
+              ))}
+            </select>
+            <button onClick={() => setMealHour(nowHour())} style={{ padding: "6px 10px", background: "#333", border: "none", borderRadius: 6, color: "#aaa", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>지금</button>
+          </div>
+
           {/* 어제 식단 빠른 복사 */}
           {yesterdayData.meals.length > 0 && (
             <div style={{ marginBottom: 12 }}>
@@ -1136,18 +1148,9 @@ function MainApp({ user, onLogout }) {
             </div>
           )}
 
+          {/* 검색 */}
           <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
             <input type="text" placeholder="음식 검색..." value={search} onChange={e => setSearch(e.target.value)} style={{ flex: 1, padding: "10px 12px", background: "#191919", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, color: "#e8e4dc", fontSize: 14, boxSizing: "border-box" }} />
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "8px 12px", background: "#191919", borderRadius: 8, border: "1px solid rgba(255,255,255,0.07)" }}>
-            <span style={{ fontSize: 13, color: "#787570" }}>식사 시간</span>
-            <select value={mealHour} onChange={e => setMealHour(parseInt(e.target.value))}
-              style={{ flex: 1, padding: "6px 8px", background: "#222", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, color: "#e8e4dc", fontSize: 14, fontFamily: "monospace" }}>
-              {Array.from({ length: 24 }, (_, h) => (
-                <option key={h} value={h}>{String(h).padStart(2, "0")}:00 {h < 6 ? "새벽" : h < 12 ? "오전" : h < 18 ? "오후" : "저녁"}</option>
-              ))}
-            </select>
-            <button onClick={() => setMealHour(nowHour())} style={{ padding: "6px 10px", background: "#333", border: "none", borderRadius: 6, color: "#aaa", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>지금</button>
           </div>
           <div style={{ maxHeight: 340, overflowY: "auto", marginBottom: 16 }}>
             {filteredFoods.map((f, i) => (
@@ -1178,6 +1181,18 @@ function MainApp({ user, onLogout }) {
 
         {/* EXERCISE */}
         {tab === "exercise" && (<>
+          {/* 시간 선택 (먼저) */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "8px 12px", background: "#191919", borderRadius: 8, border: "1px solid rgba(255,255,255,0.07)" }}>
+            <span style={{ fontSize: 13, color: "#787570" }}>운동 시간</span>
+            <select value={exHour} onChange={e => setExHour(parseInt(e.target.value))}
+              style={{ flex: 1, padding: "6px 8px", background: "#222", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, color: "#e8e4dc", fontSize: 14, fontFamily: "monospace" }}>
+              {Array.from({ length: 24 }, (_, h) => (
+                <option key={h} value={h}>{String(h).padStart(2, "0")}:00 {h < 6 ? "새벽" : h < 12 ? "오전" : h < 18 ? "오후" : "저녁"}</option>
+              ))}
+            </select>
+            <button onClick={() => setExHour(nowHour())} style={{ padding: "6px 10px", background: "#333", border: "none", borderRadius: 6, color: "#aaa", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>지금</button>
+          </div>
+
           {/* 어제 운동 빠른 복사 */}
           {yesterdayData.exercises.length > 0 && (
             <div style={{ marginBottom: 12 }}>
@@ -1202,18 +1217,9 @@ function MainApp({ user, onLogout }) {
             </div>
           )}
 
+          {/* 검색 */}
           <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
             <input type="text" placeholder="운동 검색..." value={exSearch} onChange={e => setExSearch(e.target.value)} style={{ flex: 1, padding: "10px 12px", background: "#191919", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, color: "#e8e4dc", fontSize: 14, boxSizing: "border-box" }} />
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "8px 12px", background: "#191919", borderRadius: 8, border: "1px solid rgba(255,255,255,0.07)" }}>
-            <span style={{ fontSize: 13, color: "#787570" }}>운동 시간</span>
-            <select value={exHour} onChange={e => setExHour(parseInt(e.target.value))}
-              style={{ flex: 1, padding: "6px 8px", background: "#222", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, color: "#e8e4dc", fontSize: 14, fontFamily: "monospace" }}>
-              {Array.from({ length: 24 }, (_, h) => (
-                <option key={h} value={h}>{String(h).padStart(2, "0")}:00 {h < 6 ? "새벽" : h < 12 ? "오전" : h < 18 ? "오후" : "저녁"}</option>
-              ))}
-            </select>
-            <button onClick={() => setExHour(nowHour())} style={{ padding: "6px 10px", background: "#333", border: "none", borderRadius: 6, color: "#aaa", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>지금</button>
           </div>
           <div style={{ maxHeight: 340, overflowY: "auto", marginBottom: 16 }}>
             {filteredEx.map((e, i) => (
