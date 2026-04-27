@@ -1407,6 +1407,10 @@ function MainApp({ user, onLogout }) {
   const exTotal = useMemo(() => exercises.reduce((s, e) => s + (e.kcal || 0), 0), [exercises]);
   const netKcal = totals.k - exTotal;
 
+  // 운동량 기반 동적 탄수화물 목표 (운동 소모의 50%를 탄수로 보충)
+  const carbBonus = useMemo(() => Math.round((exTotal * 0.5) / 4), [exTotal]);
+  const adjustedC = useMemo(() => TARGETS.c + carbBonus, [TARGETS.c, carbBonus]);
+
   const filteredFoods = useMemo(() => {
     if (!search.trim()) return [];
     return FOOD_DB.filter(f => f.n.toLowerCase().includes(search.toLowerCase()));
@@ -1469,18 +1473,24 @@ function MainApp({ user, onLogout }) {
               <span style={{ fontSize: 12, fontFamily: "monospace", color: netKcal > TARGETS.k ? "#e05252" : "#5a9e6f" }}>Net {Math.round(netKcal)} kcal</span>
             </div>
             <div style={{ display: "flex", gap: 12, justifyContent: "center", marginBottom: 16 }}>
-              {[{ l: "단백질", v: totals.p, t: TARGETS.p, c: COLORS.p }, { l: "탄수", v: totals.c, t: TARGETS.c, c: COLORS.c }, { l: "지방", v: totals.f, t: TARGETS.f, c: COLORS.f }].map(x => (
+              {[{ l: "단백질", v: totals.p, t: TARGETS.p, c: COLORS.p }, { l: "탄수", v: totals.c, t: adjustedC, c: COLORS.c, bonus: carbBonus }, { l: "지방", v: totals.f, t: TARGETS.f, c: COLORS.f }].map(x => (
                 <div key={x.l} style={{ textAlign: "center" }}>
                   <MiniDonut value={x.v} max={x.t} color={x.c} />
                   <div style={{ fontSize: 11, color: "#707070", marginTop: 4 }}>{x.l}</div>
-                  <div style={{ fontSize: 13, fontFamily: "monospace", fontWeight: 500, color: x.v > x.t ? "#f5f5f0" : "#f5f5f0" }}>{x.v}g</div>
+                  <div style={{ fontSize: 13, fontFamily: "monospace", fontWeight: 500, color: "#f5f5f0" }}>{x.v}g</div>
                   <div style={{ fontSize: 10, color: "#4a4a4a" }}>/ {x.t}g</div>
+                  {x.bonus > 0 && <div style={{ fontSize: 9, color: "#d4af37", fontFamily: "monospace" }}>+{x.bonus}g 운동보충</div>}
                   {x.v > x.t && <div style={{ fontSize: 10, color: "#e05252", fontFamily: "monospace" }}>+{x.v - x.t}g 초과</div>}
                 </div>
               ))}
             </div>
             <ProgressBar value={totals.k} max={TARGETS.k} color="#5a9e6f" label="섭취 칼로리" unit="kcal" />
-            <ProgressBar value={exTotal} max={600} color="#4a8fc9" label="운동 소모" unit="kcal" />
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, padding: "8px 0" }}>
+              <span style={{ fontSize: 13, color: "#8a8a8a" }}>운동 소모</span>
+              <span style={{ fontFamily: "monospace", fontSize: 14, fontWeight: 500, color: exTotal > 0 ? "#4a8fc9" : "#4a4a4a" }}>
+                -{exTotal.toLocaleString()} kcal
+              </span>
+            </div>
             <NetCalCard intake={totals.k} exercise={exTotal} />
           </div>
           <div style={cs}>
