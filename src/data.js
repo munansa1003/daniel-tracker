@@ -3,4 +3,4 @@ export const DEFAULT_FOODS=[{n:"갈비(돼지) 100g",u:"100g",p:18,c:11.5,f:22,k
 export const DEFAULT_EX=[{n:"걷기",m:4,memo:"빠른걷기"},{n:"계단 내려가기",m:2.9,memo:""},{n:"계단 오르기",m:9.3,memo:"오르내리기"},{n:"고강도 인터벌 조깅",m:10.3,memo:"중강도 5분"},{n:"덤벨 리어델트 로우",m:5,memo:"Rear Delt Row"},{n:"러닝 4분30초",m:13.4,memo:"하드런"},{n:"러닝 5분",m:12.4,memo:"페이스 런"},{n:"러닝 5분30초",m:11.5,memo:"평지"},{n:"러닝 6분",m:10.5,memo:"평지"},{n:"루마니안 데드리프트",m:5,memo:"RDL"},{n:"바벨로우(중강도)",m:6,memo:"근력"},{n:"벤치프레스(중강도)",m:6,memo:"근력"},{n:"복근(심으뜸 9.7분)",m:7,memo:"중~격렬"},{n:"스쿼트",m:5,memo:""},{n:"스트레칭",m:2.3,memo:"정적"},{n:"이/삼두운동",m:3.5,memo:"근력 중강도"},{n:"투암 덤벨 로우",m:5,memo:"Two-Arm DB Row"},{n:"팔굽혀펴기(격렬)",m:8,memo:"칼리스테닉스"},{n:"팔굽혀펴기(중강도)",m:3.8,memo:""},{n:"품롤러",m:3,memo:"다이내믹 스트레칭"},{n:"행잉 레그 레이즈",m:5,memo:"코어"},{n:"농사일",m:6,memo:""}];
 
 export const TARGETS = { p: 170, c: 217, f: 62, k: 2106, weight: 77.5 };
-export const COLORS = { p: "#4a8fc9", c: "#d4943a", f: "#e05252", k: "#5a9e6f" };
+export const COLORS = { p: "#4a8fc9", c: "#d4af37", f: "#e05252", k: "#5a9e6f" };
