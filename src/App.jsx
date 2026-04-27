@@ -289,7 +289,8 @@ function LoginScreen({ onLogin }) {
       )}
     </div>
   );
-} (새 사용자 등록 + 비밀번호)
+} 
+
 // 프로필 설정 (새 사용자 등록 + 비밀번호)
 function ProfileSetup({ onSave, onCancel, colorIdx }) {
   const [name, setName] = useState("");
