@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar, ComposedChart, Legend } from "recharts";
+import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar, ComposedChart, Legend, ScatterChart, Scatter, ReferenceLine } from "recharts";
 import store, { getCurrentUserId, setUserId, logout, getProfiles, saveProfiles } from "./store.js";
 import { DEFAULT_FOODS, DEFAULT_EX, TARGETS as DEFAULT_TARGETS, COLORS } from "./data.js";
 
@@ -615,12 +615,86 @@ function aggregateDay(d) {
   (d.exercises || []).forEach(e => { ex += e.kcal || 0; });
   return { p, c, f, k, ex, net: k - ex };
 }
+
+// 7일 이동 평균 계산
+function calcMovingAvg(data, key, window = 7) {
+  return data.map((item, idx) => {
+    const start = Math.max(0, idx - window + 1);
+    const slice = data.slice(start, idx + 1);
+    const avg = slice.reduce((s, d) => s + (d[key] || 0), 0) / slice.length;
+    return { ...item, [`${key}_ma`]: Math.round(avg * 10) / 10 };
+  });
+}
+
+// 목표 달성률 게이지 컴포넌트 (터치하여 목표 수정)
+function GoalGauge({ label, current, start, target, unit, goodDir, onChangeTarget }) {
+  const [editing, setEditing] = useState(false);
+  const [editVal, setEditVal] = useState(String(target));
+
+  const totalRange = Math.abs(target - start);
+  const progress = totalRange > 0 ? Math.abs(current - start) / totalRange : 0;
+  const pct = Math.min(Math.max(progress * 100, 0), 100);
+  const color = pct >= 80 ? "#5a9e6f" : pct >= 40 ? "#d4943a" : "#e05252";
+
+  const r = 50, cx = 60, cy = 58;
+  const startAngle = -210, endAngle = 30;
+  const range = endAngle - startAngle;
+  const angle = startAngle + range * (pct / 100);
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const arcPath = (from, to) => {
+    const x1 = cx + r * Math.cos(toRad(from));
+    const y1 = cy + r * Math.sin(toRad(from));
+    const x2 = cx + r * Math.cos(toRad(to));
+    const y2 = cy + r * Math.sin(toRad(to));
+    const large = Math.abs(to - from) > 180 ? 1 : 0;
+    return `M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2}`;
+  };
+
+  const handleSave = () => {
+    const v = parseFloat(editVal);
+    if (v > 0 && onChangeTarget) onChangeTarget(v);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div style={{ textAlign: "center", background: "#222", border: `1px solid ${color}44`, borderRadius: 10, padding: 12 }}>
+        <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 8 }}>{label} 목표</div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginBottom: 8 }}>
+          <input type="number" step="0.1" value={editVal} onChange={e => setEditVal(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleSave()}
+            autoFocus
+            style={{ width: 70, padding: "6px 8px", background: "#333", border: `1px solid ${color}66`, borderRadius: 6, color, fontSize: 16, fontFamily: "monospace", textAlign: "center" }} />
+          <span style={{ fontSize: 12, color: "#787570" }}>{unit}</span>
+        </div>
+        <div style={{ display: "flex", gap: 4 }}>
+          <button onClick={() => setEditing(false)} style={{ flex: 1, padding: 6, background: "#333", border: "none", borderRadius: 6, color: "#aaa", fontSize: 11, cursor: "pointer" }}>취소</button>
+          <button onClick={handleSave} style={{ flex: 1, padding: 6, background: color, border: "none", borderRadius: 6, color: "#fff", fontSize: 11, fontWeight: 500, cursor: "pointer" }}>저장</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ textAlign: "center", cursor: "pointer" }} onClick={() => { setEditVal(String(target)); setEditing(true); }}>
+      <svg viewBox="0 0 120 80" style={{ width: 120, height: 80 }}>
+        <path d={arcPath(startAngle, endAngle)} fill="none" stroke="#2a2a2a" strokeWidth="8" strokeLinecap="round" />
+        <path d={arcPath(startAngle, angle)} fill="none" stroke={color} strokeWidth="8" strokeLinecap="round" />
+        <text x={cx} y={cy - 6} textAnchor="middle" fill="#e8e4dc" fontSize="16" fontWeight="500" fontFamily="monospace">{current}</text>
+        <text x={cx} y={cy + 10} textAnchor="middle" fill="#787570" fontSize="8">{unit}</text>
+      </svg>
+      <div style={{ fontSize: 11, color: "#787570", marginTop: -4 }}>{label}</div>
+      <div style={{ fontSize: 10, fontFamily: "monospace", color }}>{Math.round(pct)}% 달성</div>
+      <div style={{ fontSize: 9, color: "#555", marginTop: 2 }}>{start}{unit} → 목표 {target}{unit}</div>
+    </div>
+  );
+}
 function getWeekKey(ds) { const d = new Date(ds); const day = d.getDay() || 7; d.setDate(d.getDate() + 4 - day); const ys = new Date(d.getFullYear(), 0, 1); return `${d.getFullYear()}-W${String(Math.ceil((((d - ys) / 86400000) + 1) / 7)).padStart(2, "0")}`; }
 function getMonthKey(ds) { return ds.slice(0, 7); }
 function getYearKey(ds) { return ds.slice(0, 4); }
 
 /* ───── 통계 탭 ───── */
-function StatsTab({ bodyLog, allDays, onBackup }) {
+function StatsTab({ bodyLog, allDays, onBackup, goals, onSaveGoals }) {
   const [period, setPeriod] = useState("week");
   const [rangeStart, setRangeStart] = useState("");
   const [rangeEnd, setRangeEnd] = useState("");
@@ -705,6 +779,46 @@ function StatsTab({ bodyLog, allDays, onBackup }) {
   const latest = bodyLog[bodyLog.length - 1];
   const first = bodyLog[0];
   const totalDays = Object.keys(allDays).length;
+
+  // 7일 이동 평균 데이터 (체중 & 체지방)
+  const movingAvgData = useMemo(() => {
+    if (bodyLog.length < 3) return [];
+    let data = bodyLog.slice(-60).map(b => ({ d: b.date.slice(5), weight: b.weight, fat: b.fatPct, muscle: b.muscle }));
+    data = calcMovingAvg(data, "weight", 7);
+    data = calcMovingAvg(data, "fat", 7);
+    data = calcMovingAvg(data, "muscle", 7);
+    return data;
+  }, [bodyLog]);
+
+  // 상관관계 데이터
+  const correlationData = useMemo(() => {
+    const entries = Object.entries(allDays).sort(([a], [b]) => a.localeCompare(b));
+    const carbsVsWeight = [];
+    const exVsMuscle = [];
+
+    entries.forEach(([date, dayData]) => {
+      const agg = aggregateDay(dayData);
+      // 해당 날짜의 체성분 찾기
+      const body = bodyLog.find(b => b.date === date);
+      if (body && agg.c > 0) {
+        carbsVsWeight.push({ carbs: Math.round(agg.c), weight: body.weight, date: date.slice(5) });
+      }
+      if (body && agg.ex > 0) {
+        const totalExMin = (dayData.exercises || []).reduce((s, e) => s + (e.duration || 0), 0);
+        if (totalExMin > 0) {
+          exVsMuscle.push({ exMin: totalExMin, muscle: body.muscle, date: date.slice(5) });
+        }
+      }
+    });
+
+    // 평균선 계산
+    const avgCarbs = carbsVsWeight.length > 0 ? Math.round(carbsVsWeight.reduce((s, d) => s + d.carbs, 0) / carbsVsWeight.length) : 0;
+    const avgWeight = carbsVsWeight.length > 0 ? Math.round(carbsVsWeight.reduce((s, d) => s + d.weight, 0) / carbsVsWeight.length * 10) / 10 : 0;
+    const avgExMin = exVsMuscle.length > 0 ? Math.round(exVsMuscle.reduce((s, d) => s + d.exMin, 0) / exVsMuscle.length) : 0;
+    const avgMuscle = exVsMuscle.length > 0 ? Math.round(exVsMuscle.reduce((s, d) => s + d.muscle, 0) / exVsMuscle.length * 10) / 10 : 0;
+
+    return { carbsVsWeight, exVsMuscle, avgCarbs, avgWeight, avgExMin, avgMuscle };
+  }, [allDays, bodyLog]);
   const pBtn = (p) => ({ flex: 1, padding: "8px 10px", fontSize: 12, fontWeight: 500, background: period === p ? "#4a8fc9" : "transparent", color: period === p ? "#fff" : "#787570", border: "1px solid rgba(255,255,255,0.12)", cursor: "pointer" });
   const sc = (l, v, u, d, good) => (
     <div style={{ background: "#191919", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 8, padding: 14, textAlign: "center" }}>
@@ -724,7 +838,8 @@ function StatsTab({ bodyLog, allDays, onBackup }) {
         <button onClick={() => setPeriod("month")} style={pBtn("month")}>월간</button>
         <button onClick={() => setPeriod("year")} style={pBtn("year")}>연간</button>
         <button onClick={() => setPeriod("hourly")} style={pBtn("hourly")}>시간대</button>
-        <button onClick={() => setPeriod("range")} style={{ ...pBtn("range"), borderRadius: "0 8px 8px 0" }}>기간</button>
+        <button onClick={() => setPeriod("range")} style={pBtn("range")}>기간</button>
+        <button onClick={() => setPeriod("analysis")} style={{ ...pBtn("analysis"), borderRadius: "0 8px 8px 0" }}>분석</button>
       </div>
 
       {period === "hourly" && (<>
@@ -831,7 +946,112 @@ function StatsTab({ bodyLog, allDays, onBackup }) {
         )}
       </>)}
 
-      {period !== "hourly" && period !== "range" && periodData.length > 0 && (<>
+      {/* 분석 탭 */}
+      {period === "analysis" && (<>
+        {/* 목표 달성률 게이지 */}
+        {latest && first && (
+          <div style={{ background: "#191919", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 10, padding: 16, marginBottom: 12 }}>
+            <div style={{ fontSize: 13, color: "#787570", marginBottom: 12 }}>목표 달성률</div>
+            <div style={{ display: "flex", justifyContent: "space-around" }}>
+              <GoalGauge label="체중" current={latest.weight} start={first.weight} target={goals.weight || 72} unit="kg" goodDir="down" onChangeTarget={v => onSaveGoals({ ...goals, weight: v })} />
+              <GoalGauge label="체지방률" current={latest.fatPct} start={first.fatPct} target={goals.fatPct || 15} unit="%" goodDir="down" onChangeTarget={v => onSaveGoals({ ...goals, fatPct: v })} />
+              <GoalGauge label="골격근량" current={latest.muscle} start={first.muscle} target={goals.muscle || 36} unit="kg" goodDir="up" onChangeTarget={v => onSaveGoals({ ...goals, muscle: v })} />
+            </div>
+            <div style={{ fontSize: 10, color: "#555", textAlign: "center", marginTop: 8 }}>게이지를 터치하면 목표를 수정할 수 있어요</div>
+          </div>
+        )}
+
+        {/* 7일 이동 평균 — 체중 */}
+        {movingAvgData.length > 3 && (
+          <div style={{ background: "#191919", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 10, padding: 16, marginBottom: 12 }}>
+            <div style={{ fontSize: 13, color: "#787570", marginBottom: 4 }}>체중 추이 + 7일 이동 평균</div>
+            <div style={{ fontSize: 11, color: "#555", marginBottom: 12 }}>실선: 실제값 · 점선: 7일 평균 (추세)</div>
+            <div style={{ height: 220 }}>
+              <ResponsiveContainer>
+                <ComposedChart data={movingAvgData}>
+                  <XAxis dataKey="d" tick={{ fill: "#787570", fontSize: 9 }} interval={Math.max(0, Math.floor(movingAvgData.length / 8))} />
+                  <YAxis domain={['dataMin - 0.5', 'dataMax + 0.5']} tick={{ fill: "#787570", fontSize: 10 }} />
+                  <Tooltip contentStyle={{ background: "#222", border: "1px solid #333", fontSize: 12 }} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Line type="monotone" dataKey="weight" stroke="#4a8fc933" strokeWidth={1} dot={{ r: 1.5, fill: "#4a8fc9" }} name="체중(kg)" />
+                  <Line type="monotone" dataKey="weight_ma" stroke="#4a8fc9" strokeWidth={2.5} dot={false} strokeDasharray="0" name="7일 평균" />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {/* 7일 이동 평균 — 체지방 & 골격근 */}
+        {movingAvgData.length > 3 && (
+          <div style={{ background: "#191919", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 10, padding: 16, marginBottom: 12 }}>
+            <div style={{ fontSize: 13, color: "#787570", marginBottom: 4 }}>체지방률 & 골격근 추이 + 7일 평균</div>
+            <div style={{ fontSize: 11, color: "#555", marginBottom: 12 }}>실선: 실제값 · 굵은선: 7일 평균</div>
+            <div style={{ height: 220 }}>
+              <ResponsiveContainer>
+                <ComposedChart data={movingAvgData}>
+                  <XAxis dataKey="d" tick={{ fill: "#787570", fontSize: 9 }} interval={Math.max(0, Math.floor(movingAvgData.length / 8))} />
+                  <YAxis yAxisId="l" domain={['dataMin - 0.3', 'dataMax + 0.3']} tick={{ fill: "#787570", fontSize: 10 }} />
+                  <YAxis yAxisId="r" orientation="right" domain={['dataMin - 0.3', 'dataMax + 0.3']} tick={{ fill: "#787570", fontSize: 10 }} />
+                  <Tooltip contentStyle={{ background: "#222", border: "1px solid #333", fontSize: 12 }} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Line yAxisId="l" type="monotone" dataKey="fat" stroke="#e0525233" strokeWidth={1} dot={{ r: 1.5, fill: "#e05252" }} name="체지방(%)" />
+                  <Line yAxisId="l" type="monotone" dataKey="fat_ma" stroke="#e05252" strokeWidth={2.5} dot={false} name="체지방 7일평균" />
+                  <Line yAxisId="r" type="monotone" dataKey="muscle" stroke="#5a9e6f33" strokeWidth={1} dot={{ r: 1.5, fill: "#5a9e6f" }} name="골격근(kg)" />
+                  <Line yAxisId="r" type="monotone" dataKey="muscle_ma" stroke="#5a9e6f" strokeWidth={2.5} dot={false} name="골격근 7일평균" />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {/* 상관관계: 탄수화물 vs 체중 */}
+        {correlationData.carbsVsWeight.length > 5 && (
+          <div style={{ background: "#191919", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 10, padding: 16, marginBottom: 12 }}>
+            <div style={{ fontSize: 13, color: "#787570", marginBottom: 4 }}>탄수화물 섭취 vs 체중 상관관계</div>
+            <div style={{ fontSize: 11, color: "#555", marginBottom: 12 }}>각 점 = 하루 기록 · 점선 = 평균</div>
+            <div style={{ height: 220 }}>
+              <ResponsiveContainer>
+                <ScatterChart>
+                  <XAxis dataKey="carbs" name="탄수화물" unit="g" tick={{ fill: "#787570", fontSize: 10 }} />
+                  <YAxis dataKey="weight" name="체중" unit="kg" domain={['dataMin - 0.5', 'dataMax + 0.5']} tick={{ fill: "#787570", fontSize: 10 }} />
+                  <Tooltip contentStyle={{ background: "#222", border: "1px solid #333", fontSize: 12 }} formatter={(v, n) => [n === "탄수화물" ? v + "g" : v + "kg", n]} />
+                  <ReferenceLine x={correlationData.avgCarbs} stroke="#d4943a55" strokeDasharray="4 4" />
+                  <ReferenceLine y={correlationData.avgWeight} stroke="#4a8fc955" strokeDasharray="4 4" />
+                  <Scatter data={correlationData.carbsVsWeight} fill="#d4943a" fillOpacity={0.6} r={4} />
+                </ScatterChart>
+              </ResponsiveContainer>
+            </div>
+            <div style={{ fontSize: 11, color: "#787570", marginTop: 8, textAlign: "center" }}>평균 탄수 {correlationData.avgCarbs}g · 평균 체중 {correlationData.avgWeight}kg</div>
+          </div>
+        )}
+
+        {/* 상관관계: 운동 시간 vs 골격근 */}
+        {correlationData.exVsMuscle.length > 5 && (
+          <div style={{ background: "#191919", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 10, padding: 16, marginBottom: 12 }}>
+            <div style={{ fontSize: 13, color: "#787570", marginBottom: 4 }}>운동 시간 vs 골격근량 상관관계</div>
+            <div style={{ fontSize: 11, color: "#555", marginBottom: 12 }}>각 점 = 하루 기록 · 점선 = 평균</div>
+            <div style={{ height: 220 }}>
+              <ResponsiveContainer>
+                <ScatterChart>
+                  <XAxis dataKey="exMin" name="운동시간" unit="분" tick={{ fill: "#787570", fontSize: 10 }} />
+                  <YAxis dataKey="muscle" name="골격근" unit="kg" domain={['dataMin - 0.3', 'dataMax + 0.3']} tick={{ fill: "#787570", fontSize: 10 }} />
+                  <Tooltip contentStyle={{ background: "#222", border: "1px solid #333", fontSize: 12 }} formatter={(v, n) => [n === "운동시간" ? v + "분" : v + "kg", n]} />
+                  <ReferenceLine x={correlationData.avgExMin} stroke="#5a9e6f55" strokeDasharray="4 4" />
+                  <ReferenceLine y={correlationData.avgMuscle} stroke="#5a9e6f55" strokeDasharray="4 4" />
+                  <Scatter data={correlationData.exVsMuscle} fill="#5a9e6f" fillOpacity={0.6} r={4} />
+                </ScatterChart>
+              </ResponsiveContainer>
+            </div>
+            <div style={{ fontSize: 11, color: "#787570", marginTop: 8, textAlign: "center" }}>평균 운동 {correlationData.avgExMin}분 · 평균 골격근 {correlationData.avgMuscle}kg</div>
+          </div>
+        )}
+
+        {(!movingAvgData.length && !correlationData.carbsVsWeight.length) && (
+          <div style={{ textAlign: "center", padding: 40, color: "#555", fontSize: 13 }}>데이터가 충분하지 않습니다. 더 많은 기록을 쌓아보세요.</div>
+        )}
+      </>)}
+
+      {period !== "hourly" && period !== "range" && period !== "analysis" && periodData.length > 0 && (<>
         <div style={{ background: "#191919", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 10, padding: 16, marginBottom: 12 }}>
           <div style={{ fontSize: 13, color: "#787570", marginBottom: 12 }}>{period === "week" ? "주간" : period === "month" ? "월간" : "연간"} 칼로리 & Net</div>
           <div style={{ height: 200 }}><ResponsiveContainer><ComposedChart data={periodData}><XAxis dataKey="key" tick={{ fill: "#787570", fontSize: 10 }} tickFormatter={k => k.split("-").slice(-1)[0]} /><YAxis tick={{ fill: "#787570", fontSize: 10 }} /><Tooltip contentStyle={{ background: "#222", border: "1px solid #333", fontSize: 12 }} /><Legend wrapperStyle={{ fontSize: 11 }} /><Bar dataKey="kAvg" fill="#5a9e6f" name="섭취" radius={[3, 3, 0, 0]} /><Bar dataKey="exAvg" fill="#4a8fc9" name="운동" radius={[3, 3, 0, 0]} /><Line type="monotone" dataKey="netAvg" stroke="#e05252" strokeWidth={2} name="Net" dot={{ r: 3 }} /></ComposedChart></ResponsiveContainer></div>
@@ -842,7 +1062,7 @@ function StatsTab({ bodyLog, allDays, onBackup }) {
         </div>
       </>)}
 
-      {bodyLog.length >= 2 && period !== "range" && (
+      {bodyLog.length >= 2 && period !== "range" && period !== "analysis" && (
         <div style={{ background: "#191919", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 10, padding: 16, marginBottom: 12 }}>
           <div style={{ fontSize: 13, color: "#787570", marginBottom: 12 }}>체중 & 체지방 추이</div>
           <div style={{ height: 200 }}><ResponsiveContainer><LineChart data={bodyLog.slice(-30).map(b => ({ d: b.date.slice(5), weight: b.weight, fat: b.fatPct }))}><XAxis dataKey="d" tick={{ fill: "#787570", fontSize: 10 }} /><YAxis yAxisId="l" domain={['dataMin - 1', 'dataMax + 1']} tick={{ fill: "#787570", fontSize: 10 }} /><YAxis yAxisId="r" orientation="right" domain={['dataMin - 1', 'dataMax + 1']} tick={{ fill: "#787570", fontSize: 10 }} /><Tooltip contentStyle={{ background: "#222", border: "1px solid #333", fontSize: 12 }} /><Legend wrapperStyle={{ fontSize: 11 }} /><Line yAxisId="l" type="monotone" dataKey="weight" stroke="#4a8fc9" strokeWidth={2} dot={{ r: 2 }} name="체중(kg)" /><Line yAxisId="r" type="monotone" dataKey="fat" stroke="#e05252" strokeWidth={2} dot={{ r: 2 }} name="체지방(%)" /></LineChart></ResponsiveContainer></div>
@@ -920,6 +1140,7 @@ function MainApp({ user, onLogout }) {
   const [lastBackup, setLastBackup] = useState(null);
   const [justBacked, setJustBacked] = useState(false);
   const [yesterdayData, setYesterdayData] = useState({ meals: [], exercises: [] });
+  const [goals, setGoals] = useState({ weight: 72, fatPct: 15, muscle: 36 });
 
   const FOOD_DB = useMemo(() => [...DEFAULT_FOODS, ...customFoods], [customFoods]);
   const EX_DB = useMemo(() => [...DEFAULT_EX, ...customEx], [customEx]);
@@ -944,6 +1165,9 @@ function MainApp({ user, onLogout }) {
 
         const lb = await store.get("lastBackup");
         if (lb) setLastBackup(lb);
+
+        const savedGoals = await store.get("goals");
+        if (savedGoals) setGoals(savedGoals);
 
         const keys = await store.list("day:");
         const data = {};
@@ -1044,6 +1268,11 @@ function MainApp({ user, onLogout }) {
   const deleteCustomEx = async (idx) => {
     const ne = customEx.filter((_, i) => i !== idx);
     setCustomEx(ne); await store.set("custom-exercises", ne);
+  };
+
+  const saveGoals = async (newGoals) => {
+    setGoals(newGoals);
+    await store.set("goals", newGoals);
   };
 
   // 어제 기록 복사 (개별) — 시간은 현재 선택된 시간 사용
@@ -1392,7 +1621,7 @@ function MainApp({ user, onLogout }) {
         </>)}
 
         {tab === "body" && <BodyTab bodyLog={bodyLog} addBody={addBody} date={date} onEditBody={editBody} onDeleteBody={deleteBody} />}
-        {tab === "stats" && <StatsTab bodyLog={bodyLog} allDays={allDays} onBackup={doBackup} />}
+        {tab === "stats" && <StatsTab bodyLog={bodyLog} allDays={allDays} onBackup={doBackup} goals={goals} onSaveGoals={saveGoals} />}
       </div>
 
       {/* Bottom Nav */}
