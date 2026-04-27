@@ -667,9 +667,22 @@ function GoalGauge({ label, current, start, target, unit, goodDir, onChangeTarge
   const [editing, setEditing] = useState(false);
   const [editVal, setEditVal] = useState(String(target));
 
-  const totalRange = Math.abs(target - start);
-  const progress = totalRange > 0 ? Math.abs(current - start) / totalRange : 0;
-  const pct = Math.min(Math.max(progress * 100, 0), 100);
+  // 방향 인식 진행률 계산
+  let pct = 0;
+  if (goodDir === "down") {
+    // 체중, 체지방: 낮아져야 달성 (start → target 감소 방향)
+    const totalDrop = start - target;
+    if (totalDrop > 0) {
+      pct = ((start - current) / totalDrop) * 100;
+    }
+  } else {
+    // 골격근: 높아져야 달성 (start → target 증가 방향)
+    const totalGain = target - start;
+    if (totalGain > 0) {
+      pct = ((current - start) / totalGain) * 100;
+    }
+  }
+  pct = Math.min(Math.max(Math.round(pct), 0), 100);
   const color = pct >= 80 ? "#5a9e6f" : pct >= 40 ? "#d4af37" : "#e05252";
 
   const r = 50, cx = 60, cy = 58;
@@ -1009,7 +1022,7 @@ function StatsTab({ bodyLog, allDays, onBackup, goals, onSaveGoals }) {
                   <YAxis domain={['dataMin - 0.5', 'dataMax + 0.5']} tick={{ fill: "#707070", fontSize: 10 }} />
                   <Tooltip contentStyle={{ background: "#252525", border: "1px solid #2a2a2a", fontSize: 12 }} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Line type="monotone" dataKey="weight" stroke="#4a8fc933" strokeWidth={1} dot={{ r: 1.5, fill: "#4a8fc9" }} name="체중(kg)" />
+                  <Line type="monotone" dataKey="weight" stroke="#4a8fc999" strokeWidth={1} dot={{ r: 1.5, fill: "#4a8fc9" }} name="체중(kg)" />
                   <Line type="monotone" dataKey="weight_ma" stroke="#4a8fc9" strokeWidth={2.5} dot={false} strokeDasharray="0" name="7일 평균" />
                 </ComposedChart>
               </ResponsiveContainer>
@@ -1030,9 +1043,9 @@ function StatsTab({ bodyLog, allDays, onBackup, goals, onSaveGoals }) {
                   <YAxis yAxisId="r" orientation="right" domain={['dataMin - 0.3', 'dataMax + 0.3']} tick={{ fill: "#707070", fontSize: 10 }} />
                   <Tooltip contentStyle={{ background: "#252525", border: "1px solid #2a2a2a", fontSize: 12 }} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Line yAxisId="l" type="monotone" dataKey="fat" stroke="#e0525233" strokeWidth={1} dot={{ r: 1.5, fill: "#e05252" }} name="체지방(%)" />
+                  <Line yAxisId="l" type="monotone" dataKey="fat" stroke="#e0525299" strokeWidth={1} dot={{ r: 1.5, fill: "#e05252" }} name="체지방(%)" />
                   <Line yAxisId="l" type="monotone" dataKey="fat_ma" stroke="#e05252" strokeWidth={2.5} dot={false} name="체지방 7일평균" />
-                  <Line yAxisId="r" type="monotone" dataKey="muscle" stroke="#5a9e6f33" strokeWidth={1} dot={{ r: 1.5, fill: "#5a9e6f" }} name="골격근(kg)" />
+                  <Line yAxisId="r" type="monotone" dataKey="muscle" stroke="#5a9e6f99" strokeWidth={1} dot={{ r: 1.5, fill: "#5a9e6f" }} name="골격근(kg)" />
                   <Line yAxisId="r" type="monotone" dataKey="muscle_ma" stroke="#5a9e6f" strokeWidth={2.5} dot={false} name="골격근 7일평균" />
                 </ComposedChart>
               </ResponsiveContainer>
@@ -1049,7 +1062,7 @@ function StatsTab({ bodyLog, allDays, onBackup, goals, onSaveGoals }) {
               <ResponsiveContainer>
                 <ScatterChart>
                   <XAxis dataKey="carbs" name="탄수화물" unit="g" tick={{ fill: "#707070", fontSize: 10 }} />
-                  <YAxis dataKey="weight" name="체중" unit="kg" domain={['dataMin - 0.5', 'dataMax + 0.5']} tick={{ fill: "#707070", fontSize: 10 }} />
+                  <YAxis dataKey="weight" name="체중" unit="kg" domain={['dataMin - 0.5', 'dataMax + 0.5']} tick={{ fill: "#707070", fontSize: 10 }} tickFormatter={v => v.toFixed(1)} />
                   <Tooltip contentStyle={{ background: "#252525", border: "1px solid #2a2a2a", fontSize: 12 }} formatter={(v, n) => [n === "탄수화물" ? v + "g" : v + "kg", n]} />
                   <ReferenceLine x={correlationData.avgCarbs} stroke="#d4af3755" strokeDasharray="4 4" />
                   <ReferenceLine y={correlationData.avgWeight} stroke="#4a8fc955" strokeDasharray="4 4" />
@@ -1070,7 +1083,7 @@ function StatsTab({ bodyLog, allDays, onBackup, goals, onSaveGoals }) {
               <ResponsiveContainer>
                 <ScatterChart>
                   <XAxis dataKey="exMin" name="운동시간" unit="분" tick={{ fill: "#707070", fontSize: 10 }} />
-                  <YAxis dataKey="muscle" name="골격근" unit="kg" domain={['dataMin - 0.3', 'dataMax + 0.3']} tick={{ fill: "#707070", fontSize: 10 }} />
+                  <YAxis dataKey="muscle" name="골격근" unit="kg" domain={['dataMin - 0.3', 'dataMax + 0.3']} tick={{ fill: "#707070", fontSize: 10 }} tickFormatter={v => v.toFixed(1)} />
                   <Tooltip contentStyle={{ background: "#252525", border: "1px solid #2a2a2a", fontSize: 12 }} formatter={(v, n) => [n === "운동시간" ? v + "분" : v + "kg", n]} />
                   <ReferenceLine x={correlationData.avgExMin} stroke="#5a9e6f55" strokeDasharray="4 4" />
                   <ReferenceLine y={correlationData.avgMuscle} stroke="#5a9e6f55" strokeDasharray="4 4" />
