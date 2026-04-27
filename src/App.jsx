@@ -25,6 +25,24 @@ function sortByHour(arr) {
   return [...arr].sort((a, b) => (a.hour || 0) - (b.hour || 0));
 }
 
+// 시간대별 식단 그룹핑
+function groupMealsByTime(meals) {
+  const groups = [
+    { label: "🌅 아침", key: "morning", min: 6, max: 10, meals: [] },
+    { label: "🌞 점심", key: "lunch", min: 11, max: 14, meals: [] },
+    { label: "🌙 저녁", key: "dinner", min: 15, max: 20, meals: [] },
+    { label: "🌃 야식", key: "night", min: 21, max: 5, meals: [] }
+  ];
+  meals.forEach((m, idx) => {
+    const h = m.hour || 0;
+    if (h >= 6 && h <= 10) groups[0].meals.push({ ...m, _idx: idx });
+    else if (h >= 11 && h <= 14) groups[1].meals.push({ ...m, _idx: idx });
+    else if (h >= 15 && h <= 20) groups[2].meals.push({ ...m, _idx: idx });
+    else groups[3].meals.push({ ...m, _idx: idx });
+  });
+  return groups.filter(g => g.meals.length > 0);
+}
+
 // Net 칼로리 카드 (신호등 스타일)
 function NetCalCard({ intake, exercise }) {
   const net = Math.round(intake - exercise);
@@ -128,6 +146,11 @@ function LoginScreen({ onLogin }) {
   const [pwModal, setPwModal] = useState(null); // 비밀번호 입력 대상 프로필
   const [pw, setPw] = useState("");
   const [pwError, setPwError] = useState(false);
+  const [deleteIdx, setDeleteIdx] = useState(null); // 삭제 대상 인덱스
+  const [adminPw, setAdminPw] = useState("");
+  const [adminPwError, setAdminPwError] = useState(false);
+
+  const ADMIN_PASSWORD = "1234"; // ★ 관리자 비밀번호 — 원하는 값으로 변경하세요
 
   useEffect(() => {
     getProfiles().then(p => { setProfiles(p); setLoading(false); });
@@ -141,11 +164,22 @@ function LoginScreen({ onLogin }) {
     onLogin(profile);
   };
 
-  const handleDelete = async (idx) => {
-    if (!confirm(`"${profiles[idx].name}" 프로필을 삭제할까요?\n모든 데이터가 삭제됩니다.`)) return;
-    const newProfiles = profiles.filter((_, i) => i !== idx);
+  const handleDeleteRequest = (idx, e) => {
+    e.stopPropagation();
+    setDeleteIdx(idx);
+    setAdminPw("");
+    setAdminPwError(false);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (adminPw !== ADMIN_PASSWORD) {
+      setAdminPwError(true);
+      return;
+    }
+    const newProfiles = profiles.filter((_, i) => i !== deleteIdx);
     setProfiles(newProfiles);
     await saveProfiles(newProfiles);
+    setDeleteIdx(null);
   };
 
   const handleProfileClick = (profile) => {
@@ -184,7 +218,7 @@ function LoginScreen({ onLogin }) {
             {profiles.map((p, i) => (
               <div key={i} onClick={() => handleProfileClick(p)}
                 style={{ background: "#191919", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: "18px 10px", textAlign: "center", cursor: "pointer", position: "relative" }}>
-                <button onClick={(e) => { e.stopPropagation(); handleDelete(i); }}
+                <button onClick={(e) => handleDeleteRequest(i, e)}
                   style={{ position: "absolute", top: 6, right: 8, background: "none", border: "none", color: "#555", fontSize: 14, cursor: "pointer" }}>✕</button>
                 <div style={{ width: 52, height: 52, borderRadius: "50%", background: p.color || PROFILE_COLORS[i % PROFILE_COLORS.length], margin: "0 auto 10px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 500, color: "#fff" }}>
                   {p.name.charAt(0).toUpperCase()}
@@ -230,10 +264,32 @@ function LoginScreen({ onLogin }) {
           </div>
         </div>
       )}
+
+      {/* 관리자 비밀번호 삭제 모달 */}
+      {deleteIdx !== null && profiles[deleteIdx] && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div onClick={() => setDeleteIdx(null)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.65)" }} />
+          <div style={{ position: "relative", width: "90%", maxWidth: 340, background: "#191919", borderRadius: 16, padding: 24 }}>
+            <div style={{ textAlign: "center", marginBottom: 16 }}>
+              <div style={{ fontSize: 16, fontWeight: 500, color: "#e05252" }}>프로필 삭제</div>
+              <div style={{ fontSize: 13, color: "#787570", marginTop: 6 }}>"{profiles[deleteIdx].name}"을(를) 삭제하려면<br/>관리자 비밀번호를 입력하세요</div>
+            </div>
+            <input type="password" value={adminPw} onChange={e => { setAdminPw(e.target.value); setAdminPwError(false); }}
+              onKeyDown={e => e.key === "Enter" && handleDeleteConfirm()}
+              placeholder="관리자 비밀번호"
+              autoFocus
+              style={{ width: "100%", padding: 12, background: "#222", border: `1px solid ${adminPwError ? "#e05252" : "rgba(255,255,255,0.12)"}`, borderRadius: 8, color: "#e8e4dc", fontSize: 15, boxSizing: "border-box", marginBottom: 6 }} />
+            {adminPwError && <div style={{ fontSize: 12, color: "#e05252", marginBottom: 8 }}>관리자 비밀번호가 틀렸습니다</div>}
+            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              <button onClick={() => setDeleteIdx(null)} style={{ flex: 1, padding: 12, background: "#333", border: "none", borderRadius: 10, color: "#aaa", fontSize: 14, cursor: "pointer" }}>취소</button>
+              <button onClick={handleDeleteConfirm} style={{ flex: 1, padding: 12, background: "#e05252", border: "none", borderRadius: 10, color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>삭제</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
-}
-
+} (새 사용자 등록 + 비밀번호)
 // 프로필 설정 (새 사용자 등록 + 비밀번호)
 function ProfileSetup({ onSave, onCancel, colorIdx }) {
   const [name, setName] = useState("");
@@ -1149,12 +1205,26 @@ function MainApp({ user, onLogout }) {
           <div style={cs}>
             <div style={{ fontSize: 13, color: "#787570", marginBottom: 10 }}>오늘 먹은 것 ({meals.length}건)</div>
             {!meals.length && <div style={{ fontSize: 13, color: "#555", textAlign: "center", padding: 16 }}>식단 탭에서 기록 추가</div>}
-            {meals.map((m, i) => (
-              <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.04)", fontSize: 13 }}>
-                <div><span style={{ color: "#4a8fc9", fontSize: 11, marginRight: 6, fontFamily: "monospace" }}>{String(m.hour || 0).padStart(2, "0")}시</span>{m.n}{m.serving !== 1 && <span style={{ color: "#787570", marginLeft: 4 }}>×{m.serving}</span>}</div>
-                <span style={{ color: "#787570", fontFamily: "monospace", fontSize: 12 }}>{Math.round(m.k * m.serving)}kcal</span>
-              </div>
-            ))}
+            {groupMealsByTime(meals).map((group) => {
+              const gP = Math.round(group.meals.reduce((s, m) => s + m.p * m.serving, 0));
+              const gC = Math.round(group.meals.reduce((s, m) => s + m.c * m.serving, 0));
+              const gF = Math.round(group.meals.reduce((s, m) => s + m.f * m.serving, 0));
+              const gK = Math.round(group.meals.reduce((s, m) => s + m.k * m.serving, 0));
+              return (
+                <div key={group.key} style={{ marginBottom: 10 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                    <span style={{ fontSize: 13, fontWeight: 500 }}>{group.label} ({group.meals.length}건)</span>
+                    <span style={{ fontSize: 11, fontFamily: "monospace", color: "#787570" }}>P{gP} C{gC} F{gF} · {gK}kcal</span>
+                  </div>
+                  {group.meals.map((m, j) => (
+                    <div key={j} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0 5px 8px", borderBottom: "1px solid rgba(255,255,255,0.02)", fontSize: 13 }}>
+                      <div><span style={{ color: "#4a8fc9", fontSize: 11, marginRight: 6, fontFamily: "monospace" }}>{String(m.hour || 0).padStart(2, "0")}시</span>{m.n}{m.serving !== 1 && <span style={{ color: "#787570", marginLeft: 4 }}>×{m.serving}</span>}</div>
+                      <span style={{ color: "#787570", fontFamily: "monospace", fontSize: 12 }}>{Math.round(m.k * m.serving)}kcal</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
           </div>
           <div style={cs}>
             <div style={{ fontSize: 13, color: "#787570", marginBottom: 10 }}>오늘 운동 ({exercises.length}건)</div>
@@ -1226,15 +1296,29 @@ function MainApp({ user, onLogout }) {
             {!filteredFoods.length && search.trim() && <div style={{ textAlign: "center", padding: 24, color: "#555", fontSize: 13 }}>검색 결과 없음</div>}
           </div>
           <div style={{ fontSize: 13, color: "#787570", marginBottom: 8 }}>오늘 기록 ({meals.length}건)</div>
-          {meals.map((m, i) => (
-            <div key={i} style={{ ...cs, padding: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ flex: 1, cursor: "pointer" }} onClick={() => setEditMealIdx(i)}><span style={{ color: "#4a8fc9", fontSize: 11, marginRight: 6, fontFamily: "monospace" }}>{String(m.hour || 0).padStart(2, "0")}시</span><span style={{ fontSize: 13 }}>{m.n}</span><span style={{ color: "#787570", fontSize: 12, marginLeft: 4 }}>×{m.serving}</span><div style={{ fontSize: 11, color: "#555", fontFamily: "monospace" }}>P{Math.round(m.p * m.serving)} C{Math.round(m.c * m.serving)} F{Math.round(m.f * m.serving)} · {Math.round(m.k * m.serving)}kcal</div></div>
-              <div style={{ display: "flex", gap: 4 }}>
-                <button onClick={() => setEditMealIdx(i)} style={{ padding: "4px 10px", background: "rgba(74,143,201,0.15)", border: "1px solid rgba(74,143,201,0.3)", borderRadius: 6, color: "#4a8fc9", fontSize: 12, cursor: "pointer" }}>수정</button>
-                <button onClick={() => removeMeal(i)} style={{ padding: "4px 10px", background: "rgba(224,82,82,0.15)", border: "1px solid rgba(224,82,82,0.3)", borderRadius: 6, color: "#e05252", fontSize: 12, cursor: "pointer" }}>삭제</button>
+          {groupMealsByTime(meals).map((group) => {
+            const gP = Math.round(group.meals.reduce((s, m) => s + m.p * m.serving, 0));
+            const gC = Math.round(group.meals.reduce((s, m) => s + m.c * m.serving, 0));
+            const gF = Math.round(group.meals.reduce((s, m) => s + m.f * m.serving, 0));
+            const gK = Math.round(group.meals.reduce((s, m) => s + m.k * m.serving, 0));
+            return (
+              <div key={group.key} style={{ marginBottom: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                  <span style={{ fontSize: 13, fontWeight: 500 }}>{group.label} ({group.meals.length}건)</span>
+                  <span style={{ fontSize: 11, fontFamily: "monospace", color: "#787570" }}>P{gP} C{gC} F{gF} · {gK}kcal</span>
+                </div>
+                {group.meals.map((m) => (
+                  <div key={m._idx} style={{ ...cs, padding: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ flex: 1, cursor: "pointer" }} onClick={() => setEditMealIdx(m._idx)}><span style={{ color: "#4a8fc9", fontSize: 11, marginRight: 6, fontFamily: "monospace" }}>{String(m.hour || 0).padStart(2, "0")}시</span><span style={{ fontSize: 13 }}>{m.n}</span><span style={{ color: "#787570", fontSize: 12, marginLeft: 4 }}>×{m.serving}</span><div style={{ fontSize: 11, color: "#555", fontFamily: "monospace" }}>P{Math.round(m.p * m.serving)} C{Math.round(m.c * m.serving)} F{Math.round(m.f * m.serving)} · {Math.round(m.k * m.serving)}kcal</div></div>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <button onClick={() => setEditMealIdx(m._idx)} style={{ padding: "4px 10px", background: "rgba(74,143,201,0.15)", border: "1px solid rgba(74,143,201,0.3)", borderRadius: 6, color: "#4a8fc9", fontSize: 12, cursor: "pointer" }}>수정</button>
+                      <button onClick={() => removeMeal(m._idx)} style={{ padding: "4px 10px", background: "rgba(224,82,82,0.15)", border: "1px solid rgba(224,82,82,0.3)", borderRadius: 6, color: "#e05252", fontSize: 12, cursor: "pointer" }}>삭제</button>
+                    </div>
+                  </div>
+                ))}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </>)}
 
         {/* EXERCISE */}
