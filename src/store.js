@@ -51,6 +51,54 @@ export async function saveProfiles(list) {
   }
 }
 
+// 공용 음식 DB (모든 사용자 공유)
+export async function getSharedFoods() {
+  try {
+    const docRef = doc(db, "users", "_shared", "data", "shared-foods");
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      const list = snap.data().list || [];
+      localStorage.setItem("dt_shared_foods", JSON.stringify(list));
+      return list;
+    }
+    const local = localStorage.getItem("dt_shared_foods");
+    return local ? JSON.parse(local) : [];
+  } catch (e) {
+    console.error("getSharedFoods error:", e);
+    const local = localStorage.getItem("dt_shared_foods");
+    return local ? JSON.parse(local) : [];
+  }
+}
+
+export async function addSharedFood(food) {
+  try {
+    const current = await getSharedFoods();
+    // 중복 체크 (이름이 같으면 추가 안함)
+    const exists = current.some(f => f.n.trim().toLowerCase() === food.n.trim().toLowerCase());
+    if (exists) return current;
+    const updated = [...current, { ...food, addedAt: new Date().toISOString() }];
+    await setDoc(doc(db, "users", "_shared", "data", "shared-foods"), { list: updated, updatedAt: new Date().toISOString() });
+    localStorage.setItem("dt_shared_foods", JSON.stringify(updated));
+    return updated;
+  } catch (e) {
+    console.error("addSharedFood error:", e);
+    return null;
+  }
+}
+
+export async function deleteSharedFood(idx) {
+  try {
+    const current = await getSharedFoods();
+    const updated = current.filter((_, i) => i !== idx);
+    await setDoc(doc(db, "users", "_shared", "data", "shared-foods"), { list: updated, updatedAt: new Date().toISOString() });
+    localStorage.setItem("dt_shared_foods", JSON.stringify(updated));
+    return updated;
+  } catch (e) {
+    console.error("deleteSharedFood error:", e);
+    return null;
+  }
+}
+
 const store = {
   async get(key) {
     const uid = getCurrentUserId();
