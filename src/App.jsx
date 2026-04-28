@@ -583,8 +583,8 @@ function EditExForm({ exercise, onSave, onCancel, onDelete, weight }) {
   );
 }
 
-/* ───── 체성분 탭 (컨셉 3: 컴팩트 올인원) ───── */
-function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals, allDays }) {
+/* ───── 체성분 탭 (컨셉 B: 차트 탭 전환 + 목표 스테퍼 + 히스토리 3건) ───── */
+function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals, onSaveGoals, allDays }) {
   const [w, setW] = useState("");
   const [m, setM] = useState("");
   const [fp, setFp] = useState("");
@@ -597,6 +597,8 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
   const [esc, setEsc] = useState("");
   const [coaching, setCoaching] = useState("");
   const [coachLoading, setCoachLoading] = useState(false);
+  const [chartTab, setChartTab] = useState("weight");
+  const [showAllHistory, setShowAllHistory] = useState(false);
 
   const existing = bodyLog.find(b => b.date === date);
   const latest = bodyLog[bodyLog.length - 1];
@@ -605,7 +607,6 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
   const age = user?.age || 35;
   const is = { width: "100%", padding: "10px 12px", background: "#252525", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, color: "#f5f5f0", fontSize: 14, boxSizing: "border-box", marginBottom: 8 };
 
-  // 자동 계산값
   const bmi = latest ? Math.round(latest.weight / ((ht / 100) ** 2) * 10) / 10 : 0;
   const bmr = latest ? Math.round(10 * latest.weight + 6.25 * ht - 5 * age + 5) : 0;
   const fatMass = latest ? Math.round(latest.weight * latest.fatPct / 100 * 10) / 10 : 0;
@@ -613,16 +614,39 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
   const idealWeight = Math.round(22 * (ht / 100) ** 2 * 10) / 10;
   const weightAdj = latest ? Math.round((idealWeight - latest.weight) * 10) / 10 : 0;
 
-  // 표준 범위 계산 (키 기준)
   const stdWeight = idealWeight;
   const stdMuscle = Math.round(ht * 0.195 * 10) / 10;
-  const stdFatPct = 15; // 남성 기준
+  const stdFatPct = 15;
 
-  // 변화량
   const dW = prev && latest ? Math.round((latest.weight - prev.weight) * 10) / 10 : null;
   const dM = prev && latest ? Math.round((latest.muscle - prev.muscle) * 10) / 10 : null;
   const dF = prev && latest ? Math.round((latest.fatPct - prev.fatPct) * 10) / 10 : null;
   const dS = prev && latest ? (latest.score || 0) - (prev.score || 0) : null;
+
+  // 차트 데이터
+  const chartData = useMemo(() => {
+    return bodyLog.slice(-30).map(b => ({
+      d: b.date.slice(5),
+      weight: b.weight,
+      muscle: b.muscle,
+      fatPct: b.fatPct,
+      score: b.score || 0
+    }));
+  }, [bodyLog]);
+
+  const chartConfig = {
+    weight: { key: "weight", color: "#4a8fc9", label: "체중", unit: "kg", target: goals?.weight },
+    muscle: { key: "muscle", color: "#5a9e6f", label: "골격근", unit: "kg", target: goals?.muscle },
+    fatPct: { key: "fatPct", color: "#e05252", label: "체지방", unit: "%", target: goals?.fatPct }
+  };
+  const cc = chartConfig[chartTab];
+
+  const chartStats = useMemo(() => {
+    if (chartData.length === 0) return null;
+    const vals = chartData.map(d => d[cc.key]).filter(v => v > 0);
+    if (vals.length === 0) return null;
+    return { max: Math.max(...vals), min: Math.min(...vals), avg: Math.round(vals.reduce((a, b) => a + b, 0) / vals.length * 10) / 10 };
+  }, [chartData, cc.key]);
 
   // 측정 사이 식단/운동 요약
   const periodSummary = useMemo(() => {
@@ -633,27 +657,17 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
     entries.forEach(([, d]) => {
       (d.meals || []).forEach(ml => { totalP += ml.p * ml.serving; totalK += ml.k * ml.serving; });
       const dayEx = (d.exercises || []).reduce((s, e) => s + (e.kcal || 0), 0);
-      totalEx += dayEx;
-      if (dayEx > 0) exDays++;
+      totalEx += dayEx; if (dayEx > 0) exDays++;
     });
     const days = entries.length;
-    return {
-      days,
-      avgP: Math.round(totalP / days),
-      avgK: Math.round(totalK / days),
-      totalSessions: exDays,
-      avgBurn: Math.round(totalEx / days),
-      weeklyEx: Math.round(exDays / (days / 7) * 10) / 10
-    };
+    return { days, avgP: Math.round(totalP / days), avgK: Math.round(totalK / days), totalSessions: exDays, avgBurn: Math.round(totalEx / days), weeklyEx: Math.round(exDays / (days / 7) * 10) / 10 };
   }, [prev, latest, allDays]);
 
-  // AI 코칭 호출
   const fetchCoaching = async (current, previous) => {
     setCoachLoading(true); setCoaching("");
     try {
       const res = await fetch("/api/analyze-body", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           current: { weight: current.weight, muscle: current.muscle, fatPct: current.fatPct, score: current.score },
           previous: previous ? { date: previous.date, weight: previous.weight, muscle: previous.muscle, fatPct: previous.fatPct } : null,
@@ -664,11 +678,9 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
       });
       const data = await res.json();
       if (data.success && data.coaching) setCoaching(data.coaching);
-    } catch {}
-    setCoachLoading(false);
+    } catch {} setCoachLoading(false);
   };
 
-  // 저장 후 코칭 호출
   const handleSave = () => {
     if (!w) return;
     addBody(w, m, fp, sc);
@@ -679,45 +691,33 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
 
   const startEdit = (idx) => {
     const b = bodyLog[bodyLog.length - 1 - idx];
-    setEditIdx(idx);
-    setEw(String(b.weight)); setEm(String(b.muscle)); setEfp(String(b.fatPct)); setEsc(String(b.score || ""));
+    setEditIdx(idx); setEw(String(b.weight)); setEm(String(b.muscle)); setEfp(String(b.fatPct)); setEsc(String(b.score || ""));
   };
-
   const saveEdit = () => {
     const realIdx = bodyLog.length - 1 - editIdx;
-    if (onEditBody && ew) {
-      onEditBody(realIdx, { weight: parseFloat(ew), muscle: parseFloat(em) || 0, fatPct: parseFloat(efp) || 0, score: parseInt(esc) || 0 });
-    }
+    if (onEditBody && ew) onEditBody(realIdx, { weight: parseFloat(ew), muscle: parseFloat(em) || 0, fatPct: parseFloat(efp) || 0, score: parseInt(esc) || 0 });
     setEditIdx(null);
   };
-
   const handleDelete = (displayIdx) => {
     const realIdx = bodyLog.length - 1 - displayIdx;
     if (onDeleteBody && confirm("이 기록을 삭제할까요?")) onDeleteBody(realIdx);
   };
 
-  const chgColor = (v, reverse) => {
-    if (v === null || v === 0) return "#707070";
-    if (reverse) return v < 0 ? "#5a9e6f" : "#e05252";
-    return v > 0 ? "#5a9e6f" : "#e05252";
-  };
+  const chgColor = (v, reverse) => { if (v === null || v === 0) return "#707070"; if (reverse) return v < 0 ? "#5a9e6f" : "#e05252"; return v > 0 ? "#5a9e6f" : "#e05252"; };
   const chgSign = (v) => v > 0 ? "+" + v : String(v);
-
-  // 막대그래프 비율 (표준 대비 %)
   const barPct = (val, std) => Math.min(Math.round((val / std) * 50), 98);
-
-  // 목표 진행률
   const goalPct = (current, start, target, dir) => {
     if (!start || !target || !current) return 0;
     if (dir === "down") { const d = start - target; return d > 0 ? Math.min(Math.max(Math.round(((start - current) / d) * 100), 0), 100) : 0; }
     const d = target - start; return d > 0 ? Math.min(Math.max(Math.round(((current - start) / d) * 100), 0), 100) : 0;
   };
+  const adjustGoal = (key, delta) => { if (onSaveGoals && goals) { const v = Math.round(((goals[key] || 0) + delta) * 10) / 10; if (v > 0) onSaveGoals({ ...goals, [key]: v }); } };
 
   const first = bodyLog[0];
+  const displayHistory = showAllHistory ? bodyLog.slice(-30).reverse() : bodyLog.slice(-3).reverse();
 
   return (
     <>
-      {/* 기록 버튼 */}
       {!showForm && (
         <div style={{ marginBottom: 10 }}>
           <button onClick={() => setShowForm(true)}
@@ -727,7 +727,6 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
         </div>
       )}
 
-      {/* 입력 폼 */}
       {showForm && (
         <div style={{ background: "#1e1e1e", border: "1px solid rgba(74,143,201,0.2)", borderRadius: 16, padding: 16, marginBottom: 10 }}>
           <div style={{ fontSize: 12, color: "#707070", marginBottom: 10 }}>체성분 기록 ({date})</div>
@@ -745,10 +744,9 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
         </div>
       )}
 
-      {/* ─── 대시보드 (데이터 있을 때만) ─── */}
       {latest && (
         <>
-          {/* 점수 + BMI/BMR + 막대그래프 통합 카드 */}
+          {/* 점수 + BMI/BMR + 막대그래프 */}
           <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 10 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
               <div>
@@ -770,30 +768,24 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
                 </div>
               </div>
             </div>
-
-            {/* 막대그래프 분석 */}
             <div style={{ marginTop: 14 }}>
               {[
-                { label: "체중", val: latest.weight, unit: "kg", std: stdWeight, d: dW, color: "#4a8fc9", reverse: true },
-                { label: "골격근", val: latest.muscle, unit: "kg", std: stdMuscle, d: dM, color: "#5a9e6f", reverse: false },
-                { label: "체지방", val: latest.fatPct, unit: "%", std: stdFatPct, d: dF, color: "#e05252", reverse: true }
+                { label: "체중", val: latest.weight, unit: "kg", std: stdWeight, d: dW, color: "#4a8fc9", reverse: true, tab: "weight" },
+                { label: "골격근", val: latest.muscle, unit: "kg", std: stdMuscle, d: dM, color: "#5a9e6f", reverse: false, tab: "muscle" },
+                { label: "체지방", val: latest.fatPct, unit: "%", std: stdFatPct, d: dF, color: "#e05252", reverse: true, tab: "fatPct" }
               ].map((item, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: i < 2 ? 8 : 0 }}>
-                  <span style={{ fontSize: 10, color: "#8a8a8a", minWidth: 36 }}>{item.label}</span>
+                <div key={i} onClick={() => setChartTab(item.tab)} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: i < 2 ? 8 : 0, cursor: "pointer", padding: "2px 0", borderRadius: 4, background: chartTab === item.tab ? "rgba(255,255,255,0.02)" : "transparent" }}>
+                  <span style={{ fontSize: 10, color: chartTab === item.tab ? item.color : "#8a8a8a", minWidth: 36, fontWeight: chartTab === item.tab ? 500 : 400 }}>{item.label}</span>
                   <div style={{ flex: 1, height: 14, background: "#2a2a2a", borderRadius: 3, position: "relative", overflow: "hidden" }}>
                     <div style={{ position: "absolute", left: "40%", width: "20%", height: "100%", background: "rgba(255,255,255,0.04)" }}></div>
                     <div style={{ width: barPct(item.val, item.std) + "%", height: "100%", background: item.color, borderRadius: 3, display: "flex", alignItems: "center", justifyContent: "flex-end", paddingRight: 4, minWidth: 30 }}>
                       <span style={{ fontSize: 8, color: "#fff", fontWeight: 500 }}>{item.val}{item.unit}</span>
                     </div>
                   </div>
-                  <span style={{ fontSize: 10, color: item.d !== null ? chgColor(item.d, item.reverse) : "#4a4a4a", minWidth: 36, textAlign: "right" }}>
-                    {item.d !== null ? chgSign(item.d) : "—"}
-                  </span>
+                  <span style={{ fontSize: 10, color: item.d !== null ? chgColor(item.d, item.reverse) : "#4a4a4a", minWidth: 36, textAlign: "right" }}>{item.d !== null ? chgSign(item.d) : "—"}</span>
                 </div>
               ))}
             </div>
-
-            {/* 자동 계산 지표 */}
             <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
               <div style={{ flex: 1, background: "rgba(90,158,111,0.08)", border: "1px solid rgba(90,158,111,0.12)", borderRadius: 8, padding: "6px 8px", textAlign: "center" }}>
                 <div style={{ fontSize: 8, color: "#5a9e6f" }}>체지방량</div>
@@ -810,7 +802,66 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
             </div>
           </div>
 
-          {/* AI 코칭 카드 */}
+          {/* 추이 차트 (탭 전환) */}
+          {chartData.length >= 2 && (
+            <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 14, padding: 14, marginBottom: 10 }}>
+              <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
+                {Object.entries(chartConfig).map(([key, cfg]) => (
+                  <div key={key} onClick={() => setChartTab(key)}
+                    style={{ flex: 1, textAlign: "center", padding: 6, background: chartTab === key ? cfg.color : "#252525", borderRadius: 6, fontSize: 11, fontWeight: chartTab === key ? 500 : 400, color: chartTab === key ? "#fff" : "#707070", cursor: "pointer", transition: "all 0.2s" }}>
+                    {cfg.label}
+                  </div>
+                ))}
+              </div>
+              <ResponsiveContainer width="100%" height={130}>
+                <LineChart data={chartData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                  <XAxis dataKey="d" tick={{ fill: "#4a4a4a", fontSize: 9 }} axisLine={false} tickLine={false} interval={Math.max(0, Math.floor(chartData.length / 5) - 1)} />
+                  <YAxis domain={["auto", "auto"]} tick={{ fill: "#4a4a4a", fontSize: 9 }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={{ background: "#252525", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, fontSize: 11, color: "#f5f5f0" }} formatter={(v) => [v + cc.unit, cc.label]} labelStyle={{ color: "#707070" }} />
+                  <Line type="monotone" dataKey={cc.key} stroke={cc.color} strokeWidth={2} dot={false} activeDot={{ r: 4, fill: cc.color }} />
+                  {cc.target && <ReferenceLine y={cc.target} stroke="#d4af37" strokeDasharray="4 3" strokeWidth={1} label={{ value: `목표 ${cc.target}`, fill: "#d4af37", fontSize: 9, position: "insideTopRight" }} />}
+                </LineChart>
+              </ResponsiveContainer>
+              {chartStats && (
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "#4a4a4a", marginTop: 4 }}>
+                  <span>최고 {chartStats.max} · 최저 {chartStats.min}</span>
+                  <span>평균 {chartStats.avg}{cc.unit}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 목표 설정 + 달성률 */}
+          {goals && (
+            <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 12, padding: 12, marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: "#707070", marginBottom: 10 }}>목표 설정</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+                {[
+                  { key: "weight", label: "체중", color: "#4a8fc9", unit: "kg", step: 0.5, dir: "down" },
+                  { key: "fatPct", label: "체지방", color: "#e05252", unit: "%", step: 0.5, dir: "down" },
+                  { key: "muscle", label: "골격근", color: "#5a9e6f", unit: "kg", step: 0.5, dir: "up" }
+                ].map(g => {
+                  const pct = first && latest ? goalPct(latest[g.key === "fatPct" ? "fatPct" : g.key], first[g.key === "fatPct" ? "fatPct" : g.key], goals[g.key], g.dir) : 0;
+                  return (
+                    <div key={g.key} style={{ textAlign: "center" }}>
+                      <div style={{ fontSize: 9, color: g.color, marginBottom: 2 }}>{g.label}</div>
+                      <div style={{ background: "#252525", border: `1px solid ${g.color}22`, borderRadius: 6, padding: "4px 2px", display: "flex", alignItems: "center", justifyContent: "center", gap: 2 }}>
+                        <span onClick={() => adjustGoal(g.key, -g.step)} style={{ fontSize: 14, color: "#4a4a4a", cursor: "pointer", padding: "0 6px", userSelect: "none" }}>−</span>
+                        <span style={{ fontSize: 14, fontWeight: 500 }}>{goals[g.key]}<span style={{ fontSize: 9, color: "#707070" }}>{g.unit}</span></span>
+                        <span onClick={() => adjustGoal(g.key, g.step)} style={{ fontSize: 14, color: "#4a4a4a", cursor: "pointer", padding: "0 6px", userSelect: "none" }}>+</span>
+                      </div>
+                      <div style={{ height: 2, background: "#2a2a2a", borderRadius: 1, marginTop: 4 }}>
+                        <div style={{ width: pct + "%", height: "100%", background: g.dir === "up" ? "#5a9e6f" : "#d4af37", borderRadius: 1 }}></div>
+                      </div>
+                      <div style={{ fontSize: 8, color: "#4a4a4a", marginTop: 1 }}>{pct}%</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* AI 코칭 */}
           {(coaching || coachLoading) && (
             <div style={{ background: "rgba(212,175,55,0.06)", border: "1px solid rgba(212,175,55,0.15)", borderRadius: 12, padding: 12, marginBottom: 10 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
@@ -818,11 +869,7 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
                 <span style={{ fontSize: 10, color: "#d4af37" }}>AI 코칭</span>
                 {periodSummary && <span style={{ fontSize: 9, color: "#4a4a4a", marginLeft: "auto" }}>{prev?.date} ~ {latest.date}</span>}
               </div>
-              {coachLoading ? (
-                <div style={{ fontSize: 12, color: "#707070" }}>분석 중...</div>
-              ) : (
-                <div style={{ fontSize: 12, color: "#c0b896", lineHeight: 1.5 }}>{coaching}</div>
-              )}
+              {coachLoading ? <div style={{ fontSize: 12, color: "#707070" }}>분석 중...</div> : <div style={{ fontSize: 12, color: "#c0b896", lineHeight: 1.5 }}>{coaching}</div>}
             </div>
           )}
 
@@ -850,41 +897,19 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
               </div>
             </div>
           )}
-
-          {/* 목표 달성률 */}
-          {first && goals && (
-            <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 12, padding: 12, marginBottom: 10 }}>
-              <div style={{ fontSize: 11, color: "#707070", marginBottom: 8 }}>목표 달성률</div>
-              <div style={{ display: "flex", gap: 8 }}>
-                {[
-                  { label: `체중 ${goals.weight}kg`, pct: goalPct(latest.weight, first.weight, goals.weight, "down"), color: "#d4af37" },
-                  { label: `체지방 ${goals.fatPct}%`, pct: goalPct(latest.fatPct, first.fatPct, goals.fatPct, "down"), color: "#d4af37" },
-                  { label: `골격근 ${goals.muscle}kg`, pct: goalPct(latest.muscle, first.muscle, goals.muscle, "up"), color: "#5a9e6f" }
-                ].map((g, i) => (
-                  <div key={i} style={{ flex: 1 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, marginBottom: 2 }}>
-                      <span style={{ color: "#8a8a8a" }}>{g.label}</span>
-                      <span style={{ color: g.color }}>{g.pct}%</span>
-                    </div>
-                    <div style={{ height: 3, background: "#2a2a2a", borderRadius: 2 }}>
-                      <div style={{ width: g.pct + "%", height: "100%", background: g.color, borderRadius: 2 }}></div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </>
       )}
 
-      {/* 히스토리 */}
+      {/* 히스토리 (3건 + 전체보기) */}
       <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 12, padding: 12 }}>
-        <div style={{ fontSize: 11, color: "#707070", marginBottom: 6 }}>기록 히스토리 ({bodyLog.length}건)</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <span style={{ fontSize: 11, color: "#707070" }}>기록 히스토리 ({bodyLog.length}건)</span>
+        </div>
         {bodyLog.length === 0 && <div style={{ fontSize: 12, color: "#4a4a4a", textAlign: "center", padding: 16 }}>체성분을 기록해보세요</div>}
-        {bodyLog.slice(-10).reverse().map((b, i) => (
+        {displayHistory.map((b, i) => (
           <div key={i}>
             {editIdx === i ? (
-              <div style={{ background: "#252525", border: "1px solid rgba(74,143,201,0.3)", borderRadius: 8, padding: 10, marginBottom: 6 }}>
+              <div style={{ background: "#252525", border: "1px solid rgba(74,143,201,0.3)", borderRadius: 8, padding: 10, marginBottom: 4 }}>
                 <div style={{ fontSize: 11, color: "#4a8fc9", marginBottom: 6, fontFamily: "monospace" }}>{b.date} 수정</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
                   <input type="number" step="0.1" placeholder="체중" value={ew} onChange={e => setEw(e.target.value)} style={{ ...is, marginBottom: 4, fontSize: 12, padding: "8px 10px" }} />
@@ -912,6 +937,13 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
             )}
           </div>
         ))}
+        {bodyLog.length > 3 && (
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.04)", marginTop: 6, paddingTop: 6, textAlign: "center" }}>
+            <span onClick={() => setShowAllHistory(!showAllHistory)} style={{ fontSize: 11, color: "#4a8fc9", cursor: "pointer" }}>
+              {showAllHistory ? "접기 ▴" : `전체 보기 (${bodyLog.length}건) ▾`}
+            </span>
+          </div>
+        )}
       </div>
     </>
   );
@@ -2241,7 +2273,7 @@ function MainApp({ user, onLogout }) {
           })}
         </>)}
 
-        {tab === "body" && <BodyTab bodyLog={bodyLog} addBody={addBody} date={date} onEditBody={editBody} onDeleteBody={deleteBody} user={user} goals={goals} allDays={allDays} />}
+        {tab === "body" && <BodyTab bodyLog={bodyLog} addBody={addBody} date={date} onEditBody={editBody} onDeleteBody={deleteBody} user={user} goals={goals} onSaveGoals={saveGoals} allDays={allDays} />}
         {tab === "stats" && <StatsTab bodyLog={bodyLog} allDays={allDays} onBackup={doBackup} goals={goals} onSaveGoals={saveGoals} />}
       </div>
 
