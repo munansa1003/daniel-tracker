@@ -164,6 +164,48 @@ const store = {
     }
   },
 
+  // localStorage에서 동기적으로 전체 데이터 읽기 (즉시 표시용)
+  getLocalAll() {
+    const uid = getCurrentUserId();
+    if (!uid) return {};
+    const result = {};
+    try {
+      const prefix = "dt_" + uid + "_";
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(prefix)) {
+          const dataKey = k.slice(prefix.length);
+          try { result[dataKey] = JSON.parse(localStorage.getItem(k)); } catch {}
+        }
+      }
+    } catch {}
+    return result;
+  },
+
+  // Firestore에서 ONE getDocs로 전체 데이터 읽기 (백그라운드 동기화용)
+  async getAllData() {
+    const uid = getCurrentUserId();
+    if (!uid) return {};
+    try {
+      const colRef = collection(db, "users", uid, "data");
+      const snap = await getDocs(colRef);
+      const result = {};
+      snap.forEach(d => {
+        const val = d.data().value;
+        if (val !== undefined) {
+          result[d.id] = val;
+          // localStorage 캐시도 갱신
+          try { localStorage.setItem("dt_" + uid + "_" + d.id, JSON.stringify(val)); } catch {}
+        }
+      });
+      return result;
+    } catch (e) {
+      console.error("getAllData error:", e);
+      // Firestore 실패 시 localStorage 폴백
+      return this.getLocalAll();
+    }
+  },
+
   // 기존 데이터 마이그레이션 (이전 user_xxx ID에서 새 ID로)
   async migrateFrom(oldUid) {
     const newUid = getCurrentUserId();

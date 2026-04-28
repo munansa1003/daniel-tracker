@@ -1206,58 +1206,46 @@ function MainApp({ user, onLogout }) {
     return dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0");
   }, []);
 
-  // 초기 로드 (Firebase 비동기)
+  // ── 초기 로드: localStorage-first + Firestore 백그라운드 동기화 ──
   useEffect(() => {
-    async function loadAll() {
-      try {
-        const cf = await store.get("custom-foods");
-        if (cf) setCustomFoods(cf);
-        const ce = await store.get("custom-exercises");
-        if (ce) setCustomEx(ce);
-        const sf = await getSharedFoods();
-        if (sf) setSharedFoods(sf);
-        const body = await store.get("bodylog");
-        if (body) setBodyLog([...body].sort((a, b) => a.date.localeCompare(b.date)));
+    // Phase 1: localStorage에서 즉시 표시 (동기 — 네트워크 대기 없음)
+    const local = store.getLocalAll();
+    if (local["custom-foods"]) setCustomFoods(local["custom-foods"]);
+    if (local["custom-exercises"]) setCustomEx(local["custom-exercises"]);
+    if (local["bodylog"]) setBodyLog([...local["bodylog"]].sort((a, b) => a.date.localeCompare(b.date)));
+    if (local["lastBackup"]) setLastBackup(local["lastBackup"]);
+    if (local["goals"]) setGoals(local["goals"]);
+    const localDays = {};
+    for (const k in local) { if (k.startsWith("day:")) localDays[k.slice(4)] = local[k]; }
+    if (Object.keys(localDays).length > 0) setAllDays(localDays);
+    try { const lsf = localStorage.getItem("dt_shared_foods"); if (lsf) setSharedFoods(JSON.parse(lsf)); } catch {}
+    setLoaded(true);
 
-        const lb = await store.get("lastBackup");
-        if (lb) setLastBackup(lb);
-
-        const savedGoals = await store.get("goals");
-        if (savedGoals) setGoals(savedGoals);
-
-        const keys = await store.list("day:");
-        const data = {};
-        for (const k of keys) {
-          const d = await store.get(k);
-          if (d) data[k.replace("day:", "")] = d;
-        }
-        setAllDays(data);
-      } catch (e) { console.error("Load error:", e); }
-      setLoaded(true);
-    }
-    loadAll();
+    // Phase 2: Firestore 백그라운드 동기화 (ONE getDocs — 네트워크 1회 왕복)
+    Promise.all([store.getAllData(), getSharedFoods()]).then(([remote, sf]) => {
+      if (sf) setSharedFoods(sf);
+      if (!remote || Object.keys(remote).length === 0) return;
+      if (remote["custom-foods"]) setCustomFoods(remote["custom-foods"]);
+      if (remote["custom-exercises"]) setCustomEx(remote["custom-exercises"]);
+      if (remote["bodylog"]) setBodyLog([...remote["bodylog"]].sort((a, b) => a.date.localeCompare(b.date)));
+      if (remote["lastBackup"]) setLastBackup(remote["lastBackup"]);
+      if (remote["goals"]) setGoals(remote["goals"]);
+      const remoteDays = {};
+      for (const k in remote) { if (k.startsWith("day:")) remoteDays[k.slice(4)] = remote[k]; }
+      if (Object.keys(remoteDays).length > 0) setAllDays(remoteDays);
+    }).catch(e => console.error("Sync error:", e));
   }, []);
 
-  // 날짜 변경 시 해당 날 + 어제 데이터 로드 (시간순 정렬 적용)
+  // 날짜 변경 시 allDays에서 해당 날 데이터 추출 (Firestore 호출 없음)
   useEffect(() => {
-    async function loadDay() {
-      try {
-        const data = await store.get(`day:${date}`);
-        if (data) {
-          setMeals(sortByHour(data.meals || []));
-          setExercises(sortByHour(data.exercises || []));
-        } else { setMeals([]); setExercises([]); }
-
-        // 어제 데이터 로드
-        const yd = getYesterday(date);
-        const yData = await store.get(`day:${yd}`);
-        if (yData) {
-          setYesterdayData({ meals: yData.meals || [], exercises: yData.exercises || [] });
-        } else { setYesterdayData({ meals: [], exercises: [] }); }
-      } catch { setMeals([]); setExercises([]); setYesterdayData({ meals: [], exercises: [] }); }
-    }
-    if (loaded) loadDay();
-  }, [date, loaded, getYesterday]);
+    if (!loaded) return;
+    const d = allDays[date];
+    setMeals(sortByHour(d?.meals || []));
+    setExercises(sortByHour(d?.exercises || []));
+    const yd = getYesterday(date);
+    const y = allDays[yd];
+    setYesterdayData({ meals: y?.meals || [], exercises: y?.exercises || [] });
+  }, [date, loaded, allDays, getYesterday]);
 
   const saveDay = async (d, m, e) => {
     setAllDays(prev => ({ ...prev, [d]: { meals: m, exercises: e } }));
