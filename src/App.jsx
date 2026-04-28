@@ -583,80 +583,336 @@ function EditExForm({ exercise, onSave, onCancel, onDelete, weight }) {
   );
 }
 
-/* ───── 체성분 탭 ───── */
-function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody }) {
+/* ───── 체성분 탭 (컨셉 3: 컴팩트 올인원) ───── */
+function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals, allDays }) {
   const [w, setW] = useState("");
   const [m, setM] = useState("");
   const [fp, setFp] = useState("");
+  const [sc, setSc] = useState("");
+  const [showForm, setShowForm] = useState(false);
   const [editIdx, setEditIdx] = useState(null);
   const [ew, setEw] = useState("");
   const [em, setEm] = useState("");
   const [efp, setEfp] = useState("");
+  const [esc, setEsc] = useState("");
+  const [coaching, setCoaching] = useState("");
+  const [coachLoading, setCoachLoading] = useState(false);
+
   const existing = bodyLog.find(b => b.date === date);
+  const latest = bodyLog[bodyLog.length - 1];
+  const prev = bodyLog.length >= 2 ? bodyLog[bodyLog.length - 2] : null;
+  const ht = user?.height || 175;
+  const age = user?.age || 35;
   const is = { width: "100%", padding: "10px 12px", background: "#252525", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, color: "#f5f5f0", fontSize: 14, boxSizing: "border-box", marginBottom: 8 };
 
+  // 자동 계산값
+  const bmi = latest ? Math.round(latest.weight / ((ht / 100) ** 2) * 10) / 10 : 0;
+  const bmr = latest ? Math.round(10 * latest.weight + 6.25 * ht - 5 * age + 5) : 0;
+  const fatMass = latest ? Math.round(latest.weight * latest.fatPct / 100 * 10) / 10 : 0;
+  const leanMass = latest ? Math.round((latest.weight - fatMass) * 10) / 10 : 0;
+  const idealWeight = Math.round(22 * (ht / 100) ** 2 * 10) / 10;
+  const weightAdj = latest ? Math.round((idealWeight - latest.weight) * 10) / 10 : 0;
+
+  // 표준 범위 계산 (키 기준)
+  const stdWeight = idealWeight;
+  const stdMuscle = Math.round(ht * 0.195 * 10) / 10;
+  const stdFatPct = 15; // 남성 기준
+
+  // 변화량
+  const dW = prev && latest ? Math.round((latest.weight - prev.weight) * 10) / 10 : null;
+  const dM = prev && latest ? Math.round((latest.muscle - prev.muscle) * 10) / 10 : null;
+  const dF = prev && latest ? Math.round((latest.fatPct - prev.fatPct) * 10) / 10 : null;
+  const dS = prev && latest ? (latest.score || 0) - (prev.score || 0) : null;
+
+  // 측정 사이 식단/운동 요약
+  const periodSummary = useMemo(() => {
+    if (!prev || !latest || !allDays) return null;
+    const entries = Object.entries(allDays).filter(([d]) => d > prev.date && d <= latest.date);
+    if (entries.length === 0) return null;
+    let totalP = 0, totalK = 0, totalEx = 0, exDays = 0;
+    entries.forEach(([, d]) => {
+      (d.meals || []).forEach(ml => { totalP += ml.p * ml.serving; totalK += ml.k * ml.serving; });
+      const dayEx = (d.exercises || []).reduce((s, e) => s + (e.kcal || 0), 0);
+      totalEx += dayEx;
+      if (dayEx > 0) exDays++;
+    });
+    const days = entries.length;
+    return {
+      days,
+      avgP: Math.round(totalP / days),
+      avgK: Math.round(totalK / days),
+      totalSessions: exDays,
+      avgBurn: Math.round(totalEx / days),
+      weeklyEx: Math.round(exDays / (days / 7) * 10) / 10
+    };
+  }, [prev, latest, allDays]);
+
+  // AI 코칭 호출
+  const fetchCoaching = async (current, previous) => {
+    setCoachLoading(true); setCoaching("");
+    try {
+      const res = await fetch("/api/analyze-body", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          current: { weight: current.weight, muscle: current.muscle, fatPct: current.fatPct, score: current.score },
+          previous: previous ? { date: previous.date, weight: previous.weight, muscle: previous.muscle, fatPct: previous.fatPct } : null,
+          dietSummary: periodSummary ? { avgP: periodSummary.avgP, avgK: periodSummary.avgK, days: periodSummary.days } : null,
+          exerciseSummary: periodSummary ? { totalSessions: periodSummary.totalSessions, avgBurn: periodSummary.avgBurn } : null,
+          goals: goals ? { weight: goals.weight, fatPct: goals.fatPct, muscle: goals.muscle } : null
+        })
+      });
+      const data = await res.json();
+      if (data.success && data.coaching) setCoaching(data.coaching);
+    } catch {}
+    setCoachLoading(false);
+  };
+
+  // 저장 후 코칭 호출
+  const handleSave = () => {
+    if (!w) return;
+    addBody(w, m, fp, sc);
+    const newEntry = { weight: parseFloat(w), muscle: parseFloat(m) || 0, fatPct: parseFloat(fp) || 0, score: parseInt(sc) || 0 };
+    fetchCoaching(newEntry, latest);
+    setW(""); setM(""); setFp(""); setSc(""); setShowForm(false);
+  };
+
   const startEdit = (idx) => {
-    const b = bodyLog[bodyLog.length - 1 - idx]; // reversed display
+    const b = bodyLog[bodyLog.length - 1 - idx];
     setEditIdx(idx);
-    setEw(String(b.weight));
-    setEm(String(b.muscle));
-    setEfp(String(b.fatPct));
+    setEw(String(b.weight)); setEm(String(b.muscle)); setEfp(String(b.fatPct)); setEsc(String(b.score || ""));
   };
 
   const saveEdit = () => {
     const realIdx = bodyLog.length - 1 - editIdx;
     if (onEditBody && ew) {
-      onEditBody(realIdx, { weight: parseFloat(ew), muscle: parseFloat(em) || 0, fatPct: parseFloat(efp) || 0 });
+      onEditBody(realIdx, { weight: parseFloat(ew), muscle: parseFloat(em) || 0, fatPct: parseFloat(efp) || 0, score: parseInt(esc) || 0 });
     }
     setEditIdx(null);
   };
 
   const handleDelete = (displayIdx) => {
     const realIdx = bodyLog.length - 1 - displayIdx;
-    if (onDeleteBody && confirm("이 기록을 삭제할까요?")) {
-      onDeleteBody(realIdx);
-    }
+    if (onDeleteBody && confirm("이 기록을 삭제할까요?")) onDeleteBody(realIdx);
   };
+
+  const chgColor = (v, reverse) => {
+    if (v === null || v === 0) return "#707070";
+    if (reverse) return v < 0 ? "#5a9e6f" : "#e05252";
+    return v > 0 ? "#5a9e6f" : "#e05252";
+  };
+  const chgSign = (v) => v > 0 ? "+" + v : String(v);
+
+  // 막대그래프 비율 (표준 대비 %)
+  const barPct = (val, std) => Math.min(Math.round((val / std) * 50), 98);
+
+  // 목표 진행률
+  const goalPct = (current, start, target, dir) => {
+    if (!start || !target || !current) return 0;
+    if (dir === "down") { const d = start - target; return d > 0 ? Math.min(Math.max(Math.round(((start - current) / d) * 100), 0), 100) : 0; }
+    const d = target - start; return d > 0 ? Math.min(Math.max(Math.round(((current - start) / d) * 100), 0), 100) : 0;
+  };
+
+  const first = bodyLog[0];
 
   return (
     <>
-      <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
-        <div style={{ fontSize: 13, color: "#707070", marginBottom: 12 }}>체성분 기록 ({date})</div>
-        {existing && <div style={{ background: "rgba(90,158,111,0.08)", border: "1px solid rgba(90,158,111,0.2)", borderRadius: 6, padding: 10, marginBottom: 12, fontSize: 13, color: "#f5f5f0" }}>기록됨: {existing.weight}kg · 골격근 {existing.muscle}kg · 체지방 {existing.fatPct}%</div>}
-        <input type="number" step="0.1" placeholder="체중 (kg)" value={w} onChange={e => setW(e.target.value)} style={is} />
-        <input type="number" step="0.1" placeholder="골격근량 (kg)" value={m} onChange={e => setM(e.target.value)} style={is} />
-        <input type="number" step="0.1" placeholder="체지방률 (%)" value={fp} onChange={e => setFp(e.target.value)} style={is} />
-        <button onClick={() => { if (w) { addBody(w, m, fp); setW(""); setM(""); setFp(""); } }}
-          style={{ width: "100%", padding: 12, background: "#4a8fc9", border: "none", borderRadius: 8, color: "#fff", fontSize: 14, fontWeight: 500, cursor: "pointer" }}>저장</button>
-      </div>
-      <div style={{ fontSize: 13, color: "#707070", marginBottom: 8 }}>최근 기록</div>
-      {bodyLog.slice(-10).reverse().map((b, i) => (
-        <div key={i}>
-          {editIdx === i ? (
-            <div style={{ background: "#1e1e1e", border: "1px solid rgba(74,143,201,0.3)", borderRadius: 8, padding: 12, marginBottom: 8 }}>
-              <div style={{ fontSize: 12, color: "#4a8fc9", marginBottom: 8, fontFamily: "monospace" }}>{b.date} 수정 중</div>
-              <input type="number" step="0.1" placeholder="체중" value={ew} onChange={e => setEw(e.target.value)} style={{ ...is, marginBottom: 6 }} />
-              <input type="number" step="0.1" placeholder="골격근량" value={em} onChange={e => setEm(e.target.value)} style={{ ...is, marginBottom: 6 }} />
-              <input type="number" step="0.1" placeholder="체지방률" value={efp} onChange={e => setEfp(e.target.value)} style={{ ...is, marginBottom: 8 }} />
-              <div style={{ display: "flex", gap: 6 }}>
-                <button onClick={() => setEditIdx(null)} style={{ flex: 1, padding: 8, background: "#2a2a2a", border: "none", borderRadius: 6, color: "#8a8a8a", fontSize: 13, cursor: "pointer" }}>취소</button>
-                <button onClick={saveEdit} style={{ flex: 1, padding: 8, background: "#4a8fc9", border: "none", borderRadius: 6, color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>저장</button>
-              </div>
-            </div>
-          ) : (
-            <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 8, padding: 12, marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, color: "#f5f5f0" }}>
-              <div style={{ flex: 1, cursor: "pointer" }} onClick={() => startEdit(i)}>
-                <span style={{ fontFamily: "monospace", color: "#707070", marginRight: 8 }}>{b.date}</span>
-                <span>{b.weight}kg · 근육 {b.muscle}kg · 체지방 {b.fatPct}%</span>
+      {/* 기록 버튼 */}
+      {!showForm && (
+        <div style={{ marginBottom: 10 }}>
+          <button onClick={() => setShowForm(true)}
+            style={{ width: "100%", padding: 12, background: existing ? "#252525" : "#4a8fc9", border: existing ? "1px solid rgba(74,143,201,0.3)" : "none", borderRadius: 12, color: existing ? "#4a8fc9" : "#fff", fontSize: 14, fontWeight: 500, cursor: "pointer" }}>
+            {existing ? `${date} 기록 수정` : `${date} 체성분 기록`}
+          </button>
+        </div>
+      )}
+
+      {/* 입력 폼 */}
+      {showForm && (
+        <div style={{ background: "#1e1e1e", border: "1px solid rgba(74,143,201,0.2)", borderRadius: 16, padding: 16, marginBottom: 10 }}>
+          <div style={{ fontSize: 12, color: "#707070", marginBottom: 10 }}>체성분 기록 ({date})</div>
+          {existing && <div style={{ background: "rgba(90,158,111,0.08)", border: "1px solid rgba(90,158,111,0.15)", borderRadius: 6, padding: 8, marginBottom: 10, fontSize: 11, color: "#5a9e6f" }}>기존: {existing.weight}kg · {existing.muscle}kg · {existing.fatPct}% · {existing.score || "-"}점</div>}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+            <input type="number" step="0.1" placeholder="체중 (kg)" value={w} onChange={e => setW(e.target.value)} style={is} />
+            <input type="number" step="0.1" placeholder="골격근량 (kg)" value={m} onChange={e => setM(e.target.value)} style={is} />
+            <input type="number" step="0.1" placeholder="체지방률 (%)" value={fp} onChange={e => setFp(e.target.value)} style={is} />
+            <input type="number" step="1" placeholder="인바디 점수" value={sc} onChange={e => setSc(e.target.value)} style={is} />
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={() => setShowForm(false)} style={{ flex: 1, padding: 10, background: "#2a2a2a", border: "none", borderRadius: 8, color: "#8a8a8a", fontSize: 13, cursor: "pointer" }}>취소</button>
+            <button onClick={handleSave} disabled={!w} style={{ flex: 2, padding: 10, background: w ? "#4a8fc9" : "#2a2a2a", border: "none", borderRadius: 8, color: w ? "#fff" : "#666", fontSize: 13, fontWeight: 500, cursor: w ? "pointer" : "not-allowed" }}>저장 + AI 코칭</button>
+          </div>
+        </div>
+      )}
+
+      {/* ─── 대시보드 (데이터 있을 때만) ─── */}
+      {latest && (
+        <>
+          {/* 점수 + BMI/BMR + 막대그래프 통합 카드 */}
+          <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div>
+                <div style={{ fontSize: 10, color: "#707070" }}>{latest.date}</div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 2 }}>
+                  <span style={{ fontSize: 28, fontWeight: 500, color: "#d4af37" }}>{latest.score || "—"}</span>
+                  <span style={{ fontSize: 11, color: "#707070" }}>점</span>
+                  {dS !== null && dS !== 0 && <span style={{ background: dS > 0 ? "rgba(90,158,111,0.15)" : "rgba(224,82,82,0.15)", color: dS > 0 ? "#5a9e6f" : "#e05252", fontSize: 10, padding: "1px 6px", borderRadius: 4 }}>{chgSign(dS)}</span>}
+                </div>
               </div>
               <div style={{ display: "flex", gap: 4 }}>
-                <button onClick={() => startEdit(i)} style={{ padding: "4px 8px", background: "rgba(74,143,201,0.15)", border: "1px solid rgba(74,143,201,0.3)", borderRadius: 6, color: "#4a8fc9", fontSize: 11, cursor: "pointer" }}>수정</button>
-                <button onClick={() => handleDelete(i)} style={{ padding: "4px 8px", background: "rgba(224,82,82,0.15)", border: "1px solid rgba(224,82,82,0.3)", borderRadius: 6, color: "#e05252", fontSize: 11, cursor: "pointer" }}>삭제</button>
+                <div style={{ background: "#252525", borderRadius: 8, padding: "6px 10px", textAlign: "center" }}>
+                  <div style={{ fontSize: 8, color: "#707070" }}>BMI</div>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>{bmi}</div>
+                </div>
+                <div style={{ background: "#252525", borderRadius: 8, padding: "6px 10px", textAlign: "center" }}>
+                  <div style={{ fontSize: 8, color: "#707070" }}>BMR</div>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>{bmr.toLocaleString()}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* 막대그래프 분석 */}
+            <div style={{ marginTop: 14 }}>
+              {[
+                { label: "체중", val: latest.weight, unit: "kg", std: stdWeight, d: dW, color: "#4a8fc9", reverse: true },
+                { label: "골격근", val: latest.muscle, unit: "kg", std: stdMuscle, d: dM, color: "#5a9e6f", reverse: false },
+                { label: "체지방", val: latest.fatPct, unit: "%", std: stdFatPct, d: dF, color: "#e05252", reverse: true }
+              ].map((item, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: i < 2 ? 8 : 0 }}>
+                  <span style={{ fontSize: 10, color: "#8a8a8a", minWidth: 36 }}>{item.label}</span>
+                  <div style={{ flex: 1, height: 14, background: "#2a2a2a", borderRadius: 3, position: "relative", overflow: "hidden" }}>
+                    <div style={{ position: "absolute", left: "40%", width: "20%", height: "100%", background: "rgba(255,255,255,0.04)" }}></div>
+                    <div style={{ width: barPct(item.val, item.std) + "%", height: "100%", background: item.color, borderRadius: 3, display: "flex", alignItems: "center", justifyContent: "flex-end", paddingRight: 4, minWidth: 30 }}>
+                      <span style={{ fontSize: 8, color: "#fff", fontWeight: 500 }}>{item.val}{item.unit}</span>
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 10, color: item.d !== null ? chgColor(item.d, item.reverse) : "#4a4a4a", minWidth: 36, textAlign: "right" }}>
+                    {item.d !== null ? chgSign(item.d) : "—"}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* 자동 계산 지표 */}
+            <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
+              <div style={{ flex: 1, background: "rgba(90,158,111,0.08)", border: "1px solid rgba(90,158,111,0.12)", borderRadius: 8, padding: "6px 8px", textAlign: "center" }}>
+                <div style={{ fontSize: 8, color: "#5a9e6f" }}>체지방량</div>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{fatMass}kg</div>
+              </div>
+              <div style={{ flex: 1, background: "rgba(74,143,201,0.08)", border: "1px solid rgba(74,143,201,0.12)", borderRadius: 8, padding: "6px 8px", textAlign: "center" }}>
+                <div style={{ fontSize: 8, color: "#4a8fc9" }}>제지방량</div>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{leanMass}kg</div>
+              </div>
+              <div style={{ flex: 1, background: weightAdj >= 0 ? "rgba(90,158,111,0.08)" : "rgba(224,82,82,0.08)", border: `1px solid ${weightAdj >= 0 ? "rgba(90,158,111,0.12)" : "rgba(224,82,82,0.12)"}`, borderRadius: 8, padding: "6px 8px", textAlign: "center" }}>
+                <div style={{ fontSize: 8, color: weightAdj >= 0 ? "#5a9e6f" : "#e05252" }}>체중 조절</div>
+                <div style={{ fontSize: 13, fontWeight: 500, color: weightAdj >= 0 ? "#5a9e6f" : "#e05252" }}>{weightAdj > 0 ? "+" : ""}{weightAdj}kg</div>
+              </div>
+            </div>
+          </div>
+
+          {/* AI 코칭 카드 */}
+          {(coaching || coachLoading) && (
+            <div style={{ background: "rgba(212,175,55,0.06)", border: "1px solid rgba(212,175,55,0.15)", borderRadius: 12, padding: 12, marginBottom: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                <div style={{ width: 6, height: 6, borderRadius: 3, background: "#d4af37" }}></div>
+                <span style={{ fontSize: 10, color: "#d4af37" }}>AI 코칭</span>
+                {periodSummary && <span style={{ fontSize: 9, color: "#4a4a4a", marginLeft: "auto" }}>{prev?.date} ~ {latest.date}</span>}
+              </div>
+              {coachLoading ? (
+                <div style={{ fontSize: 12, color: "#707070" }}>분석 중...</div>
+              ) : (
+                <div style={{ fontSize: 12, color: "#c0b896", lineHeight: 1.5 }}>{coaching}</div>
+              )}
+            </div>
+          )}
+
+          {/* 측정 사이 식단/운동 요약 */}
+          {periodSummary && (
+            <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 12, padding: 12, marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: "#707070", marginBottom: 8 }}>측정 사이 요약 ({periodSummary.days}일)</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                <div style={{ background: "rgba(212,175,55,0.06)", border: "1px solid rgba(212,175,55,0.08)", borderRadius: 8, padding: 8 }}>
+                  <div style={{ fontSize: 9, color: "#d4af37" }}>평균 단백질</div>
+                  <div style={{ fontSize: 14, fontWeight: 500 }}>{periodSummary.avgP}<span style={{ fontSize: 10, color: "#707070" }}>g/일</span></div>
+                </div>
+                <div style={{ background: "rgba(212,175,55,0.06)", border: "1px solid rgba(212,175,55,0.08)", borderRadius: 8, padding: 8 }}>
+                  <div style={{ fontSize: 9, color: "#d4af37" }}>평균 섭취</div>
+                  <div style={{ fontSize: 14, fontWeight: 500 }}>{periodSummary.avgK.toLocaleString()}<span style={{ fontSize: 10, color: "#707070" }}>kcal</span></div>
+                </div>
+                <div style={{ background: "rgba(74,143,201,0.06)", border: "1px solid rgba(74,143,201,0.08)", borderRadius: 8, padding: 8 }}>
+                  <div style={{ fontSize: 9, color: "#4a8fc9" }}>운동 빈도</div>
+                  <div style={{ fontSize: 14, fontWeight: 500 }}>주 {periodSummary.weeklyEx}<span style={{ fontSize: 10, color: "#707070" }}>회</span></div>
+                </div>
+                <div style={{ background: "rgba(74,143,201,0.06)", border: "1px solid rgba(74,143,201,0.08)", borderRadius: 8, padding: 8 }}>
+                  <div style={{ fontSize: 9, color: "#4a8fc9" }}>일평균 소모</div>
+                  <div style={{ fontSize: 14, fontWeight: 500 }}>{periodSummary.avgBurn}<span style={{ fontSize: 10, color: "#707070" }}>kcal</span></div>
+                </div>
               </div>
             </div>
           )}
-        </div>
-      ))}
+
+          {/* 목표 달성률 */}
+          {first && goals && (
+            <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 12, padding: 12, marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: "#707070", marginBottom: 8 }}>목표 달성률</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {[
+                  { label: `체중 ${goals.weight}kg`, pct: goalPct(latest.weight, first.weight, goals.weight, "down"), color: "#d4af37" },
+                  { label: `체지방 ${goals.fatPct}%`, pct: goalPct(latest.fatPct, first.fatPct, goals.fatPct, "down"), color: "#d4af37" },
+                  { label: `골격근 ${goals.muscle}kg`, pct: goalPct(latest.muscle, first.muscle, goals.muscle, "up"), color: "#5a9e6f" }
+                ].map((g, i) => (
+                  <div key={i} style={{ flex: 1 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, marginBottom: 2 }}>
+                      <span style={{ color: "#8a8a8a" }}>{g.label}</span>
+                      <span style={{ color: g.color }}>{g.pct}%</span>
+                    </div>
+                    <div style={{ height: 3, background: "#2a2a2a", borderRadius: 2 }}>
+                      <div style={{ width: g.pct + "%", height: "100%", background: g.color, borderRadius: 2 }}></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* 히스토리 */}
+      <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 12, padding: 12 }}>
+        <div style={{ fontSize: 11, color: "#707070", marginBottom: 6 }}>기록 히스토리 ({bodyLog.length}건)</div>
+        {bodyLog.length === 0 && <div style={{ fontSize: 12, color: "#4a4a4a", textAlign: "center", padding: 16 }}>체성분을 기록해보세요</div>}
+        {bodyLog.slice(-10).reverse().map((b, i) => (
+          <div key={i}>
+            {editIdx === i ? (
+              <div style={{ background: "#252525", border: "1px solid rgba(74,143,201,0.3)", borderRadius: 8, padding: 10, marginBottom: 6 }}>
+                <div style={{ fontSize: 11, color: "#4a8fc9", marginBottom: 6, fontFamily: "monospace" }}>{b.date} 수정</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
+                  <input type="number" step="0.1" placeholder="체중" value={ew} onChange={e => setEw(e.target.value)} style={{ ...is, marginBottom: 4, fontSize: 12, padding: "8px 10px" }} />
+                  <input type="number" step="0.1" placeholder="골격근량" value={em} onChange={e => setEm(e.target.value)} style={{ ...is, marginBottom: 4, fontSize: 12, padding: "8px 10px" }} />
+                  <input type="number" step="0.1" placeholder="체지방률" value={efp} onChange={e => setEfp(e.target.value)} style={{ ...is, marginBottom: 4, fontSize: 12, padding: "8px 10px" }} />
+                  <input type="number" step="1" placeholder="점수" value={esc} onChange={e => setEsc(e.target.value)} style={{ ...is, marginBottom: 4, fontSize: 12, padding: "8px 10px" }} />
+                </div>
+                <div style={{ display: "flex", gap: 4 }}>
+                  <button onClick={() => setEditIdx(null)} style={{ flex: 1, padding: 6, background: "#2a2a2a", border: "none", borderRadius: 6, color: "#8a8a8a", fontSize: 11, cursor: "pointer" }}>취소</button>
+                  <button onClick={saveEdit} style={{ flex: 1, padding: 6, background: "#4a8fc9", border: "none", borderRadius: 6, color: "#fff", fontSize: 11, fontWeight: 500, cursor: "pointer" }}>저장</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: "1px solid rgba(255,255,255,0.04)", fontSize: 11 }}>
+                <div style={{ flex: 1, cursor: "pointer" }} onClick={() => startEdit(i)}>
+                  <span style={{ fontFamily: "monospace", color: "#4a4a4a", marginRight: 6 }}>{b.date.slice(5)}</span>
+                  <span>{b.weight}kg · {b.muscle}kg · {b.fatPct}%</span>
+                </div>
+                <span style={{ color: "#d4af37", fontFamily: "monospace", fontSize: 10, minWidth: 28, textAlign: "right" }}>{b.score || "—"}</span>
+                <div style={{ display: "flex", gap: 3, marginLeft: 6 }}>
+                  <button onClick={() => startEdit(i)} style={{ padding: "2px 6px", background: "rgba(74,143,201,0.15)", border: "1px solid rgba(74,143,201,0.2)", borderRadius: 4, color: "#4a8fc9", fontSize: 9, cursor: "pointer" }}>수정</button>
+                  <button onClick={() => handleDelete(i)} style={{ padding: "2px 6px", background: "rgba(224,82,82,0.15)", border: "1px solid rgba(224,82,82,0.2)", borderRadius: 4, color: "#e05252", fontSize: 9, cursor: "pointer" }}>삭제</button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
     </>
   );
 }
@@ -1306,8 +1562,8 @@ function MainApp({ user, onLogout }) {
     setExercises(ne); saveDay(date, meals, ne); setEditExIdx(null);
   };
 
-  const addBody = async (w, muscle, fatPct) => {
-    const entry = { date, weight: parseFloat(w), muscle: parseFloat(muscle) || 0, fatPct: parseFloat(fatPct) || 0 };
+  const addBody = async (w, muscle, fatPct, score) => {
+    const entry = { date, weight: parseFloat(w), muscle: parseFloat(muscle) || 0, fatPct: parseFloat(fatPct) || 0, score: parseInt(score) || 0 };
     const nl = [...bodyLog.filter(b => b.date !== date), entry].sort((a, b) => a.date.localeCompare(b.date));
     setBodyLog(nl); await store.set("bodylog", nl);
   };
@@ -1985,7 +2241,7 @@ function MainApp({ user, onLogout }) {
           })}
         </>)}
 
-        {tab === "body" && <BodyTab bodyLog={bodyLog} addBody={addBody} date={date} onEditBody={editBody} onDeleteBody={deleteBody} />}
+        {tab === "body" && <BodyTab bodyLog={bodyLog} addBody={addBody} date={date} onEditBody={editBody} onDeleteBody={deleteBody} user={user} goals={goals} allDays={allDays} />}
         {tab === "stats" && <StatsTab bodyLog={bodyLog} allDays={allDays} onBackup={doBackup} goals={goals} onSaveGoals={saveGoals} />}
       </div>
 
