@@ -99,6 +99,40 @@ export async function deleteSharedFood(idx) {
   }
 }
 
+// 공용 운동 DB (모든 사용자 공유)
+export async function getSharedExercises() {
+  try {
+    const docRef = doc(db, "users", "_shared", "data", "shared-exercises");
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      const list = snap.data().list || [];
+      localStorage.setItem("dt_shared_exercises", JSON.stringify(list));
+      return list;
+    }
+    const local = localStorage.getItem("dt_shared_exercises");
+    return local ? JSON.parse(local) : [];
+  } catch (e) {
+    console.error("getSharedExercises error:", e);
+    const local = localStorage.getItem("dt_shared_exercises");
+    return local ? JSON.parse(local) : [];
+  }
+}
+
+export async function addSharedExercise(exercise) {
+  try {
+    const current = await getSharedExercises();
+    const exists = current.some(e => e.n.trim().toLowerCase() === exercise.n.trim().toLowerCase());
+    if (exists) return current;
+    const updated = [...current, { ...exercise, addedAt: new Date().toISOString() }];
+    await setDoc(doc(db, "users", "_shared", "data", "shared-exercises"), { list: updated, updatedAt: new Date().toISOString() });
+    localStorage.setItem("dt_shared_exercises", JSON.stringify(updated));
+    return updated;
+  } catch (e) {
+    console.error("addSharedExercise error:", e);
+    return null;
+  }
+}
+
 const store = {
   async get(key) {
     const uid = getCurrentUserId();

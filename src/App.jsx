@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar, ComposedChart, Legend, ScatterChart, Scatter, ReferenceLine } from "recharts";
-import store, { getCurrentUserId, setUserId, logout, getProfiles, saveProfiles, getSharedFoods, addSharedFood } from "./store.js";
+import store, { getCurrentUserId, setUserId, logout, getProfiles, saveProfiles, getSharedFoods, addSharedFood, getSharedExercises, addSharedExercise } from "./store.js";
 import { DEFAULT_FOODS, DEFAULT_EX, TARGETS as DEFAULT_TARGETS, COLORS } from "./data.js";
 
 /* ───── 디자인 시스템: Modern Library + Soft Card + Subtle Fade ───── */
@@ -1209,13 +1209,18 @@ function MainApp({ user, onLogout }) {
   const [yesterdayData, setYesterdayData] = useState({ meals: [], exercises: [] });
   const [goals, setGoals] = useState({ weight: 72, fatPct: 15, muscle: 36 });
   const [sharedFoods, setSharedFoods] = useState([]);
+  const [sharedExercises, setSharedExercises] = useState([]);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResult, setAiResult] = useState(null);
   const [aiError, setAiError] = useState("");
+  const [aiExLoading, setAiExLoading] = useState(false);
+  const [aiExResults, setAiExResults] = useState(null);
+  const [aiExError, setAiExError] = useState("");
 
   const FOOD_DB = useMemo(() => [...DEFAULT_FOODS, ...customFoods], [customFoods]);
   const SHARED_DB = useMemo(() => sharedFoods.filter(f => !FOOD_DB.some(d => d.n === f.n)), [sharedFoods, FOOD_DB]);
   const EX_DB = useMemo(() => [...DEFAULT_EX, ...customEx], [customEx]);
+  const SHARED_EX_DB = useMemo(() => sharedExercises.filter(e => !EX_DB.some(d => d.n === e.n)), [sharedExercises, EX_DB]);
 
   // 어제 날짜 계산
   const getYesterday = useCallback((d) => {
@@ -1237,11 +1242,13 @@ function MainApp({ user, onLogout }) {
     for (const k in local) { if (k.startsWith("day:")) localDays[k.slice(4)] = local[k]; }
     if (Object.keys(localDays).length > 0) setAllDays(localDays);
     try { const lsf = localStorage.getItem("dt_shared_foods"); if (lsf) setSharedFoods(JSON.parse(lsf)); } catch {}
+    try { const lse = localStorage.getItem("dt_shared_exercises"); if (lse) setSharedExercises(JSON.parse(lse)); } catch {}
     setLoaded(true);
 
     // Phase 2: Firestore 백그라운드 동기화 (ONE getDocs — 네트워크 1회 왕복)
-    Promise.all([store.getAllData(), getSharedFoods()]).then(([remote, sf]) => {
+    Promise.all([store.getAllData(), getSharedFoods(), getSharedExercises()]).then(([remote, sf, se]) => {
       if (sf) setSharedFoods(sf);
+      if (se) setSharedExercises(se);
       if (!remote || Object.keys(remote).length === 0) return;
       if (remote["custom-foods"]) setCustomFoods(remote["custom-foods"]);
       if (remote["custom-exercises"]) setCustomEx(remote["custom-exercises"]);
@@ -1439,6 +1446,10 @@ function MainApp({ user, onLogout }) {
     if (!exSearch.trim()) return [];
     return EX_DB.filter(e => e.n.toLowerCase().includes(exSearch.toLowerCase()));
   }, [exSearch, EX_DB]);
+  const filteredSharedEx = useMemo(() => {
+    if (!exSearch.trim()) return [];
+    return SHARED_EX_DB.filter(e => e.n.toLowerCase().includes(exSearch.toLowerCase()));
+  }, [exSearch, SHARED_EX_DB]);
 
   // AI 음식 분석
   const analyzeFood = async (query) => {
@@ -1473,6 +1484,42 @@ function MainApp({ user, onLogout }) {
       if (updated) setSharedFoods(updated);
     });
     setAiResult(null); setSearch("");
+  };
+
+  // AI 운동 분석
+  const analyzeExercise = async (query) => {
+    setAiExLoading(true); setAiExError(""); setAiExResults(null);
+    try {
+      const res = await fetch("/api/analyze-exercise", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query })
+      });
+      const data = await res.json();
+      if (data.success && data.exercises && data.exercises.length > 0) {
+        setAiExResults(data.exercises);
+      } else {
+        setAiExError(data.error || "분석 실패");
+      }
+    } catch (e) {
+      setAiExError("네트워크 오류 — 온라인 상태를 확인하세요");
+    }
+    setAiExLoading(false);
+  };
+
+  // AI 운동 결과 → 운동 추가 + 공용 DB 저장
+  const addExerciseFromAI = (ex, min) => {
+    const duration = parseInt(min) || 30;
+    const kcal = Math.round((ex.m * TARGETS.weight * duration) / 60);
+    const hour = parseInt(exHour) || nowHour();
+    const entry = { ...ex, duration, kcal, ts: Date.now(), hour, source: "ai" };
+    const ne = sortByHour([...exercises, entry]);
+    setExercises(ne); saveDay(date, meals, ne);
+    // 공용 DB에 저장 (중복 체크 포함)
+    addSharedExercise({ n: ex.n, m: ex.m, memo: ex.memo || "", source: "ai", addedBy: user.name }).then(updated => {
+      if (updated) setSharedExercises(updated);
+    });
+    setExSearch(""); setExMin({});
   };
 
   const tabStyle = (t) => ({
@@ -1807,20 +1854,112 @@ function MainApp({ user, onLogout }) {
           <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
             <input type="text" placeholder="운동 검색..." value={exSearch} onChange={e => setExSearch(e.target.value)} style={{ flex: 1, padding: "10px 12px", background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, color: "#f5f5f0", fontSize: 14, boxSizing: "border-box" }} />
           </div>
-          <div style={{ maxHeight: 340, overflowY: "auto", marginBottom: 16 }}>
-            {filteredEx.map((e, i) => (
-              <div key={i} style={{ ...cs, padding: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: 500 }}>{e.n}</div>
-                  <div style={{ fontSize: 11, color: "#707070" }}>MET {e.m} {e.memo && `· ${e.memo}`}</div>
+          <div style={{ maxHeight: 400, overflowY: "auto", marginBottom: 16 }}>
+            {/* 내 DB 결과 */}
+            {filteredEx.length > 0 && (
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 11, color: "#5a9e6f", marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
+                  <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: 3, background: "#5a9e6f" }}></span> 내 DB ({filteredEx.length})
                 </div>
-                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  <input type="number" min="5" step="5" placeholder="30" value={exMin[i] || ""} onChange={ev => setExMin({ ...exMin, [i]: ev.target.value })} style={{ width: 50, padding: "6px 8px", background: "#252525", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, color: "#f5f5f0", fontSize: 13, textAlign: "center" }} />
-                  <span style={{ fontSize: 11, color: "#4a4a4a" }}>분</span>
-                  <button onClick={() => addExercise(e, exMin[i] || "30")} style={{ padding: "6px 14px", background: "#5a9e6f", border: "none", borderRadius: 6, color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>+</button>
-                </div>
+                {filteredEx.map((e, i) => (
+                  <div key={i} style={{ ...cs, padding: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 14, fontWeight: 500 }}>{e.n}</div>
+                      <div style={{ fontSize: 11, color: "#707070" }}>MET {e.m} {e.memo && `· ${e.memo}`}</div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <input type="number" min="5" step="5" placeholder="30" value={exMin["db_"+i] || ""} onChange={ev => setExMin({ ...exMin, ["db_"+i]: ev.target.value })} style={{ width: 50, padding: "6px 8px", background: "#252525", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, color: "#f5f5f0", fontSize: 13, textAlign: "center" }} />
+                      <span style={{ fontSize: 11, color: "#4a4a4a" }}>분</span>
+                      <button onClick={() => addExercise(e, exMin["db_"+i] || "30")} style={{ padding: "6px 14px", background: "#5a9e6f", border: "none", borderRadius: 6, color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>+</button>
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
+
+            {/* 공용 DB 결과 */}
+            {filteredSharedEx.length > 0 && (
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 11, color: "#4a8fc9", marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
+                  <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: 3, background: "#4a8fc9" }}></span> 공용 DB ({filteredSharedEx.length})
+                </div>
+                {filteredSharedEx.map((e, i) => (
+                  <div key={i} style={{ ...cs, padding: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 14, fontWeight: 500 }}>{e.n} {e.source === "ai" && <span style={{ fontSize: 9, color: "#4a8fc9", background: "rgba(74,143,201,0.12)", padding: "1px 5px", borderRadius: 4, marginLeft: 4 }}>AI</span>}</div>
+                      <div style={{ fontSize: 11, color: "#707070" }}>MET {e.m} {e.memo && `· ${e.memo}`}</div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <input type="number" min="5" step="5" placeholder="30" value={exMin["sh_"+i] || ""} onChange={ev => setExMin({ ...exMin, ["sh_"+i]: ev.target.value })} style={{ width: 50, padding: "6px 8px", background: "#252525", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, color: "#f5f5f0", fontSize: 13, textAlign: "center" }} />
+                      <span style={{ fontSize: 11, color: "#4a4a4a" }}>분</span>
+                      <button onClick={() => addExercise(e, exMin["sh_"+i] || "30")} style={{ padding: "6px 14px", background: "#5a9e6f", border: "none", borderRadius: 6, color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>+</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* DB에 없을 때 AI 분석 버튼 */}
+            {exSearch.trim() && filteredEx.length === 0 && filteredSharedEx.length === 0 && !aiExResults && (
+              <div style={{ textAlign: "center", padding: 20 }}>
+                <div style={{ fontSize: 13, color: "#4a4a4a", marginBottom: 12 }}>DB에서 찾을 수 없습니다</div>
+                <button
+                  onClick={() => analyzeExercise(exSearch.trim())}
+                  disabled={aiExLoading}
+                  className="dbp-btn"
+                  style={{ padding: "10px 20px", background: aiExLoading ? "#252525" : "rgba(74,143,201,0.15)", border: "1px solid rgba(74,143,201,0.3)", borderRadius: 10, color: aiExLoading ? "#707070" : "#4a8fc9", fontSize: 13, fontWeight: 500, cursor: aiExLoading ? "wait" : "pointer", marginBottom: 8 }}>
+                  {aiExLoading ? "AI 분석 중..." : `"${exSearch.trim()}" AI 분석`}
+                </button>
+                {aiExError && <div style={{ fontSize: 12, color: "#e05252", marginTop: 8 }}>{aiExError}</div>}
+              </div>
+            )}
+
+            {/* 검색 결과 있지만 원하는 게 없을 때도 AI 분석 가능 */}
+            {exSearch.trim() && (filteredEx.length > 0 || filteredSharedEx.length > 0) && !aiExResults && (
+              <div style={{ textAlign: "center", padding: 8 }}>
+                <button
+                  onClick={() => analyzeExercise(exSearch.trim())}
+                  disabled={aiExLoading}
+                  style={{ padding: "6px 14px", background: "transparent", border: "1px solid rgba(74,143,201,0.2)", borderRadius: 8, color: "#4a8fc9", fontSize: 11, cursor: aiExLoading ? "wait" : "pointer" }}>
+                  {aiExLoading ? "분석 중..." : "원하는 운동이 없나요? AI 분석"}
+                </button>
+              </div>
+            )}
+
+            {/* AI 분석 결과 (복수 강도) */}
+            {aiExResults && (
+              <div style={{ background: "rgba(74,143,201,0.06)", border: "1px solid rgba(74,143,201,0.2)", borderRadius: 16, padding: 16, marginBottom: 8 }}>
+                <div style={{ fontSize: 11, color: "#4a8fc9", marginBottom: 10, display: "flex", alignItems: "center", gap: 4 }}>
+                  <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: 3, background: "#4a8fc9" }}></span> AI 분석 결과 ({aiExResults.length}개 강도)
+                </div>
+                {aiExResults.map((ex, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: i < aiExResults.length - 1 ? "1px solid rgba(74,143,201,0.1)" : "none" }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>{ex.n}</div>
+                      <div style={{ fontSize: 11, color: "#707070", fontFamily: "monospace", marginTop: 2 }}>
+                        MET {ex.m} · 30분 시 약 {Math.round((ex.m * TARGETS.weight * 30) / 60)}kcal
+                      </div>
+                      {ex.memo && <div style={{ fontSize: 10, color: "#4a4a4a", marginTop: 2 }}>{ex.memo}</div>}
+                    </div>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <input type="number" min="5" step="5" placeholder="30" value={exMin["ai_"+i] || ""} onChange={ev => setExMin({ ...exMin, ["ai_"+i]: ev.target.value })} style={{ width: 50, padding: "6px 8px", background: "#252525", border: "1px solid rgba(74,143,201,0.2)", borderRadius: 6, color: "#f5f5f0", fontSize: 13, textAlign: "center" }} />
+                      <span style={{ fontSize: 11, color: "#4a4a4a" }}>분</span>
+                      <button onClick={() => { addExerciseFromAI(ex, exMin["ai_"+i] || "30"); setAiExResults(null); }} style={{ padding: "6px 14px", background: "#4a8fc9", border: "none", borderRadius: 6, color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>+</button>
+                    </div>
+                  </div>
+                ))}
+                <div style={{ fontSize: 10, color: "#4a4a4a", marginTop: 8 }}>선택한 운동이 공용 DB에 자동 저장됩니다</div>
+              </div>
+            )}
+
+            {/* 직접 추가 */}
+            {exSearch.trim() && !aiExLoading && (
+              <div style={{ textAlign: "center", padding: 8 }}>
+                <button onClick={() => setShowAddEx(true)} style={{ padding: "8px 16px", background: "transparent", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, color: "#707070", fontSize: 12, cursor: "pointer" }}>
+                  직접 입력하기
+                </button>
+              </div>
+            )}
           </div>
           <div style={{ fontSize: 13, color: "#707070", marginBottom: 8 }}>오늘 운동 (소모: {exTotal}kcal)</div>
           {groupExercisesByTime(exercises).map((group) => {
