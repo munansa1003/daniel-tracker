@@ -63,19 +63,37 @@ function sortByHour(arr) {
 // 시간대별 식단 그룹핑
 function groupMealsByTime(meals) {
   const groups = [
-    { label: "🌅 아침", key: "morning", min: 6, max: 10, meals: [] },
-    { label: "🌞 점심", key: "lunch", min: 11, max: 14, meals: [] },
-    { label: "🌙 저녁", key: "dinner", min: 15, max: 20, meals: [] },
-    { label: "🌃 야식", key: "night", min: 21, max: 5, meals: [] }
+    { label: "🌅 아침", key: "morning", meals: [] },
+    { label: "🌞 점심", key: "lunch", meals: [] },
+    { label: "🌙 저녁", key: "dinner", meals: [] },
+    { label: "🌃 야식", key: "night", meals: [] }
   ];
   meals.forEach((m, idx) => {
     const h = m.hour || 0;
-    if (h >= 6 && h <= 10) groups[0].meals.push({ ...m, _idx: idx });
+    if (h >= 4 && h <= 10) groups[0].meals.push({ ...m, _idx: idx });
     else if (h >= 11 && h <= 14) groups[1].meals.push({ ...m, _idx: idx });
     else if (h >= 15 && h <= 20) groups[2].meals.push({ ...m, _idx: idx });
     else groups[3].meals.push({ ...m, _idx: idx });
   });
   return groups.filter(g => g.meals.length > 0);
+}
+
+// 시간대별 운동 그룹핑
+function groupExercisesByTime(exercises) {
+  const groups = [
+    { label: "🌅 아침", key: "morning", items: [] },
+    { label: "🌞 점심", key: "lunch", items: [] },
+    { label: "🌙 저녁", key: "dinner", items: [] },
+    { label: "🌃 야간", key: "night", items: [] }
+  ];
+  exercises.forEach((e, idx) => {
+    const h = e.hour || 0;
+    if (h >= 4 && h <= 10) groups[0].items.push({ ...e, _idx: idx });
+    else if (h >= 11 && h <= 14) groups[1].items.push({ ...e, _idx: idx });
+    else if (h >= 15 && h <= 20) groups[2].items.push({ ...e, _idx: idx });
+    else groups[3].items.push({ ...e, _idx: idx });
+  });
+  return groups.filter(g => g.items.length > 0);
 }
 
 // Net 칼로리 카드 (신호등 스타일)
@@ -513,7 +531,7 @@ function EditMealForm({ meal, onSave, onCancel, onDelete }) {
       <select value={hour} onChange={e => setHour(parseInt(e.target.value))}
         style={{ ...is, fontFamily: "monospace" }}>
         {Array.from({ length: 24 }, (_, h) => (
-          <option key={h} value={h}>{String(h).padStart(2, "0")}:00 {h < 6 ? "새벽" : h < 12 ? "오전" : h < 18 ? "오후" : "저녁"}</option>
+          <option key={h} value={h}>{String(h).padStart(2, "0")}:00 {h < 4 ? "새벽" : h < 12 ? "오전" : h < 18 ? "오후" : "저녁"}</option>
         ))}
       </select>
       {parseFloat(serving) > 0 && (
@@ -549,7 +567,7 @@ function EditExForm({ exercise, onSave, onCancel, onDelete, weight }) {
       <select value={hour} onChange={e => setHour(parseInt(e.target.value))}
         style={{ ...is, fontFamily: "monospace" }}>
         {Array.from({ length: 24 }, (_, h) => (
-          <option key={h} value={h}>{String(h).padStart(2, "0")}:00 {h < 6 ? "새벽" : h < 12 ? "오전" : h < 18 ? "오후" : "저녁"}</option>
+          <option key={h} value={h}>{String(h).padStart(2, "0")}:00 {h < 4 ? "새벽" : h < 12 ? "오전" : h < 18 ? "오후" : "저녁"}</option>
         ))}
       </select>
       <div style={{ background: "#252525", borderRadius: 6, padding: 10, marginBottom: 12, fontSize: 12, fontFamily: "monospace", color: "#8a8a8a" }}>
@@ -1557,12 +1575,24 @@ function MainApp({ user, onLogout }) {
           <div style={cs}>
             <div style={{ fontSize: 13, color: "#707070", marginBottom: 10 }}>오늘 운동 ({exercises.length}건)</div>
             {!exercises.length && <div style={{ fontSize: 13, color: "#4a4a4a", textAlign: "center", padding: 16 }}>운동 탭에서 기록 추가</div>}
-            {exercises.map((e, i) => (
-              <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.04)", fontSize: 13 }}>
-                <div><span style={{ color: "#4a8fc9", fontSize: 11, marginRight: 6, fontFamily: "monospace" }}>{String(e.hour || 0).padStart(2, "0")}시</span>{e.n} · {e.duration}분</div>
-                <span style={{ color: "#4a8fc9", fontFamily: "monospace", fontSize: 12 }}>-{e.kcal}kcal</span>
-              </div>
-            ))}
+            {groupExercisesByTime(exercises).map((group) => {
+              const gKcal = Math.round(group.items.reduce((s, e) => s + (e.kcal || 0), 0));
+              const gMin = group.items.reduce((s, e) => s + (e.duration || 0), 0);
+              return (
+                <div key={group.key} style={{ marginBottom: 10 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                    <span style={{ fontSize: 13, fontWeight: 500 }}>{group.label} ({group.items.length}건)</span>
+                    <span style={{ fontSize: 11, fontFamily: "monospace", color: "#707070" }}>{gMin}분 · -{gKcal}kcal</span>
+                  </div>
+                  {group.items.map((e, j) => (
+                    <div key={j} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0 5px 8px", borderBottom: "1px solid rgba(255,255,255,0.02)", fontSize: 13 }}>
+                      <div><span style={{ color: "#4a8fc9", fontSize: 11, marginRight: 6, fontFamily: "monospace" }}>{String(e.hour || 0).padStart(2, "0")}시</span>{e.n} · {e.duration}분</div>
+                      <span style={{ color: "#4a8fc9", fontFamily: "monospace", fontSize: 12 }}>-{e.kcal}kcal</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
           </div>
         </>)}
 
@@ -1574,7 +1604,7 @@ function MainApp({ user, onLogout }) {
             <select value={mealHour} onChange={e => setMealHour(parseInt(e.target.value))}
               style={{ flex: 1, padding: "6px 8px", background: "#252525", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, color: "#f5f5f0", fontSize: 14, fontFamily: "monospace" }}>
               {Array.from({ length: 24 }, (_, h) => (
-                <option key={h} value={h}>{String(h).padStart(2, "0")}:00 {h < 6 ? "새벽" : h < 12 ? "오전" : h < 18 ? "오후" : "저녁"}</option>
+                <option key={h} value={h}>{String(h).padStart(2, "0")}:00 {h < 4 ? "새벽" : h < 12 ? "오전" : h < 18 ? "오후" : "저녁"}</option>
               ))}
             </select>
             <button onClick={() => setMealHour(nowHour())} style={{ padding: "6px 10px", background: "#2a2a2a", border: "none", borderRadius: 6, color: "#8a8a8a", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>지금</button>
@@ -1743,7 +1773,7 @@ function MainApp({ user, onLogout }) {
             <select value={exHour} onChange={e => setExHour(parseInt(e.target.value))}
               style={{ flex: 1, padding: "6px 8px", background: "#252525", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, color: "#f5f5f0", fontSize: 14, fontFamily: "monospace" }}>
               {Array.from({ length: 24 }, (_, h) => (
-                <option key={h} value={h}>{String(h).padStart(2, "0")}:00 {h < 6 ? "새벽" : h < 12 ? "오전" : h < 18 ? "오후" : "저녁"}</option>
+                <option key={h} value={h}>{String(h).padStart(2, "0")}:00 {h < 4 ? "새벽" : h < 12 ? "오전" : h < 18 ? "오후" : "저녁"}</option>
               ))}
             </select>
             <button onClick={() => setExHour(nowHour())} style={{ padding: "6px 10px", background: "#2a2a2a", border: "none", borderRadius: 6, color: "#8a8a8a", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>지금</button>
@@ -1793,15 +1823,27 @@ function MainApp({ user, onLogout }) {
             ))}
           </div>
           <div style={{ fontSize: 13, color: "#707070", marginBottom: 8 }}>오늘 운동 (소모: {exTotal}kcal)</div>
-          {exercises.map((e, i) => (
-            <div key={i} style={{ ...cs, padding: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ flex: 1, cursor: "pointer" }} onClick={() => setEditExIdx(i)}><span style={{ color: "#4a8fc9", fontSize: 11, marginRight: 6, fontFamily: "monospace" }}>{String(e.hour || 0).padStart(2, "0")}시</span><span style={{ fontSize: 13 }}>{e.n}</span><span style={{ color: "#707070", fontSize: 12, marginLeft: 4 }}>{e.duration}분</span><div style={{ fontSize: 11, color: "#4a8fc9", fontFamily: "monospace" }}>-{e.kcal} kcal</div></div>
-              <div style={{ display: "flex", gap: 4 }}>
-                <button onClick={() => setEditExIdx(i)} style={{ padding: "4px 10px", background: "rgba(74,143,201,0.15)", border: "1px solid rgba(74,143,201,0.3)", borderRadius: 6, color: "#4a8fc9", fontSize: 12, cursor: "pointer" }}>수정</button>
-                <button onClick={() => removeExercise(i)} style={{ padding: "4px 10px", background: "rgba(224,82,82,0.15)", border: "1px solid rgba(224,82,82,0.3)", borderRadius: 6, color: "#e05252", fontSize: 12, cursor: "pointer" }}>삭제</button>
+          {groupExercisesByTime(exercises).map((group) => {
+            const gKcal = Math.round(group.items.reduce((s, e) => s + (e.kcal || 0), 0));
+            const gMin = group.items.reduce((s, e) => s + (e.duration || 0), 0);
+            return (
+              <div key={group.key} style={{ marginBottom: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                  <span style={{ fontSize: 13, fontWeight: 500 }}>{group.label} ({group.items.length}건)</span>
+                  <span style={{ fontSize: 11, fontFamily: "monospace", color: "#707070" }}>{gMin}분 · -{gKcal}kcal</span>
+                </div>
+                {group.items.map((e) => (
+                  <div key={e._idx} style={{ ...cs, padding: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ flex: 1, cursor: "pointer" }} onClick={() => setEditExIdx(e._idx)}><span style={{ color: "#4a8fc9", fontSize: 11, marginRight: 6, fontFamily: "monospace" }}>{String(e.hour || 0).padStart(2, "0")}시</span><span style={{ fontSize: 13 }}>{e.n}</span><span style={{ color: "#707070", fontSize: 12, marginLeft: 4 }}>{e.duration}분</span><div style={{ fontSize: 11, color: "#4a8fc9", fontFamily: "monospace" }}>-{e.kcal} kcal</div></div>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <button onClick={() => setEditExIdx(e._idx)} style={{ padding: "4px 10px", background: "rgba(74,143,201,0.15)", border: "1px solid rgba(74,143,201,0.3)", borderRadius: 6, color: "#4a8fc9", fontSize: 12, cursor: "pointer" }}>수정</button>
+                      <button onClick={() => removeExercise(e._idx)} style={{ padding: "4px 10px", background: "rgba(224,82,82,0.15)", border: "1px solid rgba(224,82,82,0.3)", borderRadius: 6, color: "#e05252", fontSize: 12, cursor: "pointer" }}>삭제</button>
+                    </div>
+                  </div>
+                ))}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </>)}
 
         {tab === "body" && <BodyTab bodyLog={bodyLog} addBody={addBody} date={date} onEditBody={editBody} onDeleteBody={deleteBody} />}
