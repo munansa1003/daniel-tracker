@@ -1180,10 +1180,41 @@ function getYearKey(ds) { return ds.slice(0, 4); }
 /* ───── 통계 탭 (A: 주간 성적표 + C: 나의 인사이트) ───── */
 function StatsTab({ bodyLog, allDays, onBackup, goals, onSaveGoals }) {
   const [statsTab, setStatsTab] = useState("report");
+  const [summaryPeriod, setSummaryPeriod] = useState("1m");
   const totalDays = Object.keys(allDays).length;
   const targets = useMemo(() => calcTargets(goals.weight || 75), [goals.weight]);
   const latest = bodyLog[bodyLog.length - 1];
   const first = bodyLog[0];
+
+  // ═══ 기간별 요약 데이터 ═══
+  const periodSummary = useMemo(() => {
+    if (bodyLog.length < 2) return null;
+    const sorted = [...bodyLog].sort((a, b) => a.date.localeCompare(b.date));
+    const todayDate = new Date(today() + "T12:00:00");
+    let startDate;
+    if (summaryPeriod === "1w") { startDate = new Date(todayDate); startDate.setDate(startDate.getDate() - 7); }
+    else if (summaryPeriod === "1m") { startDate = new Date(todayDate); startDate.setMonth(startDate.getMonth() - 1); }
+    else if (summaryPeriod === "3m") { startDate = new Date(todayDate); startDate.setMonth(startDate.getMonth() - 3); }
+    else { startDate = new Date(sorted[0].date + "T12:00:00"); }
+    const startStr = startDate.getFullYear() + "-" + String(startDate.getMonth() + 1).padStart(2, "0") + "-" + String(startDate.getDate()).padStart(2, "0");
+    const periodEntries = sorted.filter(b => b.date >= startStr);
+    if (periodEntries.length < 1) return null;
+    const from = summaryPeriod === "all" ? sorted[0] : periodEntries[0];
+    const to = periodEntries[periodEntries.length - 1];
+    if (from.date === to.date && summaryPeriod !== "all") return null;
+    const dW = Math.round((to.weight - from.weight) * 10) / 10;
+    const dF = Math.round((to.fatPct - from.fatPct) * 10) / 10;
+    const dM = Math.round((to.muscle - from.muscle) * 10) / 10;
+    const spark = periodEntries.slice(-8);
+    const gW = dW <= 0, gF = dF <= 0, gM = dM >= 0;
+    const gc = (gW ? 1 : 0) + (gF ? 1 : 0) + (gM ? 1 : 0);
+    const pLabel = { "1w": "1주", "1m": "1개월", "3m": "3개월", "all": "전체" }[summaryPeriod];
+    let status, sColor;
+    if (gc === 3) { status = `${pLabel} 리컴프 진행 중! 체중↓ 체지방↓ 골격근↑`; sColor = "#5a9e6f"; }
+    else if (gc >= 2) { const bad = !gW ? "체중↑" : !gF ? "체지방↑" : "골격근↓"; status = `${pLabel} 전반적 양호 · ${bad} 주의`; sColor = "#d4af37"; }
+    else { status = `${pLabel} 관리가 필요합니다`; sColor = "#e05252"; }
+    return { from, to, dW, dF, dM, spark, dateLabel: from.date.slice(5) + " → " + to.date.slice(5), cnt: periodEntries.length, status, sColor, gW, gF, gM };
+  }, [bodyLog, summaryPeriod]);
 
   // 주간 날짜 배열 (월~일) 구하기
   const getWeekDates = useCallback((dateStr) => {
@@ -1360,13 +1391,21 @@ function StatsTab({ bodyLog, allDays, onBackup, goals, onSaveGoals }) {
     return { golden, anomalies: anomalies.slice(0, 4), correlations, actions };
   }, [allDays, bodyLog, targets, weeklyReport]);
 
-  const sc = (l, v, u, d, good) => (
-    <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 8, padding: 14, textAlign: "center" }}>
-      <div style={{ fontSize: 11, color: "#707070" }}>{l}</div>
-      <div style={{ fontSize: 20, fontWeight: 500, fontFamily: "monospace", marginTop: 4, color: "#f5f5f0" }}>{v}<span style={{ fontSize: 12 }}>{u}</span></div>
-      {d !== undefined && <div style={{ fontSize: 11, fontFamily: "monospace", marginTop: 4, color: good ? "#5a9e6f" : "#e05252" }}>{d}</div>}
-    </div>
-  );
+  // 스파크라인 SVG 생성
+  const sparklinePath = (entries, key, w = 60, h = 22) => {
+    if (!entries || entries.length < 2) return { full: "", recent: "", lastX: 0, lastY: 0 };
+    const vals = entries.map(e => e[key]);
+    const min = Math.min(...vals), max = Math.max(...vals), range = max - min || 1;
+    const pts = vals.map((v, i) => ({ x: Math.round(i / (vals.length - 1) * w), y: Math.round(2 + (h - 4) - ((v - min) / range) * (h - 4)) }));
+    const full = pts.map(p => `${p.x},${p.y}`).join(" ");
+    const half = Math.floor(pts.length / 2);
+    const recent = pts.slice(half).map(p => `${p.x},${p.y}`).join(" ");
+    const last = pts[pts.length - 1];
+    return { full, recent, lastX: last.x, lastY: last.y };
+  };
+
+  // 기간탭 스타일
+  const pTabStyle = (key) => ({ flex: 1, padding: "8px 0", textAlign: "center", fontSize: 11, fontWeight: summaryPeriod === key ? 500 : 400, color: summaryPeriod === key ? "#d4af37" : "#707070", background: "transparent", border: "none", borderBottom: summaryPeriod === key ? "2px solid #d4af37" : "2px solid transparent", cursor: "pointer" });
 
   // 도트매트릭스 렌더
   const DotMatrix = ({ label, thisDaily, lastDaily, field, color, thisDays, lastDays, thisN, lastN }) => {
@@ -1396,9 +1435,54 @@ function StatsTab({ bodyLog, allDays, onBackup, goals, onSaveGoals }) {
 
   return (
     <>
-      {/* 요약 카드 */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
-        {latest && first ? <>{sc("현재 체중", latest.weight, "kg", `${(latest.weight - first.weight) >= 0 ? "+" : ""}${(latest.weight - first.weight).toFixed(1)}kg`, latest.weight <= first.weight)}{sc("체지방률", latest.fatPct, "%", `${(latest.fatPct - first.fatPct) >= 0 ? "+" : ""}${(latest.fatPct - first.fatPct).toFixed(1)}%p`, latest.fatPct <= first.fatPct)}{sc("골격근량", latest.muscle, "kg", `${(latest.muscle - first.muscle) >= 0 ? "+" : ""}${(latest.muscle - first.muscle).toFixed(1)}kg`, latest.muscle >= first.muscle)}{sc("기록 일수", totalDays, "일", `체성분 ${bodyLog.length}회`, true)}</> : <>{sc("기록 일수", totalDays, "일")}{sc("체성분", bodyLog.length, "회")}</>}
+      {/* 기간별 체성분 변화 배너 */}
+      <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, overflow: "hidden", marginBottom: 14 }}>
+        <div style={{ display: "flex", borderBottom: "0.5px solid rgba(255,255,255,0.06)" }}>
+          {[["1w", "1주"], ["1m", "1개월"], ["3m", "3개월"], ["all", "전체"]].map(([k, l]) => (
+            <button key={k} onClick={() => setSummaryPeriod(k)} style={pTabStyle(k)}>{l}</button>
+          ))}
+        </div>
+        <div style={{ padding: "14px 16px 12px" }}>
+          {periodSummary ? (<>
+            <div style={{ fontSize: 10, color: "#4a4a4a", marginBottom: 10, textAlign: "right" }}>{periodSummary.dateLabel} · 측정 {periodSummary.cnt}회</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+              {[
+                { label: "체중", delta: periodSummary.dW, unit: "kg", good: periodSummary.gW, key: "weight", from: periodSummary.from.weight, to: periodSummary.to.weight, color: periodSummary.gW ? "#5a9e6f" : "#e05252", goodDir: "down" },
+                { label: "체지방률", delta: periodSummary.dF, unit: "%p", good: periodSummary.gF, key: "fatPct", from: periodSummary.from.fatPct, to: periodSummary.to.fatPct, color: periodSummary.gF ? "#5a9e6f" : "#e05252", goodDir: "down" },
+                { label: "골격근", delta: periodSummary.dM, unit: "kg", good: periodSummary.gM, key: "muscle", from: periodSummary.from.muscle, to: periodSummary.to.muscle, color: periodSummary.gM ? "#5a9e6f" : "#e05252", goodDir: "up" },
+              ].map((x, i) => {
+                const sp = sparklinePath(periodSummary.spark, x.key);
+                const dimColor = x.color + "40";
+                return (
+                  <div key={i} style={{ background: "#252525", borderRadius: 10, padding: 10, textAlign: "center" }}>
+                    <div style={{ fontSize: 9, color: "#707070", marginBottom: 4 }}>{x.label}</div>
+                    <div style={{ fontSize: 22, fontWeight: 600, fontFamily: "monospace", color: x.color }}>{x.delta >= 0 ? "+" : ""}{x.delta}</div>
+                    <div style={{ fontSize: 9, color: "#4a4a4a", margin: "2px 0" }}>{x.unit}</div>
+                    <svg width="60" height="22" viewBox="0 0 60 22" style={{ display: "block", margin: "6px auto 0" }}>
+                      <polyline points={sp.full} fill="none" stroke={dimColor} strokeWidth="1.5" strokeLinecap="round" />
+                      <polyline points={sp.recent} fill="none" stroke={x.color} strokeWidth="2" strokeLinecap="round" />
+                      <circle cx={sp.lastX} cy={sp.lastY} r="2" fill={x.color} />
+                    </svg>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
+                      <span style={{ fontSize: 9, color: "#4a4a4a" }}>{x.from}</span>
+                      <span style={{ fontSize: 9, color: x.color, fontWeight: 500 }}>{x.to}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ marginTop: 10, background: `${periodSummary.sColor}0F`, border: `0.5px solid ${periodSummary.sColor}25`, borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+              <span style={{ fontSize: 11, color: periodSummary.sColor }}>{periodSummary.status}</span>
+            </div>
+          </>) : (
+            <div style={{ textAlign: "center", padding: 20 }}>
+              {bodyLog.length < 2
+                ? <div style={{ fontSize: 12, color: "#4a4a4a" }}>체성분 2회 이상 측정하면 변화가 표시됩니다<br/><span style={{ fontSize: 11, color: "#707070", marginTop: 4, display: "inline-block" }}>현재 {bodyLog.length}회 · {totalDays}일 기록</span></div>
+                : <div style={{ fontSize: 12, color: "#4a4a4a" }}>선택 기간에 측정 데이터가 부족합니다</div>
+              }
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 탭 전환 */}
