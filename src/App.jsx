@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar, ComposedChart, Legend, ScatterChart, Scatter, ReferenceLine } from "recharts";
+import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar, ComposedChart, Legend, ReferenceLine } from "recharts";
 import store, { getCurrentUserId, setUserId, logout, getProfiles, saveProfiles, getSharedFoods, addSharedFood, getSharedExercises, addSharedExercise } from "./store.js";
 import { DEFAULT_FOODS, DEFAULT_EX, TARGETS as DEFAULT_TARGETS, COLORS } from "./data.js";
 
@@ -1177,133 +1177,189 @@ function getWeekKey(ds) { const d = new Date(ds); const day = d.getDay() || 7; d
 function getMonthKey(ds) { return ds.slice(0, 7); }
 function getYearKey(ds) { return ds.slice(0, 4); }
 
-/* ───── 통계 탭 ───── */
+/* ───── 통계 탭 (A: 주간 성적표 + C: 나의 인사이트) ───── */
 function StatsTab({ bodyLog, allDays, onBackup, goals, onSaveGoals }) {
-  const [period, setPeriod] = useState("week");
-  const [rangeStart, setRangeStart] = useState("");
-  const [rangeEnd, setRangeEnd] = useState("");
-
-  const periodData = useMemo(() => {
-    const entries = Object.entries(allDays);
-    if (!entries.length) return [];
-    const groups = {};
-    const keyFn = period === "week" ? getWeekKey : period === "month" ? getMonthKey : getYearKey;
-    entries.forEach(([date, data]) => {
-      const key = keyFn(date);
-      if (!groups[key]) groups[key] = { key, days: 0, p: 0, c: 0, f: 0, k: 0, ex: 0 };
-      const a = aggregateDay(data);
-      groups[key].days++; groups[key].p += a.p; groups[key].c += a.c; groups[key].f += a.f; groups[key].k += a.k; groups[key].ex += a.ex;
-    });
-    return Object.values(groups).sort((a, b) => a.key.localeCompare(b.key)).slice(-12).map(g => ({
-      ...g, pAvg: Math.round(g.p / g.days), cAvg: Math.round(g.c / g.days), fAvg: Math.round(g.f / g.days),
-      kAvg: Math.round(g.k / g.days), exAvg: Math.round(g.ex / g.days), netAvg: Math.round((g.k - g.ex) / g.days)
-    }));
-  }, [allDays, period]);
-
-  const hourlyData = useMemo(() => {
-    const h = Array.from({ length: 24 }, (_, i) => ({ hour: i, meals: 0, kcal: 0, p: 0, c: 0, f: 0 }));
-    Object.values(allDays).forEach(d => (d.meals || []).forEach(m => {
-      const hr = m.hour || 0;
-      if (hr >= 0 && hr < 24) { h[hr].meals++; h[hr].kcal += m.k * m.serving; h[hr].p += m.p * m.serving; h[hr].c += m.c * m.serving; h[hr].f += m.f * m.serving; }
-    }));
-    return h.map(x => ({ ...x, kcal: Math.round(x.kcal), p: Math.round(x.p), c: Math.round(x.c), f: Math.round(x.f) }));
-  }, [allDays]);
-
-  // 기간 지정 분석 데이터
-  const rangeAnalysis = useMemo(() => {
-    if (!rangeStart || !rangeEnd || rangeStart > rangeEnd) return null;
-    
-    // 식단/운동 데이터
-    const entries = Object.entries(allDays).filter(([d]) => d >= rangeStart && d <= rangeEnd);
-    if (!entries.length) return null;
-    
-    let totalP = 0, totalC = 0, totalF = 0, totalK = 0, totalEx = 0;
-    entries.forEach(([, data]) => {
-      const a = aggregateDay(data);
-      totalP += a.p; totalC += a.c; totalF += a.f; totalK += a.k; totalEx += a.ex;
-    });
-    const days = entries.length;
-    
-    // 일별 데이터 (차트용)
-    const dailyData = entries.sort(([a], [b]) => a.localeCompare(b)).map(([d, data]) => {
-      const a = aggregateDay(data);
-      return { d: d.slice(5), p: Math.round(a.p), c: Math.round(a.c), f: Math.round(a.f), k: Math.round(a.k), ex: Math.round(a.ex), net: Math.round(a.net) };
-    });
-    
-    // 체성분 변화
-    const startBody = bodyLog.filter(b => b.date >= rangeStart).sort((a, b) => a.date.localeCompare(b.date))[0];
-    const endBody = [...bodyLog.filter(b => b.date <= rangeEnd)].sort((a, b) => b.date.localeCompare(a.date))[0];
-    
-    let bodyChange = null;
-    if (startBody && endBody && startBody.date !== endBody.date) {
-      bodyChange = {
-        startDate: startBody.date,
-        endDate: endBody.date,
-        startWeight: startBody.weight, endWeight: endBody.weight,
-        startFat: startBody.fatPct, endFat: endBody.fatPct,
-        startMuscle: startBody.muscle, endMuscle: endBody.muscle,
-        dWeight: endBody.weight - startBody.weight,
-        dFat: endBody.fatPct - startBody.fatPct,
-        dMuscle: endBody.muscle - startBody.muscle,
-      };
-    }
-    
-    // 체성분 추이 (차트용)
-    const bodyTrend = bodyLog.filter(b => b.date >= rangeStart && b.date <= rangeEnd)
-      .map(b => ({ d: b.date.slice(5), weight: b.weight, fat: b.fatPct, muscle: b.muscle }));
-    
-    return {
-      days, pAvg: Math.round(totalP / days), cAvg: Math.round(totalC / days),
-      fAvg: Math.round(totalF / days), kAvg: Math.round(totalK / days),
-      exAvg: Math.round(totalEx / days), netAvg: Math.round((totalK - totalEx) / days),
-      dailyData, bodyChange, bodyTrend
-    };
-  }, [allDays, bodyLog, rangeStart, rangeEnd]);
-
+  const [statsTab, setStatsTab] = useState("report");
+  const totalDays = Object.keys(allDays).length;
+  const targets = useMemo(() => calcTargets(goals.weight || 75), [goals.weight]);
   const latest = bodyLog[bodyLog.length - 1];
   const first = bodyLog[0];
-  const totalDays = Object.keys(allDays).length;
 
-  // 7일 이동 평균 데이터 (체중 & 체지방)
-  const movingAvgData = useMemo(() => {
-    if (bodyLog.length < 3) return [];
-    let data = bodyLog.slice(-60).map(b => ({ d: b.date.slice(5), weight: b.weight, fat: b.fatPct, muscle: b.muscle }));
-    data = calcMovingAvg(data, "weight", 7);
-    data = calcMovingAvg(data, "fat", 7);
-    data = calcMovingAvg(data, "muscle", 7);
-    return data;
-  }, [bodyLog]);
-
-  // 상관관계 데이터
-  const correlationData = useMemo(() => {
-    const entries = Object.entries(allDays).sort(([a], [b]) => a.localeCompare(b));
-    const carbsVsWeight = [];
-    const exVsMuscle = [];
-
-    entries.forEach(([date, dayData]) => {
-      const agg = aggregateDay(dayData);
-      // 해당 날짜의 체성분 찾기
-      const body = bodyLog.find(b => b.date === date);
-      if (body && agg.c > 0) {
-        carbsVsWeight.push({ carbs: Math.round(agg.c), weight: body.weight, date: date.slice(5) });
-      }
-      if (body && agg.ex > 0) {
-        const totalExMin = (dayData.exercises || []).reduce((s, e) => s + (e.duration || 0), 0);
-        if (totalExMin > 0) {
-          exVsMuscle.push({ exMin: totalExMin, muscle: body.muscle, date: date.slice(5) });
-        }
-      }
+  // 주간 날짜 배열 (월~일) 구하기
+  const getWeekDates = useCallback((dateStr) => {
+    const d = new Date(dateStr + "T12:00:00");
+    const day = d.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    return Array.from({ length: 7 }, (_, i) => {
+      const dd = new Date(d); dd.setDate(d.getDate() + diff + i);
+      return dd.getFullYear() + "-" + String(dd.getMonth() + 1).padStart(2, "0") + "-" + String(dd.getDate()).padStart(2, "0");
     });
+  }, []);
 
-    // 평균선 계산
-    const avgCarbs = carbsVsWeight.length > 0 ? Math.round(carbsVsWeight.reduce((s, d) => s + d.carbs, 0) / carbsVsWeight.length) : 0;
-    const avgWeight = carbsVsWeight.length > 0 ? Math.round(carbsVsWeight.reduce((s, d) => s + d.weight, 0) / carbsVsWeight.length * 10) / 10 : 0;
-    const avgExMin = exVsMuscle.length > 0 ? Math.round(exVsMuscle.reduce((s, d) => s + d.exMin, 0) / exVsMuscle.length) : 0;
-    const avgMuscle = exVsMuscle.length > 0 ? Math.round(exVsMuscle.reduce((s, d) => s + d.muscle, 0) / exVsMuscle.length * 10) / 10 : 0;
+  // ═══ 주간 리포트 데이터 ═══
+  const weeklyReport = useMemo(() => {
+    const todayStr = today();
+    const thisWeekDates = getWeekDates(todayStr);
+    const prevMon = new Date(thisWeekDates[0] + "T12:00:00");
+    prevMon.setDate(prevMon.getDate() - 7);
+    const lastWeekDates = getWeekDates(prevMon.getFullYear() + "-" + String(prevMon.getMonth() + 1).padStart(2, "0") + "-" + String(prevMon.getDate()).padStart(2, "0"));
+    const dayLabels = ["월", "화", "수", "목", "금", "토", "일"];
 
-    return { carbsVsWeight, exVsMuscle, avgCarbs, avgWeight, avgExMin, avgMuscle };
-  }, [allDays, bodyLog]);
-  const pBtn = (p) => ({ flex: 1, padding: "8px 10px", fontSize: 12, fontWeight: 500, background: period === p ? THEME.gold : "transparent", color: period === p ? "#141414" : THEME.sub, border: `1px solid ${THEME.borderLight}`, cursor: "pointer", transition: "all 0.15s ease" });
+    const analyzeWeek = (dates) => {
+      let pDays = 0, dDays = 0, eDays = 0, totP = 0, totK = 0, totEx = 0, n = 0;
+      const daily = dates.map((ds, i) => {
+        const dd = allDays[ds];
+        if (!dd || ((!dd.meals || !dd.meals.length) && (!dd.exercises || !dd.exercises.length)))
+          return { date: ds, label: dayLabels[i], has: false, pHit: false, dHit: false, eHit: false };
+        const a = aggregateDay(dd);
+        n++; totP += a.p; totK += a.k; totEx += a.ex;
+        const ph = a.p >= targets.p, dh = a.k <= targets.k, eh = (dd.exercises || []).length > 0;
+        if (ph) pDays++; if (dh) dDays++; if (eh) eDays++;
+        const lateEat = (dd.meals || []).some(m => (m.hour || 0) >= 22);
+        return { date: ds, label: dayLabels[i], has: true, pHit: ph, dHit: dh, eHit: eh, p: Math.round(a.p), k: Math.round(a.k), ex: Math.round(a.ex), lateEat };
+      });
+      return { daily, n, pDays, dDays, eDays, avgP: n ? Math.round(totP / n) : 0, avgK: n ? Math.round(totK / n) : 0, avgEx: n ? Math.round(totEx / n) : 0 };
+    };
+
+    const tw = analyzeWeek(thisWeekDates);
+    const lw = analyzeWeek(lastWeekDates);
+    const todayDow = new Date(todayStr + "T12:00:00").getDay();
+    const dayIdx = todayDow === 0 ? 6 : todayDow - 1;
+    const isComplete = dayIdx === 6;
+
+    const grade = (w) => {
+      if (w.n === 0) return { letter: "—", color: "#4a4a4a" };
+      const s = (w.pDays / w.n) * 40 + (w.dDays / w.n) * 30 + Math.min(w.eDays / 4, 1) * 30;
+      if (s >= 90) return { letter: "A+", color: "#5a9e6f" };
+      if (s >= 80) return { letter: "A", color: "#5a9e6f" };
+      if (s >= 70) return { letter: "B+", color: "#5a9e6f" };
+      if (s >= 60) return { letter: "B", color: "#4a8fc9" };
+      if (s >= 50) return { letter: "C+", color: "#d4af37" };
+      if (s >= 40) return { letter: "C", color: "#d4af37" };
+      if (s >= 30) return { letter: "D", color: "#e05252" };
+      return { letter: "F", color: "#e05252" };
+    };
+
+    // 코칭 생성
+    let coaching = "";
+    const showMid = !isComplete && dayIdx >= 2 && tw.n >= 3;
+    const showFinal = isComplete && tw.n >= 5;
+    if (showMid || showFinal) {
+      const pts = [];
+      if (tw.avgP >= targets.p) pts.push(`단백질 평균 ${tw.avgP}g으로 목표 달성 중!`);
+      else pts.push(`단백질이 목표보다 일평균 ${targets.p - tw.avgP}g 부족합니다. 닭가슴살 1팩(~30g)을 추가해보세요.`);
+      const wkendFails = tw.daily.filter((d, i) => i >= 5 && d.has && !d.dHit).length;
+      if (tw.dDays >= Math.ceil(tw.n * 0.7)) pts.push("칼로리 적자 유지율 좋습니다!");
+      else if (wkendFails > 0) pts.push("주말 칼로리 초과 경향 → 토요일 식단을 미리 계획해보세요.");
+      else pts.push("칼로리 적자 유지를 더 신경 써보세요.");
+      if (tw.eDays >= 4) pts.push("운동 빈도 훌륭합니다!");
+      else pts.push(`운동 ${tw.eDays}회 → 주 4회 이상 목표로!`);
+      if (lw.n > 0) {
+        const pd = tw.avgP - lw.avgP;
+        if (pd > 10) pts.push(`단백질 지난 주 대비 +${pd}g 향상!`);
+        else if (pd < -10) pts.push(`단백질 지난 주 대비 ${pd}g 감소.`);
+      }
+      coaching = showFinal ? pts.join(" ") : "중간 점검: " + pts.slice(0, 2).join(" ");
+    }
+
+    return { tw, lw, tg: grade(tw), lg: grade(lw), isComplete, dayIdx, showMid, showFinal, coaching, weekLabel: thisWeekDates[0].slice(5) + " ~ " + thisWeekDates[6].slice(5) };
+  }, [allDays, targets, getWeekDates]);
+
+  // ═══ 인사이트 데이터 ═══
+  const insights = useMemo(() => {
+    // 1. 황금 패턴: 체지방 감소 기간의 공통 행동
+    let golden = null;
+    if (bodyLog.length >= 4) {
+      const sorted = [...bodyLog].sort((a, b) => a.date.localeCompare(b.date));
+      const good = [], bad = [];
+      for (let i = 1; i < sorted.length; i++) {
+        const prev = sorted[i - 1], curr = sorted[i];
+        const entries = Object.entries(allDays).filter(([d]) => d >= prev.date && d <= curr.date);
+        if (entries.length < 3) continue;
+        let tP = 0, tK = 0, eD = 0, latD = 0;
+        entries.forEach(([, data]) => { const a = aggregateDay(data); tP += a.p; tK += a.k; if ((data.exercises || []).length > 0) eD++; if ((data.meals || []).some(m => (m.hour || 0) >= 22)) latD++; });
+        const d = entries.length;
+        const p = { avgP: Math.round(tP / d), avgK: Math.round(tK / d), weeklyEx: Math.round(eD / d * 7 * 10) / 10, lateRate: Math.round(latD / d * 100) };
+        if (curr.fatPct < prev.fatPct) good.push(p); else if (curr.fatPct > prev.fatPct) bad.push(p);
+      }
+      if (good.length >= 2) {
+        const avg = { avgP: Math.round(good.reduce((s, p) => s + p.avgP, 0) / good.length), avgK: Math.round(good.reduce((s, p) => s + p.avgK, 0) / good.length), weeklyEx: Math.round(good.reduce((s, p) => s + p.weeklyEx, 0) / good.length * 10) / 10, lateRate: Math.round(good.reduce((s, p) => s + p.lateRate, 0) / good.length) };
+        const pats = [];
+        if (avg.avgP >= targets.p * 0.9) pats.push(`단백질 ${avg.avgP}g+`);
+        if (avg.weeklyEx >= 3.5) pats.push(`운동 주 ${Math.round(avg.weeklyEx)}회+`);
+        if (avg.lateRate < 15) pats.push("야식 없음");
+        if (avg.avgK <= targets.k * 1.05) pats.push(`칼로리 ${avg.avgK} 이하`);
+        golden = { patterns: pats, good: avg, count: good.length, total: good.length + bad.length };
+      }
+    }
+
+    // 2. 이상치 감지 (이번 주)
+    const anomalies = [];
+    const recentEntries = Object.entries(allDays).sort(([a], [b]) => a.localeCompare(b));
+    if (recentEntries.length >= 7) {
+      const last14 = recentEntries.slice(-14);
+      let sumP = 0, sumK = 0, sumEx = 0, cnt = 0;
+      last14.forEach(([, d]) => { const a = aggregateDay(d); sumP += a.p; sumK += a.k; sumEx += a.ex; cnt++; });
+      const avgP = cnt ? sumP / cnt : 0, avgK = cnt ? sumK / cnt : 0, avgEx = cnt ? sumEx / cnt : 0;
+
+      const last7 = recentEntries.slice(-7);
+      last7.forEach(([date, d]) => {
+        const a = aggregateDay(d);
+        if (avgP > 0 && a.p < avgP * 0.6) anomalies.push({ type: "warn", title: `${date.slice(5)} 단백질 ${Math.round(a.p)}g`, desc: `평소(${Math.round(avgP)}g) 대비 ${Math.round((1 - a.p / avgP) * 100)}% 부족` });
+        if (avgK > 0 && a.k > avgK * 1.4) anomalies.push({ type: "warn", title: `${date.slice(5)} 칼로리 ${Math.round(a.k)}kcal`, desc: `평소(${Math.round(avgK)}) 대비 ${Math.round((a.k / avgK - 1) * 100)}% 초과` });
+        if (a.ex > 0 && avgEx > 0 && a.ex > avgEx * 1.5) anomalies.push({ type: "good", title: `${date.slice(5)} 운동 소모 ${Math.round(a.ex)}kcal`, desc: `평소(${Math.round(avgEx)}) 대비 ${Math.round((a.ex / avgEx - 1) * 100)}% 초과 달성!` });
+      });
+    }
+
+    // 3. 상관관계 발견
+    const correlations = [];
+    if (bodyLog.length >= 4) {
+      const sorted = [...bodyLog].sort((a, b) => a.date.localeCompare(b.date));
+      let hiP = [], loP = [], exD = [], noExD = [], lateD = [], noLateD = [];
+      for (let i = 1; i < sorted.length; i++) {
+        const prev = sorted[i - 1], curr = sorted[i];
+        const entries = Object.entries(allDays).filter(([d]) => d >= prev.date && d < curr.date);
+        if (entries.length < 2) continue;
+        let tP = 0; let eCount = 0, lateCount = 0;
+        entries.forEach(([, d]) => { tP += aggregateDay(d).p; if ((d.exercises || []).length > 0) eCount++; if ((d.meals || []).some(m => (m.hour || 0) >= 22)) lateCount++; });
+        const avgP2 = tP / entries.length;
+        const dMuscle = curr.muscle - prev.muscle;
+        const dWeight = curr.weight - prev.weight;
+        if (avgP2 >= targets.p) hiP.push(dMuscle); else loP.push(dMuscle);
+        if (eCount >= entries.length * 0.5) exD.push(dMuscle); else noExD.push(dMuscle);
+        if (lateCount > 0) lateD.push(dWeight); else noLateD.push(dWeight);
+      }
+      const avg = arr => arr.length ? Math.round(arr.reduce((s, v) => s + v, 0) / arr.length * 10) / 10 : 0;
+      if (hiP.length >= 2 && loP.length >= 1) {
+        const hi = avg(hiP), lo = avg(loP);
+        correlations.push({ color: "#5a9e6f", title: `단백질 ${targets.p}g+ → 골격근 ${hi >= 0 ? "+" : ""}${hi}kg`, desc: `${hiP.length}회 관측 · 미달 시 ${lo >= 0 ? "+" : ""}${lo}kg` });
+      }
+      if (exD.length >= 2 && noExD.length >= 1) {
+        const hi = avg(exD), lo = avg(noExD);
+        correlations.push({ color: "#4a8fc9", title: `주 4회+ 운동 → 골격근 ${hi >= 0 ? "+" : ""}${hi}kg`, desc: `${exD.length}회 관측 · 미달 시 ${lo >= 0 ? "+" : ""}${lo}kg` });
+      }
+      if (lateD.length >= 2 && noLateD.length >= 1) {
+        const la = avg(lateD), nla = avg(noLateD);
+        if (la > nla + 0.1) correlations.push({ color: "#e05252", title: `야식(22시+) → 체중 ${la >= 0 ? "+" : ""}${la}kg`, desc: `${lateD.length}회 관측 · 야식 없을 때 ${nla >= 0 ? "+" : ""}${nla}kg` });
+      }
+    }
+
+    // 4. 우선순위 액션
+    const actions = [];
+    const { tw } = weeklyReport;
+    if (tw.n > 0) {
+      if (tw.avgP < targets.p) actions.push(`단백질 일평균 ${targets.p - tw.avgP}g 부족 → 매 끼 단백질 보충`);
+      const wkendOver = tw.daily.filter((d, i) => i >= 5 && d.has && !d.dHit).length;
+      if (wkendOver > 0) actions.push("주말 칼로리 초과 → 토요일 식단 미리 입력");
+      if (tw.eDays < 4) actions.push(`운동 ${tw.eDays}회 → 주 4회 이상 목표`);
+      const lateDays = tw.daily.filter(d => d.has && d.lateEat).length;
+      if (lateDays > 0) actions.push(`야식 ${lateDays}회 감지 → 22시 이후 식사 줄이기`);
+    }
+    if (!actions.length) actions.push("데이터를 더 쌓으면 맞춤 액션이 생성됩니다");
+
+    return { golden, anomalies: anomalies.slice(0, 4), correlations, actions };
+  }, [allDays, bodyLog, targets, weeklyReport]);
+
   const sc = (l, v, u, d, good) => (
     <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 8, padding: 14, textAlign: "center" }}>
       <div style={{ fontSize: 11, color: "#707070" }}>{l}</div>
@@ -1312,247 +1368,174 @@ function StatsTab({ bodyLog, allDays, onBackup, goals, onSaveGoals }) {
     </div>
   );
 
+  // 도트매트릭스 렌더
+  const DotMatrix = ({ label, thisDaily, lastDaily, field, color, thisDays, lastDays, thisN, lastN }) => {
+    const delta = thisDays - lastDays;
+    return (
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 11.5, color: "#f5f5f0", marginBottom: 6 }}>{label}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+          <div style={{ minWidth: 42, fontSize: 10, color: "#707070" }}>이번 주</div>
+          <div style={{ display: "flex", gap: 3 }}>{thisDaily.map((d, i) => <div key={i} style={{ width: 12, height: 12, borderRadius: 3, background: d.has ? (d[field] ? color : `${color}22`) : "#2a2a2a" }} />)}</div>
+          <span style={{ fontSize: 12, fontFamily: "monospace", fontWeight: 500, color, minWidth: 28, textAlign: "right" }}>{thisDays}/{thisN}</span>
+          {lastN > 0 && delta !== 0 && <span style={{ fontSize: 10, fontFamily: "monospace", fontWeight: 500, padding: "1px 6px", borderRadius: 99, background: delta > 0 ? "rgba(90,158,111,0.12)" : "rgba(224,82,82,0.12)", color: delta > 0 ? "#5a9e6f" : "#e05252" }}>{delta > 0 ? "▲" : "▼"}{Math.abs(delta)}</span>}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+          <div style={{ minWidth: 42, fontSize: 10, color: "#4a4a4a" }}>지난 주</div>
+          <div style={{ display: "flex", gap: 3 }}>{lastDaily.map((d, i) => <div key={i} style={{ width: 12, height: 12, borderRadius: 3, background: d.has ? (d[field] ? `${color}55` : `${color}15`) : "rgba(42,42,42,0.3)" }} />)}</div>
+          <span style={{ fontSize: 12, fontFamily: "monospace", color: "#4a4a4a", minWidth: 28, textAlign: "right" }}>{lastDays}/{lastN}</span>
+        </div>
+        <div style={{ display: "flex", gap: 3, marginLeft: 50, marginTop: 2 }}>
+          {["월", "화", "수", "목", "금", "토", "일"].map(l => <span key={l} style={{ width: 12, fontSize: 8, color: "#4a4a4a", textAlign: "center" }}>{l}</span>)}
+        </div>
+      </div>
+    );
+  };
+
+  const tabBtn = (key, label) => ({ flex: 1, padding: "10px 0", fontSize: 13, fontWeight: 500, background: statsTab === key ? THEME.gold : "transparent", color: statsTab === key ? "#141414" : THEME.sub, border: `1px solid ${THEME.borderLight}`, cursor: "pointer", transition: "all 0.15s" });
+
   return (
     <>
+      {/* 요약 카드 */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
         {latest && first ? <>{sc("현재 체중", latest.weight, "kg", `${(latest.weight - first.weight) >= 0 ? "+" : ""}${(latest.weight - first.weight).toFixed(1)}kg`, latest.weight <= first.weight)}{sc("체지방률", latest.fatPct, "%", `${(latest.fatPct - first.fatPct) >= 0 ? "+" : ""}${(latest.fatPct - first.fatPct).toFixed(1)}%p`, latest.fatPct <= first.fatPct)}{sc("골격근량", latest.muscle, "kg", `${(latest.muscle - first.muscle) >= 0 ? "+" : ""}${(latest.muscle - first.muscle).toFixed(1)}kg`, latest.muscle >= first.muscle)}{sc("기록 일수", totalDays, "일", `체성분 ${bodyLog.length}회`, true)}</> : <>{sc("기록 일수", totalDays, "일")}{sc("체성분", bodyLog.length, "회")}</>}
       </div>
-      <div style={{ display: "flex", gap: 0, marginBottom: 12, borderRadius: 8, overflow: "hidden" }}>
-        <button onClick={() => setPeriod("week")} style={{ ...pBtn("week"), borderRadius: "8px 0 0 8px" }}>주간</button>
-        <button onClick={() => setPeriod("month")} style={pBtn("month")}>월간</button>
-        <button onClick={() => setPeriod("year")} style={pBtn("year")}>연간</button>
-        <button onClick={() => setPeriod("hourly")} style={pBtn("hourly")}>시간대</button>
-        <button onClick={() => setPeriod("range")} style={pBtn("range")}>기간</button>
-        <button onClick={() => setPeriod("analysis")} style={{ ...pBtn("analysis"), borderRadius: "0 8px 8px 0" }}>분석</button>
+
+      {/* 탭 전환 */}
+      <div style={{ display: "flex", gap: 0, marginBottom: 14, borderRadius: 8, overflow: "hidden" }}>
+        <button onClick={() => setStatsTab("report")} style={{ ...tabBtn("report"), borderRadius: "8px 0 0 8px" }}>주간 성적표</button>
+        <button onClick={() => setStatsTab("insight")} style={{ ...tabBtn("insight"), borderRadius: "0 8px 8px 0" }}>나의 인사이트</button>
       </div>
 
-      {period === "hourly" && (<>
-        <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
-          <div style={{ fontSize: 13, color: "#707070", marginBottom: 12 }}>시간대별 칼로리 섭취</div>
-          <div style={{ height: 200 }}><ResponsiveContainer><BarChart data={hourlyData}><XAxis dataKey="hour" tick={{ fill: "#707070", fontSize: 10 }} tickFormatter={h => `${h}시`} interval={2} /><YAxis tick={{ fill: "#707070", fontSize: 10 }} /><Tooltip contentStyle={{ background: "#252525", border: "1px solid #2a2a2a", fontSize: 12 }} /><Bar dataKey="kcal" fill="#5a9e6f" radius={[3, 3, 0, 0]} /></BarChart></ResponsiveContainer></div>
-        </div>
-        <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
-          <div style={{ fontSize: 13, color: "#707070", marginBottom: 12 }}>시간대별 영양소 분포</div>
-          <div style={{ height: 200 }}><ResponsiveContainer><BarChart data={hourlyData}><XAxis dataKey="hour" tick={{ fill: "#707070", fontSize: 10 }} tickFormatter={h => `${h}시`} interval={2} /><YAxis tick={{ fill: "#707070", fontSize: 10 }} /><Tooltip contentStyle={{ background: "#252525", border: "1px solid #2a2a2a", fontSize: 12 }} /><Legend wrapperStyle={{ fontSize: 11 }} /><Bar dataKey="p" stackId="a" fill={COLORS.p} name="단백질" /><Bar dataKey="c" stackId="a" fill={COLORS.c} name="탄수" /><Bar dataKey="f" stackId="a" fill={COLORS.f} name="지방" /></BarChart></ResponsiveContainer></div>
-        </div>
-      </>)}
-
-      {/* 기간 지정 분석 */}
-      {period === "range" && (<>
-        <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
-          <div style={{ fontSize: 13, color: "#707070", marginBottom: 10 }}>기간 선택</div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <input type="date" value={rangeStart} onChange={e => setRangeStart(e.target.value)}
-              style={{ flex: 1, padding: "8px 10px", background: "#252525", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, color: "#f5f5f0", fontSize: 13, fontFamily: "monospace" }} />
-            <span style={{ color: "#707070", fontSize: 13 }}>~</span>
-            <input type="date" value={rangeEnd} onChange={e => setRangeEnd(e.target.value)}
-              style={{ flex: 1, padding: "8px 10px", background: "#252525", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, color: "#f5f5f0", fontSize: 13, fontFamily: "monospace" }} />
+      {/* ═══ 주간 성적표 ═══ */}
+      {statsTab === "report" && (<>
+        {/* 헤더: 등급 + 주차 */}
+        <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: 11, color: "#707070" }}>{weeklyReport.weekLabel}</div>
+            <div style={{ fontSize: 16, fontWeight: 600, color: "#f5f5f0", marginTop: 2 }}>주간 성적표</div>
+            {!weeklyReport.isComplete && <div style={{ fontSize: 10, color: "#d4af37", marginTop: 4 }}>진행 중 · {weeklyReport.dayIdx + 1}/7일</div>}
+            {weeklyReport.isComplete && weeklyReport.tw.n > 0 && <div style={{ fontSize: 10, color: "#5a9e6f", marginTop: 4 }}>완료 · {weeklyReport.tw.n}일 기록</div>}
           </div>
+          <div style={{ width: 56, height: 56, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, fontWeight: 700, fontFamily: "monospace", border: `2px solid ${weeklyReport.tg.color}33`, background: `${weeklyReport.tg.color}15`, color: weeklyReport.tg.color }}>{weeklyReport.tg.letter}</div>
         </div>
 
-        {rangeAnalysis && (<>
-          {/* 체성분 변화 비교 */}
-          {rangeAnalysis.bodyChange && (
-            <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
-              <div style={{ fontSize: 13, color: "#707070", marginBottom: 12 }}>체성분 변화 ({rangeAnalysis.bodyChange.startDate} → {rangeAnalysis.bodyChange.endDate})</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                {[
-                  { l: "체중", s: rangeAnalysis.bodyChange.startWeight, e: rangeAnalysis.bodyChange.endWeight, d: rangeAnalysis.bodyChange.dWeight, u: "kg", good: rangeAnalysis.bodyChange.dWeight <= 0 },
-                  { l: "체지방률", s: rangeAnalysis.bodyChange.startFat, e: rangeAnalysis.bodyChange.endFat, d: rangeAnalysis.bodyChange.dFat, u: "%", good: rangeAnalysis.bodyChange.dFat <= 0 },
-                  { l: "골격근량", s: rangeAnalysis.bodyChange.startMuscle, e: rangeAnalysis.bodyChange.endMuscle, d: rangeAnalysis.bodyChange.dMuscle, u: "kg", good: rangeAnalysis.bodyChange.dMuscle >= 0 }
-                ].map((x, i) => (
-                  <div key={i} style={{ background: "#252525", borderRadius: 8, padding: 12, textAlign: "center" }}>
-                    <div style={{ fontSize: 11, color: "#707070" }}>{x.l}</div>
-                    <div style={{ fontSize: 11, color: "#4a4a4a", fontFamily: "monospace", margin: "4px 0" }}>{x.s} → {x.e}{x.u}</div>
-                    <div style={{ fontSize: 18, fontWeight: 500, fontFamily: "monospace", color: x.good ? "#5a9e6f" : "#e05252" }}>
-                      {x.d >= 0 ? "+" : ""}{x.d.toFixed(1)}{x.u}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div style={{ display: "flex", justifyContent: "center", gap: 16, marginTop: 10 }}>
-                <span style={{ fontSize: 12, color: "#707070" }}>기록 일수: <span style={{ color: "#f5f5f0", fontFamily: "monospace" }}>{rangeAnalysis.days}일</span></span>
-                <span style={{ fontSize: 12, color: "#707070" }}>기간: <span style={{ color: "#f5f5f0", fontFamily: "monospace" }}>{Math.round((new Date(rangeEnd) - new Date(rangeStart)) / 86400000)}일</span></span>
-              </div>
-            </div>
-          )}
+        {/* 도트매트릭스 비교 */}
+        <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
+          <div style={{ fontSize: 13, color: "#707070", marginBottom: 12 }}>핵심 지표 달성률</div>
+          <DotMatrix label={`단백질 목표 (${targets.p}g+)`} thisDaily={weeklyReport.tw.daily} lastDaily={weeklyReport.lw.daily} field="pHit" color="#5a9e6f" thisDays={weeklyReport.tw.pDays} lastDays={weeklyReport.lw.pDays} thisN={weeklyReport.tw.n} lastN={weeklyReport.lw.n} />
+          <div style={{ height: 1, background: "rgba(255,255,255,0.04)", margin: "4px 0 14px" }} />
+          <DotMatrix label={`칼로리 적자 (${targets.k}kcal 이하)`} thisDaily={weeklyReport.tw.daily} lastDaily={weeklyReport.lw.daily} field="dHit" color="#d4af37" thisDays={weeklyReport.tw.dDays} lastDays={weeklyReport.lw.dDays} thisN={weeklyReport.tw.n} lastN={weeklyReport.lw.n} />
+          <div style={{ height: 1, background: "rgba(255,255,255,0.04)", margin: "4px 0 14px" }} />
+          <DotMatrix label="운동 실행 (주 4회+ 목표)" thisDaily={weeklyReport.tw.daily} lastDaily={weeklyReport.lw.daily} field="eHit" color="#4a8fc9" thisDays={weeklyReport.tw.eDays} lastDays={weeklyReport.lw.eDays} thisN={weeklyReport.tw.n} lastN={weeklyReport.lw.n} />
+        </div>
 
-          {/* 기간 평균 영양소 */}
+        {/* 주간 평균 수치 */}
+        {weeklyReport.tw.n > 0 && (
           <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
-            <div style={{ fontSize: 13, color: "#707070", marginBottom: 10 }}>기간 일평균</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6 }}>
+            <div style={{ fontSize: 13, color: "#707070", marginBottom: 10 }}>주간 평균</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
               {[
-                { l: "단백질", v: rangeAnalysis.pAvg, u: "g", c: COLORS.p },
-                { l: "탄수", v: rangeAnalysis.cAvg, u: "g", c: COLORS.c },
-                { l: "지방", v: rangeAnalysis.fAvg, u: "g", c: COLORS.f },
-                { l: "섭취", v: rangeAnalysis.kAvg, u: "", c: "#5a9e6f" },
-                { l: "Net", v: rangeAnalysis.netAvg, u: "", c: "#e05252" }
-              ].map((x, i) => (
-                <div key={i} style={{ background: "#252525", borderRadius: 8, padding: 10, textAlign: "center" }}>
-                  <div style={{ fontSize: 10, color: "#707070" }}>{x.l}</div>
-                  <div style={{ fontSize: 16, fontWeight: 500, fontFamily: "monospace", color: x.c, marginTop: 4 }}>{x.v}</div>
-                  <div style={{ fontSize: 10, color: "#4a4a4a" }}>{x.u || "kcal"}</div>
+                { l: "단백질", v: weeklyReport.tw.avgP, u: "g", c: "#4a8fc9", lv: weeklyReport.lw.avgP },
+                { l: "칼로리", v: weeklyReport.tw.avgK, u: "kcal", c: "#5a9e6f", lv: weeklyReport.lw.avgK },
+                { l: "운동소모", v: weeklyReport.tw.avgEx, u: "kcal", c: "#4a8fc9", lv: weeklyReport.lw.avgEx },
+              ].map((x, i) => {
+                const d = weeklyReport.lw.n > 0 ? x.v - x.lv : null;
+                return (
+                  <div key={i} style={{ background: "#252525", borderRadius: 8, padding: 10, textAlign: "center" }}>
+                    <div style={{ fontSize: 10, color: "#707070" }}>{x.l}</div>
+                    <div style={{ fontSize: 16, fontWeight: 500, fontFamily: "monospace", color: "#f5f5f0", marginTop: 2 }}>{x.v.toLocaleString()}</div>
+                    <div style={{ fontSize: 10, color: "#707070" }}>{x.u}</div>
+                    {d !== null && d !== 0 && <div style={{ fontSize: 10, fontFamily: "monospace", marginTop: 4, color: ((x.l === "칼로리" && d < 0) || (x.l !== "칼로리" && d > 0)) ? "#5a9e6f" : "#e05252" }}>{d > 0 ? "+" : ""}{d}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* 코칭 */}
+        {weeklyReport.coaching && (
+          <div style={{ background: "rgba(212,175,55,0.06)", border: "1px solid rgba(212,175,55,0.15)", borderRadius: 12, padding: 12, marginBottom: 12 }}>
+            <div style={{ fontSize: 10, color: "#d4af37", fontWeight: 600, marginBottom: 4 }}>{weeklyReport.showFinal ? "이번 주 코칭" : "중간 점검 코칭"}</div>
+            <div style={{ fontSize: 11.5, color: "#d4af37", lineHeight: 1.6 }}>{weeklyReport.coaching}</div>
+          </div>
+        )}
+
+        {weeklyReport.tw.n === 0 && (
+          <div style={{ textAlign: "center", padding: 32, color: "#4a4a4a", fontSize: 13 }}>이번 주 기록이 아직 없습니다. 식단/운동을 기록해보세요!</div>
+        )}
+      </>)}
+
+      {/* ═══ 나의 인사이트 ═══ */}
+      {statsTab === "insight" && (<>
+        {/* 황금 패턴 */}
+        {insights.golden && (
+          <div style={{ background: "#1e1e1e", border: "1px solid rgba(212,175,55,0.2)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+              <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#d4af37" }} />
+              <span style={{ fontSize: 12, fontWeight: 600, color: "#d4af37" }}>당신의 황금 패턴</span>
+            </div>
+            <div style={{ fontSize: 11.5, color: "#ccc", lineHeight: 1.6, marginBottom: 10 }}>체지방이 감소한 {insights.golden.count}개 기간의 공통점:</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {insights.golden.patterns.map((p, i) => <span key={i} style={{ display: "inline-block", fontSize: 10, padding: "3px 8px", borderRadius: 99, fontWeight: 500, background: "rgba(212,175,55,0.12)", color: "#d4af37" }}>{p}</span>)}
+            </div>
+            <div style={{ fontSize: 10, color: "#707070", marginTop: 8 }}>전체 {insights.golden.total}개 측정 기간 기반 분석</div>
+          </div>
+        )}
+
+        {/* 이상치 감지 */}
+        {insights.anomalies.length > 0 && (
+          <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
+            <div style={{ fontSize: 13, color: "#707070", marginBottom: 10 }}>최근 이상치 감지</div>
+            {insights.anomalies.map((a, i) => (
+              <div key={i} style={{ display: "flex", gap: 10, padding: "8px 0", borderBottom: i < insights.anomalies.length - 1 ? "0.5px solid rgba(255,255,255,0.04)" : "none" }}>
+                <div style={{ width: 28, height: 28, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0, background: a.type === "warn" ? "rgba(224,82,82,0.12)" : "rgba(90,158,111,0.12)" }}>
+                  <span style={{ color: a.type === "warn" ? "#e05252" : "#5a9e6f" }}>{a.type === "warn" ? "!" : "★"}</span>
                 </div>
-              ))}
-            </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 12, color: "#f5f5f0", fontWeight: 500 }}>{a.title}</div>
+                  <div style={{ fontSize: 10, color: "#707070", marginTop: 2 }}>{a.desc}</div>
+                </div>
+              </div>
+            ))}
           </div>
-
-          {/* 일별 칼로리 추이 */}
-          {rangeAnalysis.dailyData.length > 1 && (
-            <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
-              <div style={{ fontSize: 13, color: "#707070", marginBottom: 12 }}>일별 칼로리 추이</div>
-              <div style={{ height: 200 }}><ResponsiveContainer><ComposedChart data={rangeAnalysis.dailyData}><XAxis dataKey="d" tick={{ fill: "#707070", fontSize: 9 }} interval={Math.max(0, Math.floor(rangeAnalysis.dailyData.length / 8))} /><YAxis tick={{ fill: "#707070", fontSize: 10 }} /><Tooltip contentStyle={{ background: "#252525", border: "1px solid #2a2a2a", fontSize: 12 }} /><Legend wrapperStyle={{ fontSize: 11 }} /><Bar dataKey="k" fill="#5a9e6f" name="섭취" radius={[2, 2, 0, 0]} /><Line type="monotone" dataKey="net" stroke="#e05252" strokeWidth={2} name="Net" dot={false} /></ComposedChart></ResponsiveContainer></div>
-            </div>
-          )}
-
-          {/* 일별 영양소 추이 */}
-          {rangeAnalysis.dailyData.length > 1 && (
-            <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
-              <div style={{ fontSize: 13, color: "#707070", marginBottom: 12 }}>일별 영양소 추이</div>
-              <div style={{ height: 200 }}><ResponsiveContainer><BarChart data={rangeAnalysis.dailyData}><XAxis dataKey="d" tick={{ fill: "#707070", fontSize: 9 }} interval={Math.max(0, Math.floor(rangeAnalysis.dailyData.length / 8))} /><YAxis tick={{ fill: "#707070", fontSize: 10 }} /><Tooltip contentStyle={{ background: "#252525", border: "1px solid #2a2a2a", fontSize: 12 }} /><Legend wrapperStyle={{ fontSize: 11 }} /><Bar dataKey="p" fill={COLORS.p} name="단백질" radius={[2, 2, 0, 0]} /><Bar dataKey="c" fill={COLORS.c} name="탄수" radius={[2, 2, 0, 0]} /><Bar dataKey="f" fill={COLORS.f} name="지방" radius={[2, 2, 0, 0]} /></BarChart></ResponsiveContainer></div>
-            </div>
-          )}
-
-          {/* 체성분 추이 그래프 */}
-          {rangeAnalysis.bodyTrend.length >= 2 && (
-            <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
-              <div style={{ fontSize: 13, color: "#707070", marginBottom: 12 }}>체성분 추이</div>
-              <div style={{ height: 200 }}><ResponsiveContainer><LineChart data={rangeAnalysis.bodyTrend}><XAxis dataKey="d" tick={{ fill: "#707070", fontSize: 10 }} /><YAxis yAxisId="l" domain={['dataMin - 1', 'dataMax + 1']} tick={{ fill: "#707070", fontSize: 10 }} /><YAxis yAxisId="r" orientation="right" domain={['dataMin - 1', 'dataMax + 1']} tick={{ fill: "#707070", fontSize: 10 }} /><Tooltip contentStyle={{ background: "#252525", border: "1px solid #2a2a2a", fontSize: 12 }} /><Legend wrapperStyle={{ fontSize: 11 }} /><Line yAxisId="l" type="monotone" dataKey="weight" stroke="#4a8fc9" strokeWidth={2} dot={{ r: 2 }} name="체중(kg)" /><Line yAxisId="r" type="monotone" dataKey="fat" stroke="#e05252" strokeWidth={2} dot={{ r: 2 }} name="체지방(%)" /></LineChart></ResponsiveContainer></div>
-            </div>
-          )}
-        </>)}
-
-        {!rangeAnalysis && rangeStart && rangeEnd && (
-          <div style={{ textAlign: "center", padding: 24, color: "#4a4a4a", fontSize: 13 }}>해당 기간에 데이터가 없습니다</div>
         )}
-        {(!rangeStart || !rangeEnd) && (
-          <div style={{ textAlign: "center", padding: 24, color: "#4a4a4a", fontSize: 13 }}>시작일과 종료일을 선택하세요</div>
+
+        {/* 상관관계 발견 */}
+        {insights.correlations.length > 0 && (
+          <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
+            <div style={{ fontSize: 13, color: "#707070", marginBottom: 10 }}>상관관계 발견</div>
+            {insights.correlations.map((c, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "8px 0", borderBottom: i < insights.correlations.length - 1 ? "0.5px solid rgba(255,255,255,0.04)" : "none" }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: c.color, marginTop: 5, flexShrink: 0 }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 11.5, color: "#f5f5f0", fontWeight: 500 }}>{c.title}</div>
+                  <div style={{ fontSize: 10, color: "#707070", marginTop: 2 }}>{c.desc}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 우선순위 액션 */}
+        <div style={{ background: "rgba(212,175,55,0.04)", border: "1px solid rgba(212,175,55,0.15)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
+          <div style={{ fontSize: 11, color: "#d4af37", fontWeight: 600, marginBottom: 8 }}>이번 주 우선순위 액션</div>
+          {insights.actions.map((a, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: i < insights.actions.length - 1 ? 6 : 0 }}>
+              <span style={{ fontSize: 11, color: "#d4af37", fontWeight: 600, minWidth: 14 }}>{i + 1}.</span>
+              <span style={{ fontSize: 11, color: "#ccc", lineHeight: 1.5 }}>{a}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* 데이터 부족 안내 */}
+        {!insights.golden && insights.anomalies.length === 0 && insights.correlations.length === 0 && (
+          <div style={{ textAlign: "center", padding: 32, color: "#4a4a4a", fontSize: 13, lineHeight: 1.6 }}>체성분 측정 4회 이상 + 식단 기록 14일 이상이면<br/>의미 있는 인사이트가 생성됩니다.</div>
         )}
       </>)}
 
-      {/* 분석 탭 */}
-      {period === "analysis" && (<>
-        {/* 목표 달성률 게이지 */}
-        {latest && first && (
-          <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
-            <div style={{ fontSize: 13, color: "#707070", marginBottom: 12 }}>목표 달성률</div>
-            <div style={{ display: "flex", justifyContent: "space-around" }}>
-              <GoalGauge label="체중" current={latest.weight} start={first.weight} target={goals.weight || 72} unit="kg" goodDir="down" onChangeTarget={v => onSaveGoals({ ...goals, weight: v })} />
-              <GoalGauge label="체지방률" current={latest.fatPct} start={first.fatPct} target={goals.fatPct || 15} unit="%" goodDir="down" onChangeTarget={v => onSaveGoals({ ...goals, fatPct: v })} />
-              <GoalGauge label="골격근량" current={latest.muscle} start={first.muscle} target={goals.muscle || 36} unit="kg" goodDir="up" onChangeTarget={v => onSaveGoals({ ...goals, muscle: v })} />
-            </div>
-            <div style={{ fontSize: 10, color: "#4a4a4a", textAlign: "center", marginTop: 8 }}>게이지를 터치하면 목표를 수정할 수 있어요</div>
-          </div>
-        )}
-
-        {/* 7일 이동 평균 — 체중 */}
-        {movingAvgData.length > 3 && (
-          <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
-            <div style={{ fontSize: 13, color: "#707070", marginBottom: 4 }}>체중 추이 + 7일 이동 평균</div>
-            <div style={{ fontSize: 11, color: "#4a4a4a", marginBottom: 12 }}>실선: 실제값 · 점선: 7일 평균 (추세)</div>
-            <div style={{ height: 220 }}>
-              <ResponsiveContainer>
-                <ComposedChart data={movingAvgData}>
-                  <XAxis dataKey="d" tick={{ fill: "#707070", fontSize: 9 }} interval={Math.max(0, Math.floor(movingAvgData.length / 8))} />
-                  <YAxis domain={['dataMin - 0.5', 'dataMax + 0.5']} tick={{ fill: "#707070", fontSize: 10 }} />
-                  <Tooltip contentStyle={{ background: "#252525", border: "1px solid #2a2a2a", fontSize: 12 }} />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Line type="monotone" dataKey="weight" stroke="#4a8fc999" strokeWidth={1} dot={{ r: 1.5, fill: "#4a8fc9" }} name="체중(kg)" />
-                  <Line type="monotone" dataKey="weight_ma" stroke="#4a8fc9" strokeWidth={2.5} dot={false} strokeDasharray="0" name="7일 평균" />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        )}
-
-        {/* 7일 이동 평균 — 체지방 & 골격근 */}
-        {movingAvgData.length > 3 && (
-          <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
-            <div style={{ fontSize: 13, color: "#707070", marginBottom: 4 }}>체지방률 & 골격근 추이 + 7일 평균</div>
-            <div style={{ fontSize: 11, color: "#4a4a4a", marginBottom: 12 }}>실선: 실제값 · 굵은선: 7일 평균</div>
-            <div style={{ height: 220 }}>
-              <ResponsiveContainer>
-                <ComposedChart data={movingAvgData}>
-                  <XAxis dataKey="d" tick={{ fill: "#707070", fontSize: 9 }} interval={Math.max(0, Math.floor(movingAvgData.length / 8))} />
-                  <YAxis yAxisId="l" domain={['dataMin - 0.3', 'dataMax + 0.3']} tick={{ fill: "#707070", fontSize: 10 }} />
-                  <YAxis yAxisId="r" orientation="right" domain={['dataMin - 0.3', 'dataMax + 0.3']} tick={{ fill: "#707070", fontSize: 10 }} />
-                  <Tooltip contentStyle={{ background: "#252525", border: "1px solid #2a2a2a", fontSize: 12 }} />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Line yAxisId="l" type="monotone" dataKey="fat" stroke="#e0525299" strokeWidth={1} dot={{ r: 1.5, fill: "#e05252" }} name="체지방(%)" />
-                  <Line yAxisId="l" type="monotone" dataKey="fat_ma" stroke="#e05252" strokeWidth={2.5} dot={false} name="체지방 7일평균" />
-                  <Line yAxisId="r" type="monotone" dataKey="muscle" stroke="#5a9e6f99" strokeWidth={1} dot={{ r: 1.5, fill: "#5a9e6f" }} name="골격근(kg)" />
-                  <Line yAxisId="r" type="monotone" dataKey="muscle_ma" stroke="#5a9e6f" strokeWidth={2.5} dot={false} name="골격근 7일평균" />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        )}
-
-        {/* 상관관계: 탄수화물 vs 체중 */}
-        {correlationData.carbsVsWeight.length > 5 && (
-          <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
-            <div style={{ fontSize: 13, color: "#707070", marginBottom: 4 }}>탄수화물 섭취 vs 체중 상관관계</div>
-            <div style={{ fontSize: 11, color: "#4a4a4a", marginBottom: 12 }}>각 점 = 하루 기록 · 점선 = 평균</div>
-            <div style={{ height: 220 }}>
-              <ResponsiveContainer>
-                <ScatterChart>
-                  <XAxis dataKey="carbs" name="탄수화물" unit="g" tick={{ fill: "#707070", fontSize: 10 }} />
-                  <YAxis dataKey="weight" name="체중" unit="kg" domain={['dataMin - 0.5', 'dataMax + 0.5']} tick={{ fill: "#707070", fontSize: 10 }} tickFormatter={v => v.toFixed(1)} />
-                  <Tooltip contentStyle={{ background: "#252525", border: "1px solid #2a2a2a", fontSize: 12 }} formatter={(v, n) => [n === "탄수화물" ? v + "g" : v + "kg", n]} />
-                  <ReferenceLine x={correlationData.avgCarbs} stroke="#d4af3755" strokeDasharray="4 4" />
-                  <ReferenceLine y={correlationData.avgWeight} stroke="#4a8fc955" strokeDasharray="4 4" />
-                  <Scatter data={correlationData.carbsVsWeight} fill="#d4af37" fillOpacity={0.6} r={4} />
-                </ScatterChart>
-              </ResponsiveContainer>
-            </div>
-            <div style={{ fontSize: 11, color: "#707070", marginTop: 8, textAlign: "center" }}>평균 탄수 {correlationData.avgCarbs}g · 평균 체중 {correlationData.avgWeight}kg</div>
-          </div>
-        )}
-
-        {/* 상관관계: 운동 시간 vs 골격근 */}
-        {correlationData.exVsMuscle.length > 5 && (
-          <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
-            <div style={{ fontSize: 13, color: "#707070", marginBottom: 4 }}>운동 시간 vs 골격근량 상관관계</div>
-            <div style={{ fontSize: 11, color: "#4a4a4a", marginBottom: 12 }}>각 점 = 하루 기록 · 점선 = 평균</div>
-            <div style={{ height: 220 }}>
-              <ResponsiveContainer>
-                <ScatterChart>
-                  <XAxis dataKey="exMin" name="운동시간" unit="분" tick={{ fill: "#707070", fontSize: 10 }} />
-                  <YAxis dataKey="muscle" name="골격근" unit="kg" domain={['dataMin - 0.3', 'dataMax + 0.3']} tick={{ fill: "#707070", fontSize: 10 }} tickFormatter={v => v.toFixed(1)} />
-                  <Tooltip contentStyle={{ background: "#252525", border: "1px solid #2a2a2a", fontSize: 12 }} formatter={(v, n) => [n === "운동시간" ? v + "분" : v + "kg", n]} />
-                  <ReferenceLine x={correlationData.avgExMin} stroke="#5a9e6f55" strokeDasharray="4 4" />
-                  <ReferenceLine y={correlationData.avgMuscle} stroke="#5a9e6f55" strokeDasharray="4 4" />
-                  <Scatter data={correlationData.exVsMuscle} fill="#5a9e6f" fillOpacity={0.6} r={4} />
-                </ScatterChart>
-              </ResponsiveContainer>
-            </div>
-            <div style={{ fontSize: 11, color: "#707070", marginTop: 8, textAlign: "center" }}>평균 운동 {correlationData.avgExMin}분 · 평균 골격근 {correlationData.avgMuscle}kg</div>
-          </div>
-        )}
-
-        {(!movingAvgData.length && !correlationData.carbsVsWeight.length) && (
-          <div style={{ textAlign: "center", padding: 40, color: "#4a4a4a", fontSize: 13 }}>데이터가 충분하지 않습니다. 더 많은 기록을 쌓아보세요.</div>
-        )}
-      </>)}
-
-      {period !== "hourly" && period !== "range" && period !== "analysis" && periodData.length > 0 && (<>
-        <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
-          <div style={{ fontSize: 13, color: "#707070", marginBottom: 12 }}>{period === "week" ? "주간" : period === "month" ? "월간" : "연간"} 칼로리 & Net</div>
-          <div style={{ height: 200 }}><ResponsiveContainer><ComposedChart data={periodData}><XAxis dataKey="key" tick={{ fill: "#707070", fontSize: 10 }} tickFormatter={k => k.split("-").slice(-1)[0]} /><YAxis tick={{ fill: "#707070", fontSize: 10 }} /><Tooltip contentStyle={{ background: "#252525", border: "1px solid #2a2a2a", fontSize: 12 }} /><Legend wrapperStyle={{ fontSize: 11 }} /><Bar dataKey="kAvg" fill="#5a9e6f" name="섭취" radius={[3, 3, 0, 0]} /><Bar dataKey="exAvg" fill="#4a8fc9" name="운동" radius={[3, 3, 0, 0]} /><Line type="monotone" dataKey="netAvg" stroke="#e05252" strokeWidth={2} name="Net" dot={{ r: 3 }} /></ComposedChart></ResponsiveContainer></div>
-        </div>
-        <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
-          <div style={{ fontSize: 13, color: "#707070", marginBottom: 12 }}>영양소 평균</div>
-          <div style={{ height: 200 }}><ResponsiveContainer><BarChart data={periodData}><XAxis dataKey="key" tick={{ fill: "#707070", fontSize: 10 }} tickFormatter={k => k.split("-").slice(-1)[0]} /><YAxis tick={{ fill: "#707070", fontSize: 10 }} /><Tooltip contentStyle={{ background: "#252525", border: "1px solid #2a2a2a", fontSize: 12 }} /><Legend wrapperStyle={{ fontSize: 11 }} /><Bar dataKey="pAvg" fill={COLORS.p} name="단백질" radius={[2, 2, 0, 0]} /><Bar dataKey="cAvg" fill={COLORS.c} name="탄수" radius={[2, 2, 0, 0]} /><Bar dataKey="fAvg" fill={COLORS.f} name="지방" radius={[2, 2, 0, 0]} /></BarChart></ResponsiveContainer></div>
-        </div>
-      </>)}
-
-      {bodyLog.length >= 2 && period !== "range" && period !== "analysis" && (
-        <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
-          <div style={{ fontSize: 13, color: "#707070", marginBottom: 12 }}>체중 & 체지방 추이</div>
-          <div style={{ height: 200 }}><ResponsiveContainer><LineChart data={bodyLog.slice(-30).map(b => ({ d: b.date.slice(5), weight: b.weight, fat: b.fatPct }))}><XAxis dataKey="d" tick={{ fill: "#707070", fontSize: 10 }} /><YAxis yAxisId="l" domain={['dataMin - 1', 'dataMax + 1']} tick={{ fill: "#707070", fontSize: 10 }} /><YAxis yAxisId="r" orientation="right" domain={['dataMin - 1', 'dataMax + 1']} tick={{ fill: "#707070", fontSize: 10 }} /><Tooltip contentStyle={{ background: "#252525", border: "1px solid #2a2a2a", fontSize: 12 }} /><Legend wrapperStyle={{ fontSize: 11 }} /><Line yAxisId="l" type="monotone" dataKey="weight" stroke="#4a8fc9" strokeWidth={2} dot={{ r: 2 }} name="체중(kg)" /><Line yAxisId="r" type="monotone" dataKey="fat" stroke="#e05252" strokeWidth={2} dot={{ r: 2 }} name="체지방(%)" /></LineChart></ResponsiveContainer></div>
-        </div>
-      )}
-
+      {/* CSV 내보내기 */}
       <button onClick={onBackup} disabled={totalDays === 0}
         style={{ width: "100%", padding: 14, background: totalDays === 0 ? "#2a2a2a" : "#5a9e6f", border: "none", borderRadius: 16, color: "#fff", fontSize: 14, fontWeight: 500, cursor: totalDays === 0 ? "not-allowed" : "pointer", marginTop: 8 }}>
         {totalDays === 0 ? "데이터 없음" : "📥 CSV로 내보내기 (엑셀 호환)"}
