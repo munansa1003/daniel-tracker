@@ -596,9 +596,59 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
   const [efp, setEfp] = useState("");
   const [esc, setEsc] = useState("");
   const [coaching, setCoaching] = useState("");
+  const [coachDate, setCoachDate] = useState("");
   const [coachLoading, setCoachLoading] = useState(false);
   const [chartTab, setChartTab] = useState("weight");
   const [showAllHistory, setShowAllHistory] = useState(false);
+
+  // 캐시된 코칭 로드 (동기 — localStorage에서 즉시)
+  useEffect(() => {
+    try {
+      const uid = getCurrentUserId();
+      const cached = localStorage.getItem("dt_" + uid + "_body-coaching");
+      if (cached) {
+        const c = JSON.parse(cached);
+        if (c && c.text) { setCoaching(c.text); setCoachDate(c.latestDate || ""); }
+      }
+    } catch {}
+  }, []);
+
+  // 7일 이동평균 변화 감지
+  const detectionResult = useMemo(() => {
+    if (bodyLog.length < 10) return null; // 최소 10일 데이터 필요
+    const sorted = [...bodyLog].sort((a, b) => a.date.localeCompare(b.date));
+    const recent7 = sorted.slice(-7);
+    const prev7 = sorted.slice(-14, -7);
+    if (prev7.length < 5 || recent7.length < 5) return null; // 각 구간 최소 5일
+
+    const avg = (arr, key) => arr.reduce((s, v) => s + (v[key] || 0), 0) / arr.length;
+    const rW = avg(recent7, "weight"), pW = avg(prev7, "weight");
+    const rM = avg(recent7, "muscle"), pM = avg(prev7, "muscle");
+    const rF = avg(recent7, "fatPct"), pF = avg(prev7, "fatPct");
+
+    const dW = Math.round((rW - pW) * 10) / 10;
+    const dM = Math.round((rM - pM) * 10) / 10;
+    const dF = Math.round((rF - pF) * 10) / 10;
+
+    const thresholds = { weight: 0.5, muscle: 0.3, fatPct: 0.7 };
+    const triggers = [];
+    if (Math.abs(dW) >= thresholds.weight) triggers.push({ label: "체중", val: dW, unit: "kg", goodDir: -1 });
+    if (Math.abs(dM) >= thresholds.muscle) triggers.push({ label: "골격근", val: dM, unit: "kg", goodDir: 1 });
+    if (Math.abs(dF) >= thresholds.fatPct) triggers.push({ label: "체지방률", val: dF, unit: "%", goodDir: -1 });
+
+    if (triggers.length === 0) return null;
+    return { triggers, avgRecent: { weight: rW, muscle: rM, fatPct: rF }, avgPrev: { weight: pW, muscle: pM, fatPct: pF } };
+  }, [bodyLog]);
+
+  // 변화 감지 시 자동 AI 호출 (캐시가 최신이면 스킵)
+  useEffect(() => {
+    if (!detectionResult || coachLoading) return;
+    const latestDate = bodyLog.length > 0 ? bodyLog[bodyLog.length - 1].date : "";
+    if (coachDate === latestDate) return; // 이미 이 데이터 기준 코칭 있음
+    const l = bodyLog[bodyLog.length - 1];
+    const p = bodyLog.length >= 2 ? bodyLog[bodyLog.length - 2] : null;
+    if (l) fetchCoaching(l, p);
+  }, [detectionResult, bodyLog, coachDate]);
 
   const existing = bodyLog.find(b => b.date === date);
   const latest = bodyLog[bodyLog.length - 1];
@@ -677,15 +727,19 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
         })
       });
       const data = await res.json();
-      if (data.success && data.coaching) setCoaching(data.coaching);
+      if (data.success && data.coaching) {
+        setCoaching(data.coaching);
+        const latestDate = current.date || date;
+        setCoachDate(latestDate);
+        // 캐시 저장 (Firestore + localStorage)
+        store.set("body-coaching", { text: data.coaching, latestDate, savedAt: new Date().toISOString() });
+      }
     } catch {} setCoachLoading(false);
   };
 
   const handleSave = () => {
     if (!w) return;
     addBody(w, m, fp, sc);
-    const newEntry = { weight: parseFloat(w), muscle: parseFloat(m) || 0, fatPct: parseFloat(fp) || 0, score: parseInt(sc) || 0 };
-    fetchCoaching(newEntry, latest);
     setW(""); setM(""); setFp(""); setSc(""); setShowForm(false);
   };
 
@@ -861,15 +915,23 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
             </div>
           )}
 
-          {/* AI 코칭 */}
+          {/* AI 코칭 (캐시 표시 + 변화 감지 자동 호출 결과) */}
           {(coaching || coachLoading) && (
             <div style={{ background: "rgba(212,175,55,0.06)", border: "1px solid rgba(212,175,55,0.15)", borderRadius: 12, padding: 12, marginBottom: 10 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
                 <div style={{ width: 6, height: 6, borderRadius: 3, background: "#d4af37" }}></div>
                 <span style={{ fontSize: 10, color: "#d4af37" }}>AI 코칭</span>
-                {periodSummary && <span style={{ fontSize: 9, color: "#4a4a4a", marginLeft: "auto" }}>{prev?.date} ~ {latest.date}</span>}
+                {coachDate && <span style={{ fontSize: 9, color: "#4a4a4a", marginLeft: "auto" }}>{coachDate} 기준</span>}
               </div>
-              {coachLoading ? <div style={{ fontSize: 12, color: "#707070" }}>분석 중...</div> : <div style={{ fontSize: 12, color: "#c0b896", lineHeight: 1.5 }}>{coaching}</div>}
+              {coachLoading ? <div style={{ fontSize: 12, color: "#707070" }}>변화 감지 — 분석 중...</div> : <div style={{ fontSize: 12, color: "#c0b896", lineHeight: 1.5 }}>{coaching}</div>}
+              {!coachLoading && (
+                <div style={{ marginTop: 8, textAlign: "right" }}>
+                  <span onClick={() => { if (latest) fetchCoaching(latest, prev); }}
+                    style={{ fontSize: 10, color: "#4a8fc9", cursor: "pointer", padding: "3px 10px", border: "1px solid rgba(74,143,201,0.2)", borderRadius: 6 }}>
+                    다시 분석
+                  </span>
+                </div>
+              )}
             </div>
           )}
 
