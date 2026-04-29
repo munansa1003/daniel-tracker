@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar, ComposedChart, Legend, ScatterChart, Scatter, ReferenceLine } from "recharts";
 import store, { getCurrentUserId, setUserId, logout, getProfiles, saveProfiles, getSharedFoods, addSharedFood, getSharedExercises, addSharedExercise } from "./store.js";
 import { DEFAULT_FOODS, DEFAULT_EX, TARGETS as DEFAULT_TARGETS, COLORS } from "./data.js";
@@ -30,6 +30,10 @@ function GlobalStyles() {
       .dbp-btn:hover { box-shadow: 0 0 12px rgba(212,175,55,0.2); }
       .dbp-btn:active { transform: scale(0.97); }
       .dbp-card { transition: opacity 0.2s ease; }
+      @keyframes dbp-actionBar { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+      .dbp-lp-selected { background: rgba(212,175,55,0.06) !important; border-left: 3px solid #d4af37 !important; }
+      .dbp-lp-bar { animation: dbp-actionBar 0.2s ease-out both; }
+      .dbp-lp-item { transition: background 0.15s ease; -webkit-user-select: none; user-select: none; }
       input:focus, select:focus { outline: none; border-color: rgba(212,175,55,0.3) !important; }
       ::-webkit-scrollbar { width: 4px; }
       ::-webkit-scrollbar-track { background: transparent; }
@@ -94,6 +98,62 @@ function groupExercisesByTime(exercises) {
     else groups[3].items.push({ ...e, _idx: idx });
   });
   return groups.filter(g => g.items.length > 0);
+}
+
+// Long Press 액션바 컴포넌트
+function LongPressActionBar({ onEdit, onDelete, onCancel, color = "#d4af37" }) {
+  return (
+    <div className="dbp-lp-bar" style={{ display: "flex", gap: 8, padding: "8px 12px", background: "#252525", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+      <button onClick={onEdit} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "10px 0", borderRadius: 8, fontSize: 12, fontWeight: 500, border: "none", cursor: "pointer", background: "rgba(74,143,201,0.12)", color: "#4a8fc9" }}>✎ 수정</button>
+      <button onClick={onDelete} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "10px 0", borderRadius: 8, fontSize: 12, fontWeight: 500, border: "none", cursor: "pointer", background: "rgba(224,82,82,0.12)", color: "#e05252" }}>✕ 삭제</button>
+      <button onClick={onCancel} style={{ padding: "10px 14px", borderRadius: 8, fontSize: 12, fontWeight: 500, border: "none", cursor: "pointer", background: "#2a2a2a", color: "#8a8a8a" }}>취소</button>
+    </div>
+  );
+}
+
+// useLongPress 훅
+function useLongPress(delay = 400) {
+  const [selectedIdx, setSelectedIdx] = useState(null);
+  const timerRef = useRef(null);
+  const movedRef = useRef(false);
+  const firedRef = useRef(false);
+  const touchedRef = useRef(false);
+
+  // 언마운트 시 타이머 정리
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+
+  const bind = useCallback((idx) => ({
+    onTouchStart: () => {
+      touchedRef.current = true;
+      movedRef.current = false;
+      firedRef.current = false;
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => {
+        if (!movedRef.current) { firedRef.current = true; setSelectedIdx(prev => prev === idx ? null : idx); }
+      }, delay);
+    },
+    onTouchMove: () => { movedRef.current = true; if (timerRef.current) clearTimeout(timerRef.current); },
+    onTouchEnd: () => { if (timerRef.current) clearTimeout(timerRef.current); },
+    onMouseDown: () => {
+      if (touchedRef.current) { touchedRef.current = false; return; }
+      movedRef.current = false;
+      firedRef.current = false;
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => { firedRef.current = true; setSelectedIdx(prev => prev === idx ? null : idx); }, delay);
+    },
+    onMouseUp: () => { if (timerRef.current) clearTimeout(timerRef.current); },
+    onMouseLeave: () => { if (timerRef.current) clearTimeout(timerRef.current); },
+    onContextMenu: (e) => e.preventDefault(),
+  }), [delay]);
+
+  const wasLongPress = useCallback(() => {
+    if (firedRef.current) { firedRef.current = false; return true; }
+    return false;
+  }, []);
+
+  const clear = useCallback(() => setSelectedIdx(null), []);
+
+  return { selectedIdx, bind, wasLongPress, clear };
 }
 
 // Net 칼로리 카드 (신호등 스타일)
@@ -600,6 +660,7 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
   const [coachLoading, setCoachLoading] = useState(false);
   const [chartTab, setChartTab] = useState("weight");
   const [showAllHistory, setShowAllHistory] = useState(false);
+  const lpBody = useLongPress(400);
 
   // 캐시된 코칭 로드 (동기 — localStorage에서 즉시)
   useEffect(() => {
@@ -968,6 +1029,7 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
       <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 12, padding: 12 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
           <span style={{ fontSize: 11, color: "#707070" }}>기록 히스토리 ({bodyLog.length}건)</span>
+          {bodyLog.length > 0 && <span style={{ fontSize: 10, color: "#4a4a4a" }}>꾹 눌러서 수정/삭제</span>}
         </div>
         {bodyLog.length === 0 && <div style={{ fontSize: 12, color: "#4a4a4a", textAlign: "center", padding: 16 }}>체성분을 기록해보세요</div>}
         {displayHistory.map((b, i) => (
@@ -987,16 +1049,19 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
                 </div>
               </div>
             ) : (
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: "1px solid rgba(255,255,255,0.04)", fontSize: 11 }}>
-                <div style={{ flex: 1, cursor: "pointer" }} onClick={() => startEdit(i)}>
-                  <span style={{ fontFamily: "monospace", color: "#4a4a4a", marginRight: 6 }}>{b.date.slice(5)}</span>
-                  <span>{b.weight}kg · {b.muscle}kg · {b.fatPct}%</span>
+              <div>
+                <div className={`dbp-lp-item ${lpBody.selectedIdx === i ? "dbp-lp-selected" : ""}`} {...lpBody.bind(i)} onClick={() => { if (!lpBody.wasLongPress()) startEdit(i); }} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 4px", borderBottom: lpBody.selectedIdx === i ? "none" : "1px solid rgba(255,255,255,0.04)", fontSize: 11, cursor: "pointer", borderRadius: lpBody.selectedIdx === i ? 6 : 0 }}>
+                  <div style={{ flex: 1 }}>
+                    <span style={{ fontFamily: "monospace", color: "#4a4a4a", marginRight: 6 }}>{b.date.slice(5)}</span>
+                    <span>{b.weight}kg · {b.muscle}kg · {b.fatPct}%</span>
+                  </div>
+                  <span style={{ color: "#d4af37", fontFamily: "monospace", fontSize: 10, minWidth: 28, textAlign: "right" }}>{b.score || "—"}</span>
                 </div>
-                <span style={{ color: "#d4af37", fontFamily: "monospace", fontSize: 10, minWidth: 28, textAlign: "right" }}>{b.score || "—"}</span>
-                <div style={{ display: "flex", gap: 3, marginLeft: 6 }}>
-                  <button onClick={() => startEdit(i)} style={{ padding: "2px 6px", background: "rgba(74,143,201,0.15)", border: "1px solid rgba(74,143,201,0.2)", borderRadius: 4, color: "#4a8fc9", fontSize: 9, cursor: "pointer" }}>수정</button>
-                  <button onClick={() => handleDelete(i)} style={{ padding: "2px 6px", background: "rgba(224,82,82,0.15)", border: "1px solid rgba(224,82,82,0.2)", borderRadius: 4, color: "#e05252", fontSize: 9, cursor: "pointer" }}>삭제</button>
-                </div>
+                {lpBody.selectedIdx === i && (
+                  <div style={{ overflow: "hidden", borderRadius: "0 0 6px 6px", marginBottom: 4 }}>
+                    <LongPressActionBar onEdit={() => { lpBody.clear(); startEdit(i); }} onDelete={() => { lpBody.clear(); handleDelete(i); }} onCancel={lpBody.clear} />
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1554,6 +1619,8 @@ function MainApp({ user, onLogout }) {
   const [showAddEx, setShowAddEx] = useState(false);
   const [editMealIdx, setEditMealIdx] = useState(null);
   const [editExIdx, setEditExIdx] = useState(null);
+  const lpMeal = useLongPress(400);
+  const lpEx = useLongPress(400);
   const [showManage, setShowManage] = useState(false);
   const [manageTab, setManageTab] = useState("food");
   const [lastBackup, setLastBackup] = useState(null);
@@ -1580,6 +1647,9 @@ function MainApp({ user, onLogout }) {
     dt.setDate(dt.getDate() - 1);
     return dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0");
   }, []);
+
+  // 탭 변경 시 Long Press 선택 해제
+  useEffect(() => { lpMeal.clear(); lpEx.clear(); }, [tab]);
 
   // ── 초기 로드: localStorage-first + Firestore 백그라운드 동기화 ──
   useEffect(() => {
@@ -2138,7 +2208,10 @@ function MainApp({ user, onLogout }) {
               </div>
             )}
           </div>
-          <div style={{ fontSize: 13, color: "#707070", marginBottom: 8 }}>오늘 기록 ({meals.length}건)</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <span style={{ fontSize: 13, color: "#707070" }}>오늘 기록 ({meals.length}건)</span>
+            {meals.length > 0 && <span style={{ fontSize: 10, color: "#4a4a4a" }}>꾹 눌러서 수정/삭제</span>}
+          </div>
           {groupMealsByTime(meals).map((group) => {
             const gP = Math.round(group.meals.reduce((s, m) => s + m.p * m.serving, 0));
             const gC = Math.round(group.meals.reduce((s, m) => s + m.c * m.serving, 0));
@@ -2151,12 +2224,16 @@ function MainApp({ user, onLogout }) {
                   <span style={{ fontSize: 11, fontFamily: "monospace", color: "#707070" }}>P{gP} C{gC} F{gF} · {gK}kcal</span>
                 </div>
                 {group.meals.map((m) => (
-                  <div key={m._idx} style={{ ...cs, padding: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div style={{ flex: 1, cursor: "pointer" }} onClick={() => setEditMealIdx(m._idx)}><span style={{ color: "#4a8fc9", fontSize: 11, marginRight: 6, fontFamily: "monospace" }}>{String(m.hour || 0).padStart(2, "0")}시</span><span style={{ fontSize: 13 }}>{m.n}</span><span style={{ color: "#707070", fontSize: 12, marginLeft: 4 }}>×{m.serving}</span><div style={{ fontSize: 11, color: "#4a4a4a", fontFamily: "monospace" }}>P{Math.round(m.p * m.serving)} C{Math.round(m.c * m.serving)} F{Math.round(m.f * m.serving)} · {Math.round(m.k * m.serving)}kcal</div></div>
-                    <div style={{ display: "flex", gap: 4 }}>
-                      <button onClick={() => setEditMealIdx(m._idx)} style={{ padding: "4px 10px", background: "rgba(74,143,201,0.15)", border: "1px solid rgba(74,143,201,0.3)", borderRadius: 6, color: "#4a8fc9", fontSize: 12, cursor: "pointer" }}>수정</button>
-                      <button onClick={() => removeMeal(m._idx)} style={{ padding: "4px 10px", background: "rgba(224,82,82,0.15)", border: "1px solid rgba(224,82,82,0.3)", borderRadius: 6, color: "#e05252", fontSize: 12, cursor: "pointer" }}>삭제</button>
+                  <div key={m._idx}>
+                    <div className={`dbp-lp-item ${lpMeal.selectedIdx === m._idx ? "dbp-lp-selected" : ""}`} {...lpMeal.bind(m._idx)} onClick={() => { if (!lpMeal.wasLongPress()) setEditMealIdx(m._idx); }} style={{ ...cs, padding: 10, display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", marginBottom: lpMeal.selectedIdx === m._idx ? 0 : 12, borderRadius: lpMeal.selectedIdx === m._idx ? "16px 16px 0 0" : 16, borderBottom: lpMeal.selectedIdx === m._idx ? "none" : cs.border }}>
+                      <div style={{ flex: 1 }}><span style={{ color: "#4a8fc9", fontSize: 11, marginRight: 6, fontFamily: "monospace" }}>{String(m.hour || 0).padStart(2, "0")}시</span><span style={{ fontSize: 13 }}>{m.n}</span><span style={{ color: "#707070", fontSize: 12, marginLeft: 4 }}>×{m.serving}</span><div style={{ fontSize: 11, color: "#4a4a4a", fontFamily: "monospace" }}>P{Math.round(m.p * m.serving)} C{Math.round(m.c * m.serving)} F{Math.round(m.f * m.serving)} · {Math.round(m.k * m.serving)}kcal</div></div>
+                      <div style={{ fontSize: 13, color: "#d4af37", fontFamily: "monospace", fontWeight: 500 }}>{Math.round(m.k * m.serving)}</div>
                     </div>
+                    {lpMeal.selectedIdx === m._idx && (
+                      <div style={{ ...cs, padding: 0, marginTop: 0, borderRadius: "0 0 16px 16px", overflow: "hidden", borderTop: "none" }}>
+                        <LongPressActionBar onEdit={() => { lpMeal.clear(); setEditMealIdx(m._idx); }} onDelete={() => { lpMeal.clear(); removeMeal(m._idx); }} onCancel={lpMeal.clear} />
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -2313,7 +2390,10 @@ function MainApp({ user, onLogout }) {
               </div>
             )}
           </div>
-          <div style={{ fontSize: 13, color: "#707070", marginBottom: 8 }}>오늘 운동 (소모: {exTotal}kcal)</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <span style={{ fontSize: 13, color: "#707070" }}>오늘 운동 (소모: {exTotal}kcal)</span>
+            {exercises.length > 0 && <span style={{ fontSize: 10, color: "#4a4a4a" }}>꾹 눌러서 수정/삭제</span>}
+          </div>
           {groupExercisesByTime(exercises).map((group) => {
             const gKcal = Math.round(group.items.reduce((s, e) => s + (e.kcal || 0), 0));
             const gMin = group.items.reduce((s, e) => s + (e.duration || 0), 0);
@@ -2324,12 +2404,15 @@ function MainApp({ user, onLogout }) {
                   <span style={{ fontSize: 11, fontFamily: "monospace", color: "#707070" }}>{gMin}분 · -{gKcal}kcal</span>
                 </div>
                 {group.items.map((e) => (
-                  <div key={e._idx} style={{ ...cs, padding: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div style={{ flex: 1, cursor: "pointer" }} onClick={() => setEditExIdx(e._idx)}><span style={{ color: "#4a8fc9", fontSize: 11, marginRight: 6, fontFamily: "monospace" }}>{String(e.hour || 0).padStart(2, "0")}시</span><span style={{ fontSize: 13 }}>{e.n}</span><span style={{ color: "#707070", fontSize: 12, marginLeft: 4 }}>{e.duration}분</span><div style={{ fontSize: 11, color: "#4a8fc9", fontFamily: "monospace" }}>-{e.kcal} kcal</div></div>
-                    <div style={{ display: "flex", gap: 4 }}>
-                      <button onClick={() => setEditExIdx(e._idx)} style={{ padding: "4px 10px", background: "rgba(74,143,201,0.15)", border: "1px solid rgba(74,143,201,0.3)", borderRadius: 6, color: "#4a8fc9", fontSize: 12, cursor: "pointer" }}>수정</button>
-                      <button onClick={() => removeExercise(e._idx)} style={{ padding: "4px 10px", background: "rgba(224,82,82,0.15)", border: "1px solid rgba(224,82,82,0.3)", borderRadius: 6, color: "#e05252", fontSize: 12, cursor: "pointer" }}>삭제</button>
+                  <div key={e._idx}>
+                    <div className={`dbp-lp-item ${lpEx.selectedIdx === e._idx ? "dbp-lp-selected" : ""}`} {...lpEx.bind(e._idx)} onClick={() => { if (!lpEx.wasLongPress()) setEditExIdx(e._idx); }} style={{ ...cs, padding: 10, display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", marginBottom: lpEx.selectedIdx === e._idx ? 0 : 12, borderRadius: lpEx.selectedIdx === e._idx ? "16px 16px 0 0" : 16, borderBottom: lpEx.selectedIdx === e._idx ? "none" : cs.border }}>
+                      <div style={{ flex: 1 }}><span style={{ color: "#4a8fc9", fontSize: 11, marginRight: 6, fontFamily: "monospace" }}>{String(e.hour || 0).padStart(2, "0")}시</span><span style={{ fontSize: 13 }}>{e.n}</span><span style={{ color: "#707070", fontSize: 12, marginLeft: 4 }}>{e.duration}분</span><div style={{ fontSize: 11, color: "#4a8fc9", fontFamily: "monospace" }}>-{e.kcal} kcal</div></div>
                     </div>
+                    {lpEx.selectedIdx === e._idx && (
+                      <div style={{ ...cs, padding: 0, marginTop: 0, borderRadius: "0 0 16px 16px", overflow: "hidden", borderTop: "none" }}>
+                        <LongPressActionBar onEdit={() => { lpEx.clear(); setEditExIdx(e._idx); }} onDelete={() => { lpEx.clear(); removeExercise(e._idx); }} onCancel={lpEx.clear} />
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
