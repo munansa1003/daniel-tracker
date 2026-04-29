@@ -915,7 +915,7 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
             </div>
           )}
 
-          {/* AI 코칭 (캐시 표시 + 변화 감지 자동 호출 결과) */}
+          {/* AI 코칭 */}
           {(coaching || coachLoading) && (
             <div style={{ background: "rgba(212,175,55,0.06)", border: "1px solid rgba(212,175,55,0.15)", borderRadius: 12, padding: 12, marginBottom: 10 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
@@ -923,15 +923,17 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
                 <span style={{ fontSize: 10, color: "#d4af37" }}>AI 코칭</span>
                 {coachDate && <span style={{ fontSize: 9, color: "#4a4a4a", marginLeft: "auto" }}>{coachDate} 기준</span>}
               </div>
-              {coachLoading ? <div style={{ fontSize: 12, color: "#707070" }}>변화 감지 — 분석 중...</div> : <div style={{ fontSize: 12, color: "#c0b896", lineHeight: 1.5 }}>{coaching}</div>}
-              {!coachLoading && (
-                <div style={{ marginTop: 8, textAlign: "right" }}>
-                  <span onClick={() => { if (latest) fetchCoaching(latest, prev); }}
-                    style={{ fontSize: 10, color: "#4a8fc9", cursor: "pointer", padding: "3px 10px", border: "1px solid rgba(74,143,201,0.2)", borderRadius: 6 }}>
-                    다시 분석
-                  </span>
-                </div>
-              )}
+              {coachLoading ? <div style={{ fontSize: 12, color: "#707070" }}>분석 중...</div> : <div style={{ fontSize: 12, color: "#c0b896", lineHeight: 1.5 }}>{coaching}</div>}
+            </div>
+          )}
+
+          {/* 다시 분석 버튼 (항상 표시) */}
+          {!coachLoading && (
+            <div style={{ textAlign: "center", marginBottom: 10 }}>
+              <span onClick={() => { if (latest) fetchCoaching(latest, prev); }}
+                style={{ fontSize: 11, color: "#4a8fc9", cursor: "pointer", padding: "6px 16px", border: "1px solid rgba(74,143,201,0.2)", borderRadius: 8, display: "inline-block" }}>
+                {coaching ? "다시 분석" : "AI 체성분 분석"}
+              </span>
             </div>
           )}
 
