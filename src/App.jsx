@@ -2108,7 +2108,7 @@ function MainApp({ user, onLogout }) {
           <div className="dbp-fade dbp-card" style={cs}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
               <span style={{ fontSize: 13, color: THEME.sub }}>오늘의 요약</span>
-              <span style={{ fontSize: 12, fontFamily: "monospace", color: netKcal > TARGETS.k ? "#e05252" : "#5a9e6f" }}>Net {Math.round(netKcal)} kcal</span>
+              <span style={{ fontSize: 12, fontFamily: "monospace", color: netKcal < TARGETS.k * 0.75 ? "#e05252" : netKcal < TARGETS.k * 0.9 ? "#d4af37" : netKcal <= TARGETS.k ? "#5a9e6f" : "#d4af37" }}>Net {Math.round(netKcal)} kcal</span>
             </div>
             <div style={{ display: "flex", gap: 12, justifyContent: "center", marginBottom: 16 }}>
               {[{ l: "단백질", v: totals.p, t: TARGETS.p, c: COLORS.p }, { l: "탄수", v: totals.c, t: adjustedC, c: COLORS.c, bonus: carbBonus }, { l: "지방", v: totals.f, t: TARGETS.f, c: COLORS.f }].map(x => (
