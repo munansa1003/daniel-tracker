@@ -812,14 +812,8 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
   const chgColor = (v, reverse) => { if (v === null || v === 0) return "#707070"; if (reverse) return v < 0 ? "#5a9e6f" : "#e05252"; return v > 0 ? "#5a9e6f" : "#e05252"; };
   const chgSign = (v) => v > 0 ? "+" + v : String(v);
   const barPct = (val, std) => Math.min(Math.round((val / std) * 50), 98);
-  const goalPct = (current, start, target, dir) => {
-    if (!start || !target || !current) return 0;
-    if (dir === "down") { const d = start - target; return d > 0 ? Math.min(Math.max(Math.round(((start - current) / d) * 100), 0), 100) : 0; }
-    const d = target - start; return d > 0 ? Math.min(Math.max(Math.round(((current - start) / d) * 100), 0), 100) : 0;
-  };
   const adjustGoal = (key, delta) => { if (onSaveGoals && goals) { const v = Math.round(((goals[key] || 0) + delta) * 10) / 10; if (v > 0) onSaveGoals({ ...goals, [key]: v }); } };
 
-  const first = bodyLog[0];
   const displayHistory = showAllHistory ? bodyLog.slice(-30).reverse() : bodyLog.slice(-3).reverse();
 
   return (
@@ -937,33 +931,57 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
             </div>
           )}
 
-          {/* 목표 설정 + 달성률 */}
+          {/* 목표 설정 + 레인지 바 */}
           {goals && (
             <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 12, padding: 12, marginBottom: 10 }}>
-              <div style={{ fontSize: 11, color: "#707070", marginBottom: 10 }}>목표 설정</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
-                {[
-                  { key: "weight", label: "체중", color: "#4a8fc9", unit: "kg", step: 0.5, dir: "down" },
-                  { key: "fatPct", label: "체지방", color: "#e05252", unit: "%", step: 0.5, dir: "down" },
-                  { key: "muscle", label: "골격근", color: "#5a9e6f", unit: "kg", step: 0.5, dir: "up" }
-                ].map(g => {
-                  const pct = first && latest ? goalPct(latest[g.key === "fatPct" ? "fatPct" : g.key], first[g.key === "fatPct" ? "fatPct" : g.key], goals[g.key], g.dir) : 0;
-                  return (
-                    <div key={g.key} style={{ textAlign: "center" }}>
-                      <div style={{ fontSize: 9, color: g.color, marginBottom: 2 }}>{g.label}</div>
-                      <div style={{ background: "#252525", border: `1px solid ${g.color}22`, borderRadius: 6, padding: "4px 2px", display: "flex", alignItems: "center", justifyContent: "center", gap: 2 }}>
-                        <span onClick={() => adjustGoal(g.key, -g.step)} style={{ fontSize: 14, color: "#4a4a4a", cursor: "pointer", padding: "0 6px", userSelect: "none" }}>−</span>
-                        <span style={{ fontSize: 14, fontWeight: 500 }}>{goals[g.key]}<span style={{ fontSize: 9, color: "#707070" }}>{g.unit}</span></span>
-                        <span onClick={() => adjustGoal(g.key, g.step)} style={{ fontSize: 14, color: "#4a4a4a", cursor: "pointer", padding: "0 6px", userSelect: "none" }}>+</span>
+              <div style={{ fontSize: 11, color: "#707070", marginBottom: 12 }}>목표 설정</div>
+              {[
+                { key: "weight", label: "체중", color: "#4a8fc9", unit: "kg", step: 0.5, min: 55, max: 100, zones: [{ to: 40, color: "#5a9e6f", label: "정상" }, { to: 75, color: "#d4af37", label: "과체중" }, { to: 100, color: "#e05252", label: "비만" }], dir: "down" },
+                { key: "fatPct", label: "체지방", color: "#e05252", unit: "%", step: 0.5, min: 5, max: 35, zones: [{ to: 45, color: "#5a9e6f", label: "적정" }, { to: 70, color: "#d4af37", label: "경계" }, { to: 100, color: "#e05252", label: "과다" }], dir: "down" },
+                { key: "muscle", label: "골격근", color: "#5a9e6f", unit: "kg", step: 0.5, min: 25, max: 45, zones: [{ to: 30, color: "#e05252", label: "부족" }, { to: 55, color: "#d4af37", label: "보통" }, { to: 100, color: "#5a9e6f", label: "우수" }], dir: "up" }
+              ].map((g, gi) => {
+                const cur = latest[g.key === "fatPct" ? "fatPct" : g.key] || 0;
+                const tgt = goals[g.key] || 0;
+                const pctPos = (v) => Math.min(Math.max(((v - g.min) / (g.max - g.min)) * 100, 2), 98);
+                const curPos = pctPos(cur);
+                const tgtPos = pctPos(tgt);
+                const gap = g.dir === "down" ? Math.round((cur - tgt) * 10) / 10 : Math.round((tgt - cur) * 10) / 10;
+                const gapColor = gap <= 0 ? "#5a9e6f" : gap <= (g.dir === "down" ? 3 : 2) ? "#d4af37" : "#e05252";
+                const reached = gap <= 0;
+                return (
+                  <div key={g.key} style={{ marginBottom: gi < 2 ? 14 : 0 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
+                        <span style={{ fontSize: 10, color: g.color }}>{g.label}</span>
+                        <span style={{ fontSize: 16, fontWeight: 600, fontFamily: "monospace", color: "#f5f5f0" }}>{cur}<span style={{ fontSize: 10, color: "#4a4a4a" }}>{g.unit}</span></span>
                       </div>
-                      <div style={{ height: 2, background: "#2a2a2a", borderRadius: 1, marginTop: 4 }}>
-                        <div style={{ width: pct + "%", height: "100%", background: g.dir === "up" ? "#5a9e6f" : "#d4af37", borderRadius: 1 }}></div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                        <span onClick={() => adjustGoal(g.key, -g.step)} style={{ fontSize: 13, color: "#4a4a4a", cursor: "pointer", padding: "0 4px", userSelect: "none" }}>−</span>
+                        <span style={{ fontSize: 11, color: "#707070" }}>목표</span>
+                        <span style={{ fontSize: 12, fontWeight: 500, fontFamily: "monospace", color: g.color }}>{tgt}</span>
+                        <span onClick={() => adjustGoal(g.key, g.step)} style={{ fontSize: 13, color: "#4a4a4a", cursor: "pointer", padding: "0 4px", userSelect: "none" }}>+</span>
                       </div>
-                      <div style={{ fontSize: 8, color: "#4a4a4a", marginTop: 1 }}>{pct}%</div>
                     </div>
-                  );
-                })}
-              </div>
+                    <div style={{ position: "relative", height: 10, borderRadius: 5, overflow: "visible" }}>
+                      <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 10, borderRadius: 5, display: "flex", overflow: "hidden", opacity: 0.2 }}>
+                        {g.zones.map((z, zi) => <div key={zi} style={{ width: z.to + "%", background: z.color }} />)}
+                      </div>
+                      <div style={{ position: "absolute", left: tgtPos + "%", top: -1, transform: "translateX(-50%)", width: 2, height: 12, background: g.color, borderRadius: 1, zIndex: 2 }} />
+                      <div style={{ position: "absolute", left: curPos + "%", top: -3, transform: "translateX(-50%)", width: 14, height: 14, borderRadius: "50%", background: gapColor, border: "2px solid #1e1e1e", zIndex: 3, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <div style={{ width: 4, height: 4, borderRadius: "50%", background: "#1e1e1e" }} />
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        {g.zones.map((z, zi) => <span key={zi} style={{ fontSize: 8, color: z.color }}>{z.label}</span>)}
+                      </div>
+                      <span style={{ fontSize: 10, fontFamily: "monospace", fontWeight: 500, color: gapColor }}>
+                        {reached ? "✓ 달성!" : `${g.dir === "down" ? "-" : "+"}${gap}${g.unit} 남음`}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
 
@@ -1088,82 +1106,6 @@ function calcMovingAvg(data, key, window = 7) {
   });
 }
 
-// 목표 달성률 게이지 컴포넌트 (터치하여 목표 수정)
-function GoalGauge({ label, current, start, target, unit, goodDir, onChangeTarget }) {
-  const [editing, setEditing] = useState(false);
-  const [editVal, setEditVal] = useState(String(target));
-
-  // 방향 인식 진행률 계산
-  let pct = 0;
-  if (goodDir === "down") {
-    // 체중, 체지방: 낮아져야 달성 (start → target 감소 방향)
-    const totalDrop = start - target;
-    if (totalDrop > 0) {
-      pct = ((start - current) / totalDrop) * 100;
-    }
-  } else {
-    // 골격근: 높아져야 달성 (start → target 증가 방향)
-    const totalGain = target - start;
-    if (totalGain > 0) {
-      pct = ((current - start) / totalGain) * 100;
-    }
-  }
-  pct = Math.min(Math.max(Math.round(pct), 0), 100);
-  const color = pct >= 80 ? "#5a9e6f" : pct >= 40 ? "#d4af37" : "#e05252";
-
-  const r = 50, cx = 60, cy = 58;
-  const startAngle = -210, endAngle = 30;
-  const range = endAngle - startAngle;
-  const angle = startAngle + range * (pct / 100);
-  const toRad = (deg) => (deg * Math.PI) / 180;
-  const arcPath = (from, to) => {
-    const x1 = cx + r * Math.cos(toRad(from));
-    const y1 = cy + r * Math.sin(toRad(from));
-    const x2 = cx + r * Math.cos(toRad(to));
-    const y2 = cy + r * Math.sin(toRad(to));
-    const large = Math.abs(to - from) > 180 ? 1 : 0;
-    return `M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2}`;
-  };
-
-  const handleSave = () => {
-    const v = parseFloat(editVal);
-    if (v > 0 && onChangeTarget) onChangeTarget(v);
-    setEditing(false);
-  };
-
-  if (editing) {
-    return (
-      <div style={{ textAlign: "center", background: "#252525", border: `1px solid ${color}44`, borderRadius: 16, padding: 12 }}>
-        <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 8 }}>{label} 목표</div>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginBottom: 8 }}>
-          <input type="number" step="0.1" value={editVal} onChange={e => setEditVal(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && handleSave()}
-            autoFocus
-            style={{ width: 70, padding: "6px 8px", background: "#2a2a2a", border: `1px solid ${color}66`, borderRadius: 6, color, fontSize: 16, fontFamily: "monospace", textAlign: "center" }} />
-          <span style={{ fontSize: 12, color: "#707070" }}>{unit}</span>
-        </div>
-        <div style={{ display: "flex", gap: 4 }}>
-          <button onClick={() => setEditing(false)} style={{ flex: 1, padding: 6, background: "#2a2a2a", border: "none", borderRadius: 6, color: "#8a8a8a", fontSize: 11, cursor: "pointer" }}>취소</button>
-          <button onClick={handleSave} style={{ flex: 1, padding: 6, background: color, border: "none", borderRadius: 6, color: "#fff", fontSize: 11, fontWeight: 500, cursor: "pointer" }}>저장</button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ textAlign: "center", cursor: "pointer" }} onClick={() => { setEditVal(String(target)); setEditing(true); }}>
-      <svg viewBox="0 0 120 80" style={{ width: 120, height: 80 }}>
-        <path d={arcPath(startAngle, endAngle)} fill="none" stroke="#252525" strokeWidth="8" strokeLinecap="round" />
-        <path d={arcPath(startAngle, angle)} fill="none" stroke={color} strokeWidth="8" strokeLinecap="round" />
-        <text x={cx} y={cy - 6} textAnchor="middle" fill="#f5f5f0" fontSize="16" fontWeight="500" fontFamily="monospace">{current}</text>
-        <text x={cx} y={cy + 10} textAnchor="middle" fill="#707070" fontSize="8">{unit}</text>
-      </svg>
-      <div style={{ fontSize: 11, color: "#707070", marginTop: -4 }}>{label}</div>
-      <div style={{ fontSize: 10, fontFamily: "monospace", color }}>{Math.round(pct)}% 달성</div>
-      <div style={{ fontSize: 9, color: "#4a4a4a", marginTop: 2 }}>{start}{unit} → 목표 {target}{unit}</div>
-    </div>
-  );
-}
 function getWeekKey(ds) { const d = new Date(ds); const day = d.getDay() || 7; d.setDate(d.getDate() + 4 - day); const ys = new Date(d.getFullYear(), 0, 1); return `${d.getFullYear()}-W${String(Math.ceil((((d - ys) / 86400000) + 1) / 7)).padStart(2, "0")}`; }
 function getMonthKey(ds) { return ds.slice(0, 7); }
 function getYearKey(ds) { return ds.slice(0, 4); }
