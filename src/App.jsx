@@ -655,24 +655,15 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
   const [em, setEm] = useState("");
   const [efp, setEfp] = useState("");
   const [esc, setEsc] = useState("");
-  const [coaching, setCoaching] = useState("");
-  const [coachDate, setCoachDate] = useState("");
+  const _cachedCoach = useMemo(() => {
+    try { const uid = getCurrentUserId(); return JSON.parse(localStorage.getItem("dt_" + uid + "_body-coaching") || "null"); } catch { return null; }
+  }, []);
+  const [coaching, setCoaching] = useState(_cachedCoach?.text || "");
+  const [coachDate, setCoachDate] = useState(_cachedCoach?.latestDate || "");
   const [coachLoading, setCoachLoading] = useState(false);
   const [chartTab, setChartTab] = useState("weight");
   const [showAllHistory, setShowAllHistory] = useState(false);
   const lpBody = useLongPress(400);
-
-  // 캐시된 코칭 로드 (동기 — localStorage에서 즉시)
-  useEffect(() => {
-    try {
-      const uid = getCurrentUserId();
-      const cached = localStorage.getItem("dt_" + uid + "_body-coaching");
-      if (cached) {
-        const c = JSON.parse(cached);
-        if (c && c.text) { setCoaching(c.text); setCoachDate(c.latestDate || ""); }
-      }
-    } catch {}
-  }, []);
 
   // 7일 이동평균 변화 감지
   const detectionResult = useMemo(() => {
