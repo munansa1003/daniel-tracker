@@ -1626,6 +1626,8 @@ function MainApp({ user, onLogout }) {
   const [lastBackup, setLastBackup] = useState(null);
   const [justBacked, setJustBacked] = useState(false);
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"); });
   const [yesterdayData, setYesterdayData] = useState({ meals: [], exercises: [] });
   const [goals, setGoals] = useState({ weight: 72, fatPct: 15, muscle: 36 });
   const [sharedFoods, setSharedFoods] = useState([]);
@@ -1650,7 +1652,7 @@ function MainApp({ user, onLogout }) {
   }, []);
 
   // 탭 변경 시 Long Press 선택 해제
-  useEffect(() => { lpMeal.clear(); lpEx.clear(); setShowHeaderMenu(false); }, [tab]);
+  useEffect(() => { lpMeal.clear(); lpEx.clear(); setShowHeaderMenu(false); setShowCalendar(false); }, [tab]);
 
   // ── 초기 로드: localStorage-first + Firestore 백그라운드 동기화 ──
   useEffect(() => {
@@ -1993,7 +1995,10 @@ function MainApp({ user, onLogout }) {
           <div style={{ fontSize: 11, color: THEME.gold, fontFamily: "var(--font-mono, monospace)", opacity: 0.7 }}>체지방 {user.targetFat || 15}% · {user.name}</div>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ background: THEME.card, border: `1px solid ${THEME.borderLight}`, borderRadius: 8, color: THEME.text, padding: "6px 10px", fontSize: 11, fontFamily: "monospace" }} />
+          <button onClick={() => { setShowCalendar(v => { if (!v) setCalMonth(date.slice(0, 7)); return !v; }); }} style={{ background: showCalendar ? "rgba(212,175,55,0.1)" : THEME.card, border: `1px solid ${showCalendar ? "rgba(212,175,55,0.3)" : THEME.borderLight}`, borderRadius: 8, color: showCalendar ? "#d4af37" : THEME.text, padding: "6px 10px", fontSize: 11, fontFamily: "monospace", cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+            {date.slice(5, 7)}.{date.slice(8, 10)}
+            <span style={{ fontSize: 9, color: showCalendar ? "#d4af37" : "#707070" }}>{showCalendar ? "▲" : "▼"}</span>
+          </button>
           <div style={{ position: "relative" }}>
             <button onClick={() => setShowHeaderMenu(v => !v)} style={{ width: 28, height: 28, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: "#707070", cursor: "pointer", background: showHeaderMenu ? "rgba(255,255,255,0.06)" : "transparent", border: "none" }}>⋮</button>
             {showHeaderMenu && (<>
@@ -2009,6 +2014,73 @@ function MainApp({ user, onLogout }) {
           </div>
         </div>
       </div>
+
+      {/* 링 캘린더 */}
+      {showCalendar && (() => {
+        const [calY, calM] = calMonth.split("-").map(Number);
+        const firstDay = new Date(calY, calM - 1, 1).getDay();
+        const daysInMonth = new Date(calY, calM, 0).getDate();
+        const offset = firstDay === 0 ? 6 : firstDay - 1;
+        const todayStr = today();
+        const prevMonth = () => { const d = new Date(calY, calM - 2, 1); setCalMonth(d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0")); };
+        const nextMonth = () => { const d = new Date(calY, calM, 1); setCalMonth(d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0")); };
+        const ring = (cx, cy, r, pct, color, sw = 2.5) => {
+          const c = 2 * Math.PI * r;
+          const p = Math.min(Math.max(pct, 0), 1);
+          return (<><circle cx={cx} cy={cy} r={r} fill="none" stroke={color + "33"} strokeWidth={sw} /><circle cx={cx} cy={cy} r={r} fill="none" stroke={color} strokeWidth={sw} strokeDasharray={c} strokeDashoffset={c * (1 - p)} transform={`rotate(-90 ${cx} ${cy})`} strokeLinecap="round" /></>);
+        };
+        return (
+          <div style={{ background: "#1e1e1e", borderBottom: "1px solid rgba(212,175,55,0.15)", padding: "12px 16px 14px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <span onClick={prevMonth} style={{ fontSize: 14, color: "#707070", cursor: "pointer", padding: "4px 8px" }}>◀</span>
+              <span style={{ fontSize: 14, fontWeight: 500, color: "#f5f5f0" }}>{calY}년 {calM}월</span>
+              <span onClick={nextMonth} style={{ fontSize: 14, color: "#707070", cursor: "pointer", padding: "4px 8px" }}>▶</span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 1, marginBottom: 4 }}>
+              {["월", "화", "수", "목", "금", "토", "일"].map(d => <div key={d} style={{ textAlign: "center", fontSize: 9, color: d === "토" || d === "일" ? "#707070" : "#4a4a4a", padding: "2px 0" }}>{d}</div>)}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 2 }}>
+              {Array.from({ length: offset }, (_, i) => <div key={"e" + i} />)}
+              {Array.from({ length: daysInMonth }, (_, i) => {
+                const day = i + 1;
+                const ds = `${calY}-${String(calM).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                const dd = allDays[ds];
+                const isToday = ds === todayStr;
+                const isSelected = ds === date;
+                const a = dd ? aggregateDay(dd) : null;
+                const pP = a ? Math.min(a.p / TARGETS.p, 1) : 0;
+                const pC = a ? Math.min(a.c / TARGETS.c, 1) : 0;
+                const pF = a ? Math.min(a.f / TARGETS.f, 1) : 0;
+                const calOk = a ? a.k <= TARGETS.k : null;
+                const hasData = !!a && a.k > 0;
+                const dow = (offset + i) % 7;
+                return (
+                  <div key={day} onClick={() => { setDate(ds); setShowCalendar(false); }} style={{ textAlign: "center", cursor: "pointer", padding: "1px 0" }}>
+                    <div style={{ fontSize: 7, color: isToday ? "#d4af37" : isSelected ? "#f5f5f0" : dow >= 5 ? "#707070" : "#4a4a4a", fontWeight: isToday ? 500 : 400, marginBottom: 1 }}>{day}</div>
+                    <div style={{ position: "relative", display: "inline-block" }}>
+                      {isToday && <div style={{ position: "absolute", top: -2, left: -2, right: -2, bottom: -2, border: "1.5px solid rgba(212,175,55,0.4)", borderRadius: "50%" }} />}
+                      <svg width="36" height="36" viewBox="0 0 36 36" style={{ opacity: hasData ? 1 : 0.3 }}>
+                        {ring(18, 18, 14.5, pF, "#e05252")}
+                        {ring(18, 18, 11, pC, "#d4af37")}
+                        {ring(18, 18, 7.5, pP, "#4a8fc9")}
+                      </svg>
+                      {hasData && calOk !== null && <div style={{ position: "absolute", top: 0, right: -1, width: 6, height: 6, borderRadius: "50%", background: calOk ? "#5a9e6f" : "#e05252" }} />}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ display: "flex", justifyContent: "center", gap: 10, marginTop: 8, paddingTop: 8, borderTop: "0.5px solid rgba(255,255,255,0.06)" }}>
+              <span style={{ fontSize: 8, color: "#e05252", display: "flex", alignItems: "center", gap: 2 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: "#e05252", display: "inline-block" }} />지방</span>
+              <span style={{ fontSize: 8, color: "#d4af37", display: "flex", alignItems: "center", gap: 2 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: "#d4af37", display: "inline-block" }} />탄수</span>
+              <span style={{ fontSize: 8, color: "#4a8fc9", display: "flex", alignItems: "center", gap: 2 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: "#4a8fc9", display: "inline-block" }} />단백질</span>
+              <span style={{ fontSize: 8, color: "#707070" }}>|</span>
+              <span style={{ fontSize: 8, color: "#5a9e6f", display: "flex", alignItems: "center", gap: 2 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: "#5a9e6f", display: "inline-block" }} />적자</span>
+              <span style={{ fontSize: 8, color: "#e05252", display: "flex", alignItems: "center", gap: 2 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: "#e05252", display: "inline-block" }} />초과</span>
+            </div>
+          </div>
+        );
+      })()}
 
       <div style={{ padding: "16px 20px 80px" }}>
         {/* HOME */}
