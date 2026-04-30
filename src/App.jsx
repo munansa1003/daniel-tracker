@@ -156,20 +156,22 @@ function useLongPress(delay = 400) {
   return { selectedIdx, bind, wasLongPress, clear };
 }
 
-// Net 칼로리 카드 (신호등 스타일)
-function NetCalCard({ intake, exercise }) {
+// Net 칼로리 카드 (신호등 스타일 — 개인 목표 기반)
+function NetCalCard({ intake, exercise, targetK }) {
   const net = Math.round(intake - exercise);
+  const t = targetK || 2000;
+  const z1 = Math.round(t * 0.75), z2 = Math.round(t * 0.90);
   let status, color, emoji;
-  if (net < 1500) { status = "위험"; color = "#e05252"; emoji = "🔴"; }
-  else if (net < 1800) { status = "주의"; color = "#d4af37"; emoji = "🟡"; }
-  else if (net <= 2100) { status = "적정"; color = "#5a9e6f"; emoji = "🟢"; }
+  if (net < z1) { status = "위험"; color = "#e05252"; emoji = "🔴"; }
+  else if (net < z2) { status = "주의"; color = "#d4af37"; emoji = "🟡"; }
+  else if (net <= t) { status = "적정"; color = "#5a9e6f"; emoji = "🟢"; }
   else { status = "초과"; color = "#d4af37"; emoji = "🟡"; }
 
   const zones = [
-    { l: "위험", r: "~1,500", c: "#e05252", bg: "rgba(224,82,82,0.1)", active: net < 1500 },
-    { l: "주의", r: "1,500~1,800", c: "#d4af37", bg: "rgba(212,175,55,0.1)", active: net >= 1500 && net < 1800 },
-    { l: "적정", r: "1,800~2,100", c: "#5a9e6f", bg: "rgba(90,158,111,0.1)", active: net >= 1800 && net <= 2100 },
-    { l: "초과", r: "2,100~", c: "#d4af37", bg: "rgba(212,175,55,0.1)", active: net > 2100 }
+    { l: "위험", r: `~${z1.toLocaleString()}`, c: "#e05252", bg: "rgba(224,82,82,0.1)", active: net < z1 },
+    { l: "주의", r: `${z1.toLocaleString()}~${z2.toLocaleString()}`, c: "#d4af37", bg: "rgba(212,175,55,0.1)", active: net >= z1 && net < z2 },
+    { l: "적정", r: `${z2.toLocaleString()}~${t.toLocaleString()}`, c: "#5a9e6f", bg: "rgba(90,158,111,0.1)", active: net >= z2 && net <= t },
+    { l: "초과", r: `${t.toLocaleString()}~`, c: "#d4af37", bg: "rgba(212,175,55,0.1)", active: net > t }
   ];
 
   return (
@@ -2127,7 +2129,7 @@ function MainApp({ user, onLogout }) {
                 -{exTotal.toLocaleString()} kcal
               </span>
             </div>
-            <NetCalCard intake={totals.k} exercise={exTotal} />
+            <NetCalCard intake={totals.k} exercise={exTotal} targetK={TARGETS.k} />
           </div>
           <div style={cs}>
             <div style={{ fontSize: 13, color: "#707070", marginBottom: 10 }}>오늘 먹은 것 ({meals.length}건)</div>
