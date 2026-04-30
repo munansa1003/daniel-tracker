@@ -1622,9 +1622,10 @@ function MainApp({ user, onLogout }) {
   const lpMeal = useLongPress(400);
   const lpEx = useLongPress(400);
   const [showManage, setShowManage] = useState(false);
-  const [manageTab, setManageTab] = useState("food");
+  const [manageTab, setManageTab] = useState("freq");
   const [lastBackup, setLastBackup] = useState(null);
   const [justBacked, setJustBacked] = useState(false);
+  const [showHeaderMenu, setShowHeaderMenu] = useState(false);
   const [yesterdayData, setYesterdayData] = useState({ meals: [], exercises: [] });
   const [goals, setGoals] = useState({ weight: 72, fatPct: 15, muscle: 36 });
   const [sharedFoods, setSharedFoods] = useState([]);
@@ -1649,7 +1650,7 @@ function MainApp({ user, onLogout }) {
   }, []);
 
   // 탭 변경 시 Long Press 선택 해제
-  useEffect(() => { lpMeal.clear(); lpEx.clear(); }, [tab]);
+  useEffect(() => { lpMeal.clear(); lpEx.clear(); setShowHeaderMenu(false); }, [tab]);
 
   // ── 초기 로드: localStorage-first + Firestore 백그라운드 동기화 ──
   useEffect(() => {
@@ -1665,6 +1666,11 @@ function MainApp({ user, onLogout }) {
     if (Object.keys(localDays).length > 0) setAllDays(localDays);
     try { const lsf = localStorage.getItem("dt_shared_foods"); if (lsf) setSharedFoods(JSON.parse(lsf)); } catch {}
     try { const lse = localStorage.getItem("dt_shared_exercises"); if (lse) setSharedExercises(JSON.parse(lse)); } catch {}
+    // 계정 생성일 기록 (최초 1회)
+    const uid = getCurrentUserId();
+    if (uid && !localStorage.getItem("dt_" + uid + "_createdAt")) {
+      localStorage.setItem("dt_" + uid + "_createdAt", today());
+    }
     setLoaded(true);
 
     // Phase 2: Firestore 백그라운드 동기화 (ONE getDocs — 네트워크 1회 왕복)
@@ -1828,6 +1834,16 @@ function MainApp({ user, onLogout }) {
     return Math.floor(diff);
   }, [lastBackup]);
 
+  // 계정 생성 후 15일 이상인지 확인
+  const accountMature = useMemo(() => {
+    try {
+      const uid = getCurrentUserId();
+      const created = localStorage.getItem("dt_" + uid + "_createdAt");
+      if (!created) return false;
+      return (new Date(today()) - new Date(created)) / 86400000 >= 15;
+    } catch { return false; }
+  }, []);
+
   // 월 평균 체중 기반 동적 목표 계산
   const TARGETS = useMemo(() => {
     const currentMonth = date.slice(0, 7); // "2026-04"
@@ -1951,6 +1967,19 @@ function MainApp({ user, onLogout }) {
     fontFamily: "'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif",
     transition: "color 0.15s ease, border-color 0.15s ease"
   });
+
+  // 자주 사용하는 음식/운동 집계
+  const freqData = useMemo(() => {
+    const fc = {}, ec = {};
+    Object.values(allDays).forEach(d => {
+      (d.meals || []).forEach(m => { const k = m.n; fc[k] = (fc[k] || { ...m, count: 0 }); fc[k].count++; });
+      (d.exercises || []).forEach(e => { const k = e.n; ec[k] = (ec[k] || { ...e, count: 0 }); ec[k].count++; });
+    });
+    return {
+      foods: Object.values(fc).sort((a, b) => b.count - a.count).slice(0, 7),
+      exercises: Object.values(ec).sort((a, b) => b.count - a.count).slice(0, 5)
+    };
+  }, [allDays]);
   const cs = { background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 12, boxShadow: "0 4px 24px rgba(0,0,0,0.4), 0 1px 6px rgba(0,0,0,0.2)" };
 
   if (!loaded) return <div style={{ color: "#888", padding: 40, textAlign: "center" }}>Loading...</div>;
@@ -1964,9 +1993,20 @@ function MainApp({ user, onLogout }) {
           <div style={{ fontSize: 11, color: THEME.gold, fontFamily: "var(--font-mono, monospace)", opacity: 0.7 }}>체지방 {user.targetFat || 15}% · {user.name}</div>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <button className="dbp-btn" onClick={onLogout} style={{ background: THEME.card, border: "1px solid rgba(224,82,82,0.2)", borderRadius: 8, color: "#e05252", padding: "6px 10px", fontSize: 11, fontWeight: 500, cursor: "pointer" }}>OUT</button>
-          <button className="dbp-btn" onClick={() => setShowManage(true)} style={{ background: THEME.card, border: `1px solid ${THEME.goldDim}`, borderRadius: 8, color: THEME.gold, padding: "6px 10px", fontSize: 11, fontWeight: 500, cursor: "pointer" }}>DB</button>
           <input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ background: THEME.card, border: `1px solid ${THEME.borderLight}`, borderRadius: 8, color: THEME.text, padding: "6px 10px", fontSize: 11, fontFamily: "monospace" }} />
+          <div style={{ position: "relative" }}>
+            <button onClick={() => setShowHeaderMenu(v => !v)} style={{ width: 28, height: 28, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: "#707070", cursor: "pointer", background: showHeaderMenu ? "rgba(255,255,255,0.06)" : "transparent", border: "none" }}>⋮</button>
+            {showHeaderMenu && (<>
+              <div onClick={() => setShowHeaderMenu(false)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 99 }} />
+              <div style={{ position: "absolute", right: 0, top: 34, background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "4px 0", zIndex: 100, minWidth: 150, boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}>
+                <div onClick={() => { setShowManage(true); setShowHeaderMenu(false); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", fontSize: 12, color: "#f5f5f0", cursor: "pointer" }}><span style={{ color: "#d4af37", fontSize: 13, width: 18, textAlign: "center" }}>⚙</span>설정 / 데이터</div>
+                <div style={{ height: 0.5, background: "rgba(255,255,255,0.06)" }} />
+                <div onClick={() => { doBackup(); setShowHeaderMenu(false); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", fontSize: 12, color: "#f5f5f0", cursor: "pointer" }}><span style={{ color: "#4a8fc9", fontSize: 13, width: 18, textAlign: "center" }}>📥</span>CSV 내보내기</div>
+                <div style={{ height: 0.5, background: "rgba(255,255,255,0.06)" }} />
+                <div onClick={() => { onLogout(); setShowHeaderMenu(false); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", fontSize: 12, color: "#e05252", cursor: "pointer" }}><span style={{ fontSize: 13, width: 18, textAlign: "center" }}>↗</span>로그아웃</div>
+              </div>
+            </>)}
+          </div>
         </div>
       </div>
 
@@ -1982,7 +2022,7 @@ function MainApp({ user, onLogout }) {
               </div>
               <div style={{ fontSize: 18, color: "#5a9e6f" }}>✓</div>
             </div>
-          ) : backupDaysAgo >= 15 && (
+          ) : accountMature && backupDaysAgo >= 15 && (
             <div onClick={doBackup} style={{ background: "rgba(212,175,55,0.1)", border: "1px solid rgba(212,175,55,0.25)", borderRadius: 16, padding: 12, marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
               <div>
                 <div style={{ fontSize: 13, color: "#d4af37", fontWeight: 500 }}>백업을 해주세요</div>
@@ -2438,32 +2478,151 @@ function MainApp({ user, onLogout }) {
       <Modal open={showAddEx} onClose={() => setShowAddEx(false)} title="새 운동 추가">
         <AddExForm initialName={exSearch} onSave={saveCustomEx} onCancel={() => setShowAddEx(false)} />
       </Modal>
-      <Modal open={showManage} onClose={() => setShowManage(false)} title="DB 관리">
-        <div style={{ display: "flex", gap: 0, marginBottom: 16, borderRadius: 8, overflow: "hidden" }}>
-          <button onClick={() => setManageTab("food")} style={{ flex: 1, padding: 10, fontSize: 13, fontWeight: 500, background: manageTab === "food" ? "#d4af37" : "#2a2a2a", color: manageTab === "food" ? "#141414" : "#8a8a8a", border: "none", cursor: "pointer", borderRadius: "8px 0 0 8px" }}>음식 ({FOOD_DB.length})</button>
-          <button onClick={() => setManageTab("ex")} style={{ flex: 1, padding: 10, fontSize: 13, fontWeight: 500, background: manageTab === "ex" ? "#d4af37" : "#2a2a2a", color: manageTab === "ex" ? "#141414" : "#8a8a8a", border: "none", cursor: "pointer", borderRadius: "0 8px 8px 0" }}>운동 ({EX_DB.length})</button>
+      <Modal open={showManage} onClose={() => setShowManage(false)} title="설정 / 데이터">
+        <div style={{ display: "flex", gap: 0, marginBottom: 14, borderRadius: 8, overflow: "hidden" }}>
+          <button onClick={() => setManageTab("freq")} style={{ flex: 1, padding: 9, fontSize: 12, fontWeight: 500, background: manageTab === "freq" ? "#d4af37" : "#2a2a2a", color: manageTab === "freq" ? "#141414" : "#8a8a8a", border: "none", cursor: "pointer", borderRadius: "8px 0 0 8px" }}>자주 사용</button>
+          <button onClick={() => setManageTab("food")} style={{ flex: 1, padding: 9, fontSize: 12, fontWeight: 500, background: manageTab === "food" ? "#d4af37" : "#2a2a2a", color: manageTab === "food" ? "#141414" : "#8a8a8a", border: "none", cursor: "pointer" }}>내 DB</button>
+          <button onClick={() => setManageTab("data")} style={{ flex: 1, padding: 9, fontSize: 12, fontWeight: 500, background: manageTab === "data" ? "#d4af37" : "#2a2a2a", color: manageTab === "data" ? "#141414" : "#8a8a8a", border: "none", cursor: "pointer", borderRadius: "0 8px 8px 0" }}>데이터</button>
         </div>
-        {manageTab === "food" && (<>
-          <button onClick={() => { setShowManage(false); setShowAddFood(true); }} style={{ width: "100%", padding: 10, background: "#d4af37", border: "none", borderRadius: 8, color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer", marginBottom: 12 }}>+ 새 음식 추가</button>
-          {customFoods.length > 0 && <div style={{ fontSize: 12, color: "#d4af37", marginBottom: 8 }}>직접 추가 ({customFoods.length}개)</div>}
-          {customFoods.map((f, i) => (
-            <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.04)", fontSize: 13 }}>
-              <div><div style={{ fontWeight: 500 }}>{f.n}</div><div style={{ fontSize: 11, color: "#707070", fontFamily: "monospace" }}>P{f.p} C{f.c} F{f.f} · {f.k}kcal</div></div>
-              <button onClick={() => deleteCustomFood(i)} style={{ padding: "4px 10px", background: "rgba(224,82,82,0.15)", border: "1px solid rgba(224,82,82,0.3)", borderRadius: 6, color: "#e05252", fontSize: 11, cursor: "pointer" }}>삭제</button>
+
+        {/* 탭 1: 자주 사용 */}
+        {manageTab === "freq" && (<>
+          {freqData.foods.length > 0 ? (<>
+            <div style={{ fontSize: 11, color: "#707070", marginBottom: 6 }}>자주 먹는 음식 TOP {freqData.foods.length}</div>
+            <div style={{ background: "#252525", borderRadius: 10, marginBottom: 14 }}>
+              {freqData.foods.map((f, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", padding: "8px 12px", borderBottom: i < freqData.foods.length - 1 ? "0.5px solid rgba(255,255,255,0.04)" : "none" }}>
+                  <span style={{ fontSize: 11, color: i < 3 ? "#d4af37" : "#707070", fontWeight: 600, minWidth: 20 }}>{i + 1}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12, color: "#f5f5f0" }}>{f.n}</div>
+                    <div style={{ fontSize: 10, color: "#4a4a4a", fontFamily: "monospace" }}>P{Math.round(f.p)} C{Math.round(f.c)} F{Math.round(f.f)} · {Math.round(f.k)}kcal</div>
+                  </div>
+                  <span style={{ fontSize: 12, fontWeight: 500, fontFamily: "monospace", color: i < 3 ? "#d4af37" : "#707070" }}>{f.count}회</span>
+                </div>
+              ))}
             </div>
-          ))}
-          <div style={{ fontSize: 12, color: "#4a4a4a", marginTop: 12 }}>기본 DB ({DEFAULT_FOODS.length}개)는 삭제 불가</div>
+          </>) : <div style={{ fontSize: 12, color: "#4a4a4a", textAlign: "center", padding: 16 }}>식단 기록이 없습니다</div>}
+          {freqData.exercises.length > 0 ? (<>
+            <div style={{ fontSize: 11, color: "#707070", marginBottom: 6 }}>자주 하는 운동 TOP {freqData.exercises.length}</div>
+            <div style={{ background: "#252525", borderRadius: 10 }}>
+              {freqData.exercises.map((e, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", padding: "8px 12px", borderBottom: i < freqData.exercises.length - 1 ? "0.5px solid rgba(255,255,255,0.04)" : "none" }}>
+                  <span style={{ fontSize: 11, color: i < 3 ? "#4a8fc9" : "#707070", fontWeight: 600, minWidth: 20 }}>{i + 1}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12, color: "#f5f5f0" }}>{e.n}</div>
+                    <div style={{ fontSize: 10, color: "#4a4a4a" }}>MET {e.m}</div>
+                  </div>
+                  <span style={{ fontSize: 12, fontWeight: 500, fontFamily: "monospace", color: i < 3 ? "#4a8fc9" : "#707070" }}>{e.count}회</span>
+                </div>
+              ))}
+            </div>
+          </>) : <div style={{ fontSize: 12, color: "#4a4a4a", textAlign: "center", padding: 16 }}>운동 기록이 없습니다</div>}
+          <div style={{ fontSize: 9, color: "#4a4a4a", textAlign: "center", marginTop: 8 }}>전체 기록 기반 자동 집계</div>
         </>)}
-        {manageTab === "ex" && (<>
-          <button onClick={() => { setShowManage(false); setShowAddEx(true); }} style={{ width: "100%", padding: 10, background: "#d4af37", border: "none", borderRadius: 8, color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer", marginBottom: 12 }}>+ 새 운동 추가</button>
-          {customEx.length > 0 && <div style={{ fontSize: 12, color: "#d4af37", marginBottom: 8 }}>직접 추가 ({customEx.length}개)</div>}
-          {customEx.map((e, i) => (
-            <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.04)", fontSize: 13 }}>
-              <div><div style={{ fontWeight: 500 }}>{e.n}</div><div style={{ fontSize: 11, color: "#707070" }}>MET {e.m}</div></div>
-              <button onClick={() => deleteCustomEx(i)} style={{ padding: "4px 10px", background: "rgba(224,82,82,0.15)", border: "1px solid rgba(224,82,82,0.3)", borderRadius: 6, color: "#e05252", fontSize: 11, cursor: "pointer" }}>삭제</button>
+
+        {/* 탭 2: 내 DB */}
+        {manageTab === "food" && (<>
+          <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+            {[
+              { l: "기본", v: DEFAULT_FOODS.length, c: "#707070" },
+              { l: "직접 추가", v: customFoods.length, c: "#d4af37" },
+              { l: "AI 분석", v: sharedFoods.filter(f => f.source === "ai").length, c: "#4a8fc9" }
+            ].map((x, i) => (
+              <div key={i} style={{ flex: 1, background: "#252525", borderRadius: 8, padding: "6px 4px", textAlign: "center" }}>
+                <div style={{ fontSize: 9, color: x.c }}>{x.l}</div>
+                <div style={{ fontSize: 16, fontWeight: 600, fontFamily: "monospace", color: x.c === "#707070" ? "#f5f5f0" : x.c }}>{x.v}</div>
+                <div style={{ fontSize: 9, color: "#4a4a4a" }}>음식</div>
+              </div>
+            ))}
+          </div>
+          {customFoods.length > 0 && (<>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <span style={{ fontSize: 11, color: "#d4af37" }}>직접 추가 ({customFoods.length})</span>
+              <span style={{ fontSize: 9, color: "#4a4a4a" }}>삭제 버튼으로 제거</span>
+            </div>
+            {customFoods.map((f, i) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "0.5px solid rgba(255,255,255,0.04)", fontSize: 13 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 500 }}>{f.n}</div>
+                  <div style={{ fontSize: 11, color: "#707070", fontFamily: "monospace" }}>P{f.p} C{f.c} F{f.f} · {f.k}kcal</div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 99, background: "rgba(212,175,55,0.12)", color: "#d4af37" }}>직접</span>
+                  <button onClick={() => deleteCustomFood(i)} style={{ padding: "4px 8px", background: "rgba(224,82,82,0.15)", border: "1px solid rgba(224,82,82,0.3)", borderRadius: 6, color: "#e05252", fontSize: 10, cursor: "pointer" }}>삭제</button>
+                </div>
+              </div>
+            ))}
+          </>)}
+          <div style={{ marginTop: 10, marginBottom: 10, height: 0.5, background: "rgba(255,255,255,0.06)" }} />
+          <div style={{ fontSize: 11, color: "#707070", marginBottom: 6 }}>운동 DB (기본 {DEFAULT_EX.length} + 직접 {customEx.length})</div>
+          {customEx.length > 0 && customEx.map((e, i) => (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "0.5px solid rgba(255,255,255,0.04)", fontSize: 13 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 500 }}>{e.n}</div>
+                <div style={{ fontSize: 11, color: "#707070" }}>MET {e.m}</div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 99, background: "rgba(212,175,55,0.12)", color: "#d4af37" }}>직접</span>
+                <button onClick={() => deleteCustomEx(i)} style={{ padding: "4px 8px", background: "rgba(224,82,82,0.15)", border: "1px solid rgba(224,82,82,0.3)", borderRadius: 6, color: "#e05252", fontSize: 10, cursor: "pointer" }}>삭제</button>
+              </div>
             </div>
           ))}
-          <div style={{ fontSize: 12, color: "#4a4a4a", marginTop: 12 }}>기본 DB ({DEFAULT_EX.length}개)는 삭제 불가</div>
+          <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
+            <button onClick={() => { setShowManage(false); setShowAddFood(true); }} style={{ flex: 1, padding: 10, background: "#d4af37", border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>+ 음식 추가</button>
+            <button onClick={() => { setShowManage(false); setShowAddEx(true); }} style={{ flex: 1, padding: 10, background: "#4a8fc9", border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>+ 운동 추가</button>
+          </div>
+        </>)}
+
+        {/* 탭 3: 데이터 */}
+        {manageTab === "data" && (<>
+          <div style={{ fontSize: 11, color: "#707070", marginBottom: 8 }}>데이터 현황</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, marginBottom: 14 }}>
+            {[
+              { l: "기록 일수", v: Object.keys(allDays).length, c: "#f5f5f0" },
+              { l: "체성분", v: bodyLog.length, c: "#5a9e6f" },
+              { l: "음식 DB", v: FOOD_DB.length, c: "#4a8fc9" },
+              { l: "운동 DB", v: EX_DB.length, c: "#d4af37" }
+            ].map((x, i) => (
+              <div key={i} style={{ background: "#252525", borderRadius: 8, padding: "8px 4px", textAlign: "center" }}>
+                <div style={{ fontSize: 16, fontWeight: 600, fontFamily: "monospace", color: x.c }}>{x.v}</div>
+                <div style={{ fontSize: 8, color: "#707070" }}>{x.l}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 11, color: "#707070", marginBottom: 8 }}>백업 / 내보내기</div>
+          <div style={{ background: "#252525", borderRadius: 10, marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", borderBottom: "0.5px solid rgba(255,255,255,0.04)" }}>
+              <div>
+                <div style={{ fontSize: 12, color: "#f5f5f0" }}>Firestore 동기화</div>
+                <div style={{ fontSize: 10, color: "#5a9e6f", marginTop: 2 }}>실시간 · 정상</div>
+              </div>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#5a9e6f" }} />
+            </div>
+            <div onClick={doBackup} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", borderBottom: "0.5px solid rgba(255,255,255,0.04)", cursor: "pointer" }}>
+              <div>
+                <div style={{ fontSize: 12, color: "#f5f5f0" }}>CSV 내보내기</div>
+                <div style={{ fontSize: 10, color: "#707070", marginTop: 2 }}>식단 + 운동 + 체성분 엑셀 호환</div>
+              </div>
+              <span style={{ fontSize: 12, color: "#4a8fc9" }}>📥</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px" }}>
+              <div>
+                <div style={{ fontSize: 12, color: "#f5f5f0" }}>마지막 백업</div>
+                <div style={{ fontSize: 10, color: "#707070", marginTop: 2 }}>{lastBackup ? `${backupDaysAgo}일 전 · ${lastBackup}` : "없음"}</div>
+              </div>
+              <div onClick={() => { doBackup(); setShowManage(false); }} style={{ background: "#d4af37", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: "#fff", fontWeight: 500, cursor: "pointer" }}>백업</div>
+            </div>
+          </div>
+          <div style={{ fontSize: 11, color: "#707070", marginBottom: 8 }}>데이터 관리</div>
+          <div style={{ background: "#252525", borderRadius: 10 }}>
+            <div onClick={() => { try { const uid = getCurrentUserId(); localStorage.removeItem("dt_" + uid + "_body-coaching"); alert("AI 코칭 캐시가 초기화되었습니다."); } catch {} }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", cursor: "pointer" }}>
+              <div>
+                <div style={{ fontSize: 12, color: "#f5f5f0" }}>AI 분석 캐시 정리</div>
+                <div style={{ fontSize: 10, color: "#707070", marginTop: 2 }}>AI 코칭 캐시 삭제 (재분석 유도)</div>
+              </div>
+              <span style={{ fontSize: 11, color: "#707070" }}>→</span>
+            </div>
+          </div>
         </>)}
       </Modal>
 
