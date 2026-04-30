@@ -2051,7 +2051,7 @@ function MainApp({ user, onLogout }) {
                 const pP = a ? Math.min(a.p / TARGETS.p, 1) : 0;
                 const pC = a ? Math.min(a.c / TARGETS.c, 1) : 0;
                 const pF = a ? Math.min(a.f / TARGETS.f, 1) : 0;
-                const calOk = a ? a.k <= TARGETS.k : null;
+                const calOk = a ? (a.k - a.ex) <= TARGETS.k : null;
                 const hasData = !!a && a.k > 0;
                 const dow = (offset + i) % 7;
                 return (
