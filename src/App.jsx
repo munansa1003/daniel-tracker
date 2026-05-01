@@ -1444,7 +1444,8 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals }) {
       {/* 탭 전환 */}
       <div style={{ display: "flex", gap: 0, marginBottom: 14, borderRadius: 8, overflow: "hidden" }}>
         <button onClick={() => setStatsTab("report")} style={{ ...tabBtn("report"), borderRadius: "8px 0 0 8px" }}>주간 성적표</button>
-        <button onClick={() => setStatsTab("insight")} style={{ ...tabBtn("insight"), borderRadius: "0 8px 8px 0" }}>나의 인사이트</button>
+        <button onClick={() => setStatsTab("insight")} style={{ ...tabBtn("insight"), borderRadius: 0 }}>나의 인사이트</button>
+        <button onClick={() => setStatsTab("community")} style={{ ...tabBtn("community"), borderRadius: "0 8px 8px 0" }}>커뮤니티</button>
       </div>
 
       {/* ═══ 주간 성적표 ═══ */}
@@ -1591,6 +1592,157 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals }) {
         {!insights.golden && insights.anomalies.length === 0 && insights.correlations.length === 0 && (
           <div style={{ textAlign: "center", padding: 32, color: "#4a4a4a", fontSize: 13, lineHeight: 1.6 }}>체성분 측정 4회 이상 + 식단 기록 14일 이상이면<br/>의미 있는 인사이트가 생성됩니다.</div>
         )}
+      </>)}
+
+      {/* ═══ 커뮤니티 ═══ */}
+      {statsTab === "community" && (<>
+        {/* 챌린지 */}
+        {(() => {
+          const thisWeekDates = (() => {
+            const d = new Date(today() + "T12:00:00");
+            const day = d.getDay();
+            const diff = day === 0 ? -6 : 1 - day;
+            return Array.from({ length: 7 }, (_, i) => {
+              const dd = new Date(d); dd.setDate(d.getDate() + diff + i);
+              return dd.getFullYear() + "-" + String(dd.getMonth() + 1).padStart(2, "0") + "-" + String(dd.getDate()).padStart(2, "0");
+            });
+          })();
+          const pHits = thisWeekDates.filter(ds => {
+            const dd = allDays[ds]; if (!dd || !dd.meals || !dd.meals.length) return false;
+            const p = (dd.meals || []).reduce((s, ml) => s + ml.p * ml.serving, 0);
+            return p >= targets.p;
+          }).length;
+          const recorded = thisWeekDates.filter(ds => allDays[ds] && allDays[ds].meals && allDays[ds].meals.length > 0).length;
+          const pct = recorded > 0 ? Math.round(pHits / recorded * 100) : 0;
+          const eHits = thisWeekDates.filter(ds => {
+            const dd = allDays[ds]; return dd && dd.exercises && dd.exercises.length > 0;
+          }).length;
+          const ePct = Math.round(Math.min(eHits / 4, 1) * 100);
+
+          return (
+            <>
+              <div style={{ background: "#1e1e1e", border: "1px solid rgba(212,175,55,0.2)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 500, color: "#d4af37" }}>이번 주 단백질 챌린지</div>
+                    <div style={{ fontSize: 10, color: "#707070", marginTop: 2 }}>매일 단백질 {targets.p}g 이상 달성하기</div>
+                  </div>
+                  <div style={{ fontSize: 9, padding: "2px 8px", borderRadius: 8, background: "rgba(212,175,55,0.15)", color: "#d4af37" }}>참여 중</div>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span style={{ fontSize: 10, color: "#999" }}>나의 달성률</span>
+                  <span style={{ fontSize: 10, color: pct >= 70 ? "#5a9e6f" : "#d4af37" }}>{pct}% ({pHits}/{recorded}일)</span>
+                </div>
+                <div style={{ height: 6, background: "#252525", borderRadius: 3, overflow: "hidden", marginBottom: 12 }}><div style={{ width: pct + "%", height: "100%", background: pct >= 70 ? "#5a9e6f" : "#d4af37", borderRadius: 3, transition: "width 0.3s" }} /></div>
+
+                <div style={{ fontSize: 10, color: "#707070", marginBottom: 6 }}>리더보드</div>
+                {[
+                  { rank: 1, name: "GymHero", pct: 100, color: "#d4af37" },
+                  { rank: 2, name: "FitTracker", pct: 86, color: "#5a9e6f" },
+                  { rank: 3, name: "HealthyDan", pct: 83, color: "#5a9e6f" },
+                  { rank: null, name: "나 (Daniel)", pct, color: "#4a8fc9", me: true },
+                ].sort((a, b) => b.pct - a.pct).map((u, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: i < 3 ? "1px solid rgba(255,255,255,0.04)" : "none", background: u.me ? "rgba(74,143,201,0.06)" : "transparent", borderRadius: u.me ? 6 : 0, padding: u.me ? "6px 8px" : "6px 0" }}>
+                    <span style={{ fontSize: 11, color: i === 0 ? "#d4af37" : "#555", width: 16, textAlign: "center" }}>{i + 1}</span>
+                    <div style={{ width: 24, height: 24, borderRadius: "50%", background: `${u.color}20`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 500, color: u.color }}>{u.name.slice(0, 2).toUpperCase()}</div>
+                    <span style={{ flex: 1, fontSize: 11, color: u.me ? "#4a8fc9" : "#f5f5f0" }}>{u.name}</span>
+                    <span style={{ fontSize: 11, color: u.pct >= 80 ? "#5a9e6f" : "#d4af37" }}>{u.pct}%</span>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 500, color: "#4a8fc9" }}>운동 습관 챌린지</div>
+                    <div style={{ fontSize: 10, color: "#707070", marginTop: 2 }}>이번 주 운동 4회 이상 실행</div>
+                  </div>
+                  <div style={{ fontSize: 9, padding: "2px 8px", borderRadius: 8, background: "rgba(74,143,201,0.15)", color: "#4a8fc9" }}>참여 중</div>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span style={{ fontSize: 10, color: "#999" }}>진행률</span>
+                  <span style={{ fontSize: 10, color: ePct >= 75 ? "#5a9e6f" : "#d4af37" }}>{eHits}/4회 ({ePct}%)</span>
+                </div>
+                <div style={{ height: 6, background: "#252525", borderRadius: 3, overflow: "hidden" }}><div style={{ width: ePct + "%", height: "100%", background: ePct >= 75 ? "#5a9e6f" : "#d4af37", borderRadius: 3 }} /></div>
+              </div>
+            </>
+          );
+        })()}
+
+        {/* 나의 위치 (벤치마크) */}
+        {latest && (() => {
+          const wt = latest.weight || 75;
+          const refData = wt < 70 ? { label: "남성 60~70kg", avgFat: 21.5, avgMuscle: 30.2, avgP: 110, topExercises: ["런닝", "벤치프레스", "스쿼트", "풀업", "사이클"] }
+            : wt < 80 ? { label: "남성 70~80kg", avgFat: 23.4, avgMuscle: 33.5, avgP: 128, topExercises: ["벤치프레스", "스쿼트", "데드리프트", "런닝", "랫풀다운"] }
+            : { label: "남성 80~90kg", avgFat: 25.1, avgMuscle: 35.8, avgP: 142, topExercises: ["스쿼트", "벤치프레스", "데드리프트", "레그프레스", "런닝"] };
+
+          const fatPct = latest.fatPct || 22;
+          const fatRank = fatPct <= 15 ? "상위 10%" : fatPct <= 18 ? "상위 20%" : fatPct <= 22 ? "상위 35%" : fatPct <= 25 ? "상위 50%" : "하위 40%";
+          const fatPos = Math.max(5, Math.min(95, 100 - ((fatPct - 10) / 25 * 100)));
+
+          const weekP = (() => {
+            const last7 = Object.entries(allDays).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 7);
+            if (last7.length === 0) return 0;
+            const total = last7.reduce((s, [, d]) => s + (d.meals || []).reduce((ms, ml) => ms + ml.p * ml.serving, 0), 0);
+            return Math.round(total / last7.length);
+          })();
+          const pRank = weekP >= 180 ? "상위 10%" : weekP >= 150 ? "상위 25%" : weekP >= 120 ? "상위 40%" : weekP >= 90 ? "상위 60%" : "하위 30%";
+          const pPos = Math.max(5, Math.min(95, (weekP - 60) / 160 * 100));
+
+          return (
+            <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
+              <div style={{ fontSize: 14, fontWeight: 500, color: "#f5f5f0", marginBottom: 4 }}>나의 위치</div>
+              <div style={{ fontSize: 10, color: "#707070", marginBottom: 14 }}>{refData.label} 기준 · 표준 참고 데이터</div>
+
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span style={{ fontSize: 11, color: "#e05252" }}>체지방률</span>
+                  <span style={{ fontSize: 11, color: "#f5f5f0" }}>{fatPct}% · {fatRank}</span>
+                </div>
+                <div style={{ height: 16, background: "#252525", borderRadius: 8, position: "relative", overflow: "hidden" }}>
+                  <div style={{ position: "absolute", left: "15%", width: "35%", height: "100%", background: "rgba(90,158,111,0.1)", borderRadius: 8 }} />
+                  <div style={{ position: "absolute", left: fatPos + "%", top: 0, width: 3, height: "100%", background: "#d4af37", borderRadius: 2, transition: "left 0.3s" }} />
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "#4a4a4a", marginTop: 2 }}><span>30%</span><span style={{ color: "#5a9e6f" }}>적정 15~22%</span><span>10%</span></div>
+                <div style={{ fontSize: 9, color: "#555", marginTop: 2 }}>평균 {refData.avgFat}%</div>
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span style={{ fontSize: 11, color: "#5a9e6f" }}>일평균 단백질</span>
+                  <span style={{ fontSize: 11, color: "#f5f5f0" }}>{weekP}g · {pRank}</span>
+                </div>
+                <div style={{ height: 16, background: "#252525", borderRadius: 8, position: "relative", overflow: "hidden" }}>
+                  <div style={{ position: "absolute", left: "30%", width: "30%", height: "100%", background: "rgba(90,158,111,0.1)", borderRadius: 8 }} />
+                  <div style={{ position: "absolute", left: pPos + "%", top: 0, width: 3, height: "100%", background: "#d4af37", borderRadius: 2, transition: "left 0.3s" }} />
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "#4a4a4a", marginTop: 2 }}><span>60g</span><span style={{ color: "#5a9e6f" }}>권장 120~180g</span><span>220g</span></div>
+                <div style={{ fontSize: 9, color: "#555", marginTop: 2 }}>평균 {refData.avgP}g</div>
+              </div>
+
+              <div>
+                <div style={{ fontSize: 11, color: "#4a8fc9", marginBottom: 6 }}>인기 운동 TOP 5 ({refData.label})</div>
+                {refData.topExercises.map((ex, i) => {
+                  const pcts = [78, 72, 65, 58, 45];
+                  return (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                      <span style={{ fontSize: 10, color: i < 3 ? "#d4af37" : "#555", width: 14 }}>{i + 1}.</span>
+                      <span style={{ flex: 1, fontSize: 11, color: "#c0c0b0" }}>{ex}</span>
+                      <div style={{ width: 60, height: 4, background: "#252525", borderRadius: 2, overflow: "hidden" }}><div style={{ width: pcts[i] + "%", height: "100%", background: "#4a8fc9", borderRadius: 2 }} /></div>
+                      <span style={{ fontSize: 9, color: "#707070", width: 24, textAlign: "right" }}>{pcts[i]}%</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
+
+        {!latest && (
+          <div style={{ textAlign: "center", padding: 32, color: "#4a4a4a", fontSize: 13, lineHeight: 1.6 }}>체성분 기록이 있으면<br/>나의 위치를 확인할 수 있습니다.</div>
+        )}
+
+        <div style={{ textAlign: "center", fontSize: 9, color: "#4a4a4a", marginTop: 4, lineHeight: 1.5 }}>벤치마크는 표준 참고 데이터 기준입니다.<br/>챌린지 리더보드는 데모 데이터입니다.</div>
       </>)}
     </>
   );
