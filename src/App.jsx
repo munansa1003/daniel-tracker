@@ -1822,6 +1822,12 @@ function MainApp({ user, onLogout }) {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResult, setAiResult] = useState(null);
   const [aiError, setAiError] = useState("");
+  // 사진 분석 상태
+  const [photoMode, setPhotoMode] = useState(false); // 사진 분석 화면 표시
+  const [photoLoading, setPhotoLoading] = useState(false);
+  const [photoResults, setPhotoResults] = useState(null); // [{n, u, g, p, c, f, k, checked, adjG}]
+  const [photoError, setPhotoError] = useState("");
+  const [photoPreview, setPhotoPreview] = useState(null); // base64 미리보기
   const [aiExLoading, setAiExLoading] = useState(false);
   const [aiExResults, setAiExResults] = useState(null);
   const [aiExError, setAiExError] = useState("");
@@ -2113,6 +2119,85 @@ function MainApp({ user, onLogout }) {
     setAiResult(null); setSearch("");
   };
 
+  // 이미지 압축 (Canvas API)
+  const compressImage = (file) => new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const maxSize = 800;
+        let w = img.width, h = img.height;
+        if (w > h) { if (w > maxSize) { h = h * maxSize / w; w = maxSize; } }
+        else { if (h > maxSize) { w = w * maxSize / h; h = maxSize; } }
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
+        const base64 = dataUrl.split(",")[1];
+        resolve({ base64, preview: dataUrl });
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  // 사진으로 음식 분석
+  const analyzePhoto = async (file) => {
+    setPhotoMode(true); setPhotoLoading(true); setPhotoError(""); setPhotoResults(null);
+    try {
+      const { base64, preview } = await compressImage(file);
+      setPhotoPreview(preview);
+      const res = await fetch("/api/analyze-food", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: base64, mediaType: "image/jpeg" })
+      });
+      const data = await res.json();
+      if (data.success && data.foods) {
+        setPhotoResults(data.foods.map(f => ({ ...f, checked: true, adjG: f.g || 100 })));
+      } else {
+        setPhotoError(data.error || "분석에 실패했어요. 다시 시도해주세요.");
+      }
+    } catch (e) {
+      setPhotoError("네트워크 오류: " + e.message);
+    }
+    setPhotoLoading(false);
+  };
+
+  // 사진 결과에서 중량 조절 시 영양소 재계산
+  const adjustPhotoWeight = (idx, newG) => {
+    setPhotoResults(prev => prev.map((f, i) => {
+      if (i !== idx) return f;
+      const ratio = newG / (f.g || 100);
+      return { ...f, adjG: newG, adjP: Math.round(f.p * ratio), adjC: Math.round(f.c * ratio), adjF: Math.round(f.f * ratio), adjK: Math.round(f.k * ratio) };
+    }));
+  };
+
+  // 사진 결과 체크 토글
+  const togglePhotoCheck = (idx) => {
+    setPhotoResults(prev => prev.map((f, i) => i === idx ? { ...f, checked: !f.checked } : f));
+  };
+
+  // 선택된 항목 일괄 추가
+  const addPhotoMeals = () => {
+    const hour = parseInt(mealHour) || nowHour();
+    const selected = photoResults.filter(f => f.checked);
+    const newMeals = selected.map(f => ({
+      n: f.n, u: f.u || "1인분",
+      p: f.adjP ?? f.p, c: f.adjC ?? f.c, f: f.adjF ?? f.f, k: f.adjK ?? f.k,
+      serving: 1, ts: Date.now(), hour, source: "photo"
+    }));
+    const nm = sortByHour([...meals, ...newMeals]);
+    setMeals(nm); saveDay(date, nm, exercises);
+    // 공용 DB에 저장
+    selected.forEach(f => {
+      addSharedFood({ n: f.n, u: f.u || "1인분", p: f.adjP ?? f.p, c: f.adjC ?? f.c, f: f.adjF ?? f.f, k: f.adjK ?? f.k, source: "photo", addedBy: user.name }).then(updated => {
+        if (updated) setSharedFoods(updated);
+      });
+    });
+    setPhotoMode(false); setPhotoResults(null); setPhotoPreview(null); setSearch("");
+  };
+
   // AI 운동 분석
   const analyzeExercise = async (query) => {
     setAiExLoading(true); setAiExError(""); setAiExResults(null);
@@ -2402,11 +2487,113 @@ function MainApp({ user, onLogout }) {
             </div>
           )}
 
-          {/* 검색 */}
+          {/* 검색 + 카메라 */}
+          <input type="file" accept="image/*" capture="environment" id="photoInput" style={{ display: "none" }}
+            onChange={e => { if (e.target.files[0]) { analyzePhoto(e.target.files[0]); e.target.value = ""; } }} />
           <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
             <input type="text" placeholder="음식 검색... (예: 앤티앤스 프레즐 1개)" value={search} onChange={e => { setSearch(e.target.value); setAiResult(null); setAiError(""); }} style={{ flex: 1, padding: "10px 12px", background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, color: "#f5f5f0", fontSize: 14, boxSizing: "border-box" }} />
+            <div onClick={() => document.getElementById("photoInput").click()}
+              style={{ width: 42, height: 42, background: "rgba(212,175,55,0.12)", border: "1px solid rgba(212,175,55,0.3)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="3" y="6" width="18" height="14" rx="2.5" stroke="#d4af37" strokeWidth="1.5"/><circle cx="12" cy="13.5" r="3.5" stroke="#d4af37" strokeWidth="1.5"/><rect x="9" y="3.5" width="6" height="2.5" rx="1" fill="#d4af37"/></svg>
+            </div>
           </div>
-          <div style={{ maxHeight: 420, overflowY: "auto", marginBottom: 16 }}>
+
+          {/* 사진 분석 모드 */}
+          {photoMode && (
+            <div style={{ marginBottom: 16 }}>
+              {/* 사진 미리보기 */}
+              {photoPreview && (
+                <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                  <img src={photoPreview} alt="음식 사진" style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 10, background: "#252525" }} />
+                  <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", gap: 6 }}>
+                    <span onClick={() => document.getElementById("photoInput").click()} style={{ fontSize: 10, color: "#d4af37", cursor: "pointer" }}>다시 촬영</span>
+                    <span onClick={() => { setPhotoMode(false); setPhotoResults(null); setPhotoPreview(null); setPhotoError(""); }} style={{ fontSize: 10, color: "#555", cursor: "pointer" }}>취소</span>
+                  </div>
+                </div>
+              )}
+
+              {/* 로딩 */}
+              {photoLoading && (
+                <div style={{ textAlign: "center", padding: "24px 0" }}>
+                  <div style={{ fontSize: 14, color: "#d4af37", fontWeight: 500, marginBottom: 6 }}>음식을 분석하고 있어요...</div>
+                  <div style={{ fontSize: 11, color: "#707070" }}>음식 인식 + 영양소 계산 중</div>
+                </div>
+              )}
+
+              {/* 에러 */}
+              {photoError && (
+                <div style={{ background: "rgba(224,82,82,0.1)", border: "1px solid rgba(224,82,82,0.2)", borderRadius: 10, padding: 12, marginBottom: 8 }}>
+                  <div style={{ fontSize: 12, color: "#e05252" }}>{photoError}</div>
+                  <div onClick={() => document.getElementById("photoInput").click()} style={{ fontSize: 11, color: "#4a8fc9", marginTop: 6, cursor: "pointer" }}>다른 사진으로 다시 시도</div>
+                </div>
+              )}
+
+              {/* 결과 체크리스트 */}
+              {photoResults && photoResults.length > 0 && (
+                <div style={{ background: "#1e1e1e", border: "1px solid rgba(212,175,55,0.2)", borderRadius: 12, padding: 12, marginBottom: 8 }}>
+                  <div style={{ fontSize: 12, color: "#d4af37", fontWeight: 500, marginBottom: 10 }}>{photoResults.length}개 인식 — 추가할 항목을 선택하세요</div>
+
+                  {photoResults.map((f, i) => {
+                    const grams = f.adjG ?? f.g ?? 100;
+                    const p = f.adjP ?? f.p, c = f.adjC ?? f.c, fat = f.adjF ?? f.f, k = f.adjK ?? f.k;
+                    return (
+                      <div key={i} style={{ padding: "8px 0", borderBottom: i < photoResults.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none", opacity: f.checked ? 1 : 0.4 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div onClick={() => togglePhotoCheck(i)}
+                            style={{ width: 18, height: 18, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, cursor: "pointer", flexShrink: 0,
+                              background: f.checked ? "#5a9e6f" : "transparent", border: f.checked ? "none" : "1.5px solid #555", color: "#fff" }}>
+                            {f.checked ? "V" : ""}
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between" }}>
+                              <span style={{ fontSize: 13, color: "#f5f5f0", fontWeight: 500 }}>{f.n}</span>
+                              <span style={{ fontSize: 11, color: "#d4af37" }}>{k}kcal</span>
+                            </div>
+                            <div style={{ display: "flex", gap: 10, marginTop: 3 }}>
+                              <span style={{ fontSize: 10, color: "#4a8fc9" }}>단 {p}g</span>
+                              <span style={{ fontSize: 10, color: "#d4af37" }}>탄 {c}g</span>
+                              <span style={{ fontSize: 10, color: "#e05252" }}>지 {fat}g</span>
+                            </div>
+                          </div>
+                        </div>
+                        {f.checked && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, marginLeft: 26 }}>
+                            <span style={{ fontSize: 10, color: "#707070" }}>중량:</span>
+                            <div style={{ display: "flex", alignItems: "center", background: "#252525", borderRadius: 6, overflow: "hidden" }}>
+                              <span onClick={() => adjustPhotoWeight(i, Math.max(10, grams - 10))} style={{ padding: "4px 10px", fontSize: 13, color: "#999", cursor: "pointer", userSelect: "none" }}>-</span>
+                              <span style={{ padding: "4px 10px", fontSize: 12, color: "#f5f5f0", minWidth: 40, textAlign: "center" }}>{grams}g</span>
+                              <span onClick={() => adjustPhotoWeight(i, grams + 10)} style={{ padding: "4px 10px", fontSize: 13, color: "#999", cursor: "pointer", userSelect: "none" }}>+</span>
+                            </div>
+                            <span style={{ fontSize: 8, color: "#555" }}>AI 추정</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                    <span style={{ fontSize: 10, color: "#999" }}>선택 합계</span>
+                    <span style={{ fontSize: 13, color: "#d4af37", fontWeight: 500 }}>
+                      {photoResults.filter(f => f.checked).reduce((s, f) => s + (f.adjK ?? f.k), 0)}kcal
+                    </span>
+                  </div>
+
+                  <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+                    <button onClick={() => { setPhotoMode(false); setPhotoResults(null); setPhotoPreview(null); }}
+                      style={{ flex: 1, padding: 10, background: "#252525", border: "none", borderRadius: 8, color: "#999", fontSize: 12, cursor: "pointer" }}>취소</button>
+                    <button onClick={addPhotoMeals} disabled={!photoResults.some(f => f.checked)}
+                      style={{ flex: 2, padding: 10, background: photoResults.some(f => f.checked) ? "#4a8fc9" : "#2a2a2a", border: "none", borderRadius: 8, color: "#fff", fontSize: 13, fontWeight: 500, cursor: photoResults.some(f => f.checked) ? "pointer" : "not-allowed" }}>
+                      {photoResults.filter(f => f.checked).length}개 추가 ({photoResults.filter(f => f.checked).reduce((s, f) => s + (f.adjK ?? f.k), 0)}kcal)
+                    </button>
+                  </div>
+
+                  <div style={{ fontSize: 9, color: "#555", textAlign: "center", marginTop: 6 }}>중량은 AI 추정값입니다. -/+ 버튼으로 수정하세요</div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {!photoMode && <div style={{ maxHeight: 420, overflowY: "auto", marginBottom: 16 }}>
             {/* 1단계: 로컬 DB */}
             {filteredFoods.length > 0 && (
               <div style={{ marginBottom: 8 }}>
@@ -2506,7 +2693,7 @@ function MainApp({ user, onLogout }) {
                 </button>
               </div>
             )}
-          </div>
+          </div>}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
             <span style={{ fontSize: 13, color: "#707070" }}>오늘 기록 ({meals.length}건)</span>
             {meals.length > 0 && <span style={{ fontSize: 10, color: "#4a4a4a" }}>꾹 눌러서 수정/삭제</span>}
