@@ -1134,7 +1134,7 @@ function getMonthKey(ds) { return ds.slice(0, 7); }
 function getYearKey(ds) { return ds.slice(0, 4); }
 
 /* ───── 통계 탭 (A: 주간 성적표 + C: 나의 인사이트) ───── */
-function StatsTab({ bodyLog, allDays, onBackup, goals, onSaveGoals }) {
+function StatsTab({ bodyLog, allDays, goals, onSaveGoals }) {
   const [statsTab, setStatsTab] = useState("report");
   const [summaryPeriod, setSummaryPeriod] = useState("1m");
   const totalDays = Object.keys(allDays).length;
@@ -1574,12 +1574,6 @@ function StatsTab({ bodyLog, allDays, onBackup, goals, onSaveGoals }) {
           <div style={{ textAlign: "center", padding: 32, color: "#4a4a4a", fontSize: 13, lineHeight: 1.6 }}>체성분 측정 4회 이상 + 식단 기록 14일 이상이면<br/>의미 있는 인사이트가 생성됩니다.</div>
         )}
       </>)}
-
-      {/* CSV 내보내기 */}
-      <button onClick={onBackup} disabled={totalDays === 0}
-        style={{ width: "100%", padding: 14, background: totalDays === 0 ? "#2a2a2a" : "#5a9e6f", border: "none", borderRadius: 16, color: "#fff", fontSize: 14, fontWeight: 500, cursor: totalDays === 0 ? "not-allowed" : "pointer", marginTop: 8 }}>
-        {totalDays === 0 ? "데이터 없음" : "📥 CSV로 내보내기 (엑셀 호환)"}
-      </button>
     </>
   );
 }
@@ -2556,7 +2550,7 @@ function MainApp({ user, onLogout }) {
         </>)}
 
         {tab === "body" && <BodyTab bodyLog={bodyLog} addBody={addBody} date={date} onEditBody={editBody} onDeleteBody={deleteBody} user={user} goals={goals} onSaveGoals={saveGoals} allDays={allDays} />}
-        {tab === "stats" && <StatsTab bodyLog={bodyLog} allDays={allDays} onBackup={doBackup} goals={goals} onSaveGoals={saveGoals} />}
+        {tab === "stats" && <StatsTab bodyLog={bodyLog} allDays={allDays} goals={goals} onSaveGoals={saveGoals} />}
       </div>
 
       {/* Bottom Nav */}
