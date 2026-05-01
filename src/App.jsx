@@ -663,17 +663,19 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
   const [coaching, setCoaching] = useState(_cachedCoach?.text || "");
   const [coachDate, setCoachDate] = useState(_cachedCoach?.latestDate || "");
   const [coachLoading, setCoachLoading] = useState(false);
+  const [showCoachToast, setShowCoachToast] = useState(false);
+  const [toastChanges, setToastChanges] = useState(null);
   const [chartTab, setChartTab] = useState("weight");
   const [showAllHistory, setShowAllHistory] = useState(false);
   const lpBody = useLongPress(400);
 
-  // 7일 이동평균 변화 감지
-  const detectionResult = useMemo(() => {
-    if (bodyLog.length < 10) return null; // 최소 10일 데이터 필요
-    const sorted = [...bodyLog].sort((a, b) => a.date.localeCompare(b.date));
+  // 변화 감지 시 토스트 표시 (자동 AI 호출 대신)
+  const checkAndShowToast = (newBodyLog) => {
+    if (newBodyLog.length < 10) return;
+    const sorted = [...newBodyLog].sort((a, b) => a.date.localeCompare(b.date));
     const recent7 = sorted.slice(-7);
     const prev7 = sorted.slice(-14, -7);
-    if (prev7.length < 5 || recent7.length < 5) return null; // 각 구간 최소 5일
+    if (prev7.length < 5 || recent7.length < 5) return;
 
     const avg = (arr, key) => arr.reduce((s, v) => s + (v[key] || 0), 0) / arr.length;
     const rW = avg(recent7, "weight"), pW = avg(prev7, "weight");
@@ -685,24 +687,16 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
     const dF = Math.round((rF - pF) * 10) / 10;
 
     const thresholds = { weight: 0.5, muscle: 0.3, fatPct: 0.7 };
-    const triggers = [];
-    if (Math.abs(dW) >= thresholds.weight) triggers.push({ label: "체중", val: dW, unit: "kg", goodDir: -1 });
-    if (Math.abs(dM) >= thresholds.muscle) triggers.push({ label: "골격근", val: dM, unit: "kg", goodDir: 1 });
-    if (Math.abs(dF) >= thresholds.fatPct) triggers.push({ label: "체지방률", val: dF, unit: "%", goodDir: -1 });
+    const changes = [];
+    if (Math.abs(dW) >= thresholds.weight) changes.push({ label: "체중", val: dW, unit: "kg" });
+    if (Math.abs(dM) >= thresholds.muscle) changes.push({ label: "골격근", val: dM, unit: "kg" });
+    if (Math.abs(dF) >= thresholds.fatPct) changes.push({ label: "체지방률", val: dF, unit: "%" });
 
-    if (triggers.length === 0) return null;
-    return { triggers, avgRecent: { weight: rW, muscle: rM, fatPct: rF }, avgPrev: { weight: pW, muscle: pM, fatPct: pF } };
-  }, [bodyLog]);
-
-  // 변화 감지 시 자동 AI 호출 (캐시가 최신이면 스킵)
-  useEffect(() => {
-    if (!detectionResult || coachLoading) return;
-    const latestDate = bodyLog.length > 0 ? bodyLog[bodyLog.length - 1].date : "";
-    if (coachDate === latestDate) return; // 이미 이 데이터 기준 코칭 있음
-    const l = bodyLog[bodyLog.length - 1];
-    const p = bodyLog.length >= 2 ? bodyLog[bodyLog.length - 2] : null;
-    if (l) fetchCoaching(l, p);
-  }, [detectionResult, bodyLog, coachDate]);
+    if (changes.length > 0) {
+      setToastChanges(changes);
+      setShowCoachToast(true);
+    }
+  };
 
   const existing = bodyLog.find(b => b.date === date);
   const latest = bodyLog[bodyLog.length - 1];
@@ -793,8 +787,12 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
 
   const handleSave = () => {
     if (!w) return;
+    const entry = { date, weight: parseFloat(w), muscle: parseFloat(m) || 0, fatPct: parseFloat(fp) || 0, score: parseInt(sc) || 0 };
+    const newLog = [...bodyLog.filter(b => b.date !== date), entry].sort((a, b) => a.date.localeCompare(b.date));
     addBody(w, m, fp, sc);
     setW(""); setM(""); setFp(""); setSc(""); setShowForm(false);
+    // 저장 후 변화 감지 → 토스트 표시
+    setTimeout(() => checkAndShowToast(newLog), 300);
   };
 
   const startEdit = (idx) => {
@@ -841,7 +839,26 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
           </div>
           <div style={{ display: "flex", gap: 6 }}>
             <button onClick={() => setShowForm(false)} style={{ flex: 1, padding: 10, background: "#2a2a2a", border: "none", borderRadius: 8, color: "#8a8a8a", fontSize: 13, cursor: "pointer" }}>취소</button>
-            <button onClick={handleSave} disabled={!w} style={{ flex: 2, padding: 10, background: w ? "#4a8fc9" : "#2a2a2a", border: "none", borderRadius: 8, color: w ? "#fff" : "#666", fontSize: 13, fontWeight: 500, cursor: w ? "pointer" : "not-allowed" }}>저장 + AI 코칭</button>
+            <button onClick={handleSave} disabled={!w} style={{ flex: 2, padding: 10, background: w ? "#4a8fc9" : "#2a2a2a", border: "none", borderRadius: 8, color: w ? "#fff" : "#666", fontSize: 13, fontWeight: 500, cursor: w ? "pointer" : "not-allowed" }}>저장</button>
+          </div>
+        </div>
+      )}
+
+      {/* 변화 감지 토스트 */}
+      {showCoachToast && toastChanges && (
+        <div style={{ background: "rgba(212,175,55,0.1)", border: "1px solid rgba(212,175,55,0.25)", borderRadius: 12, padding: 12, marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ width: 32, height: 32, borderRadius: "50%", background: "rgba(212,175,55,0.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <span style={{ fontSize: 14 }}>✦</span>
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, color: "#d4af37", fontWeight: 500 }}>유의미한 변화 감지!</div>
+            <div style={{ fontSize: 10, color: "#999", marginTop: 2 }}>{toastChanges.map(c => `${c.label} ${c.val > 0 ? "+" : ""}${c.val}${c.unit}`).join(", ")} (7일 기준)</div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, flexShrink: 0 }}>
+            <span onClick={() => { if (latest) { fetchCoaching(latest, prev); setShowCoachToast(false); } }}
+              style={{ background: "#d4af37", color: "#141414", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 10, fontWeight: 500, cursor: "pointer", textAlign: "center" }}>코칭 받기</span>
+            <span onClick={() => setShowCoachToast(false)}
+              style={{ fontSize: 9, color: "#555", cursor: "pointer", textAlign: "center" }}>닫기</span>
           </div>
         </div>
       )}
@@ -988,26 +1005,30 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
           )}
 
           {/* AI 코칭 */}
-          {(coaching || coachLoading) && (
-            <div style={{ background: "rgba(212,175,55,0.06)", border: "1px solid rgba(212,175,55,0.15)", borderRadius: 12, padding: 12, marginBottom: 10 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                <div style={{ width: 6, height: 6, borderRadius: 3, background: "#d4af37" }}></div>
-                <span style={{ fontSize: 10, color: "#d4af37" }}>AI 코칭</span>
-                {coachDate && <span style={{ fontSize: 9, color: "#4a4a4a", marginLeft: "auto" }}>{coachDate} 기준</span>}
-              </div>
-              {coachLoading ? <div style={{ fontSize: 12, color: "#707070" }}>분석 중...</div> : <div style={{ fontSize: 12, color: "#c0b896", lineHeight: 1.5 }}>{coaching}</div>}
+          <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 12, padding: 12, marginBottom: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+              <div style={{ width: 6, height: 6, borderRadius: 3, background: "#d4af37" }}></div>
+              <span style={{ fontSize: 10, color: "#d4af37" }}>AI 코칭</span>
+              {coachDate && <span style={{ fontSize: 9, color: "#4a4a4a", marginLeft: 4 }}>{coachDate} 기준</span>}
+              {!coachLoading && (
+                <span onClick={() => { if (latest) fetchCoaching(latest, prev); }}
+                  style={{ fontSize: 10, color: "#555", cursor: "pointer", marginLeft: "auto" }}>
+                  다시 분석
+                </span>
+              )}
             </div>
-          )}
-
-          {/* 다시 분석 버튼 (항상 표시) */}
-          {!coachLoading && (
-            <div style={{ textAlign: "center", marginBottom: 10 }}>
-              <span onClick={() => { if (latest) fetchCoaching(latest, prev); }}
-                style={{ fontSize: 11, color: "#4a8fc9", cursor: "pointer", padding: "6px 16px", border: "1px solid rgba(74,143,201,0.2)", borderRadius: 8, display: "inline-block" }}>
-                {coaching ? "다시 분석" : "AI 체성분 분석"}
-              </span>
-            </div>
-          )}
+            {coachLoading
+              ? <div style={{ fontSize: 12, color: "#707070" }}>분석 중...</div>
+              : coaching
+                ? <div style={{ fontSize: 12, color: "#c0b896", lineHeight: 1.5 }}>{coaching}</div>
+                : <div style={{ textAlign: "center", padding: "8px 0" }}>
+                    <span onClick={() => { if (latest) fetchCoaching(latest, prev); }}
+                      style={{ fontSize: 11, color: "#4a8fc9", cursor: "pointer", padding: "6px 16px", border: "1px solid rgba(74,143,201,0.2)", borderRadius: 8, display: "inline-block" }}>
+                      AI 체성분 분석
+                    </span>
+                  </div>
+            }
+          </div>
 
           {/* 측정 사이 식단/운동 요약 */}
           {periodSummary && (
