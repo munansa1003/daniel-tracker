@@ -1449,16 +1449,42 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals }) {
 
       {/* ═══ 주간 성적표 ═══ */}
       {statsTab === "report" && (<>
-        {/* 헤더: 등급 + 주차 */}
-        <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div>
-            <div style={{ fontSize: 11, color: "#707070" }}>{weeklyReport.weekLabel}</div>
-            <div style={{ fontSize: 16, fontWeight: 600, color: "#f5f5f0", marginTop: 2 }}>주간 성적표</div>
-            {!weeklyReport.isComplete && <div style={{ fontSize: 10, color: "#d4af37", marginTop: 4 }}>진행 중 · {weeklyReport.dayIdx + 1}/7일</div>}
-            {weeklyReport.isComplete && weeklyReport.tw.n > 0 && <div style={{ fontSize: 10, color: "#5a9e6f", marginTop: 4 }}>완료 · {weeklyReport.tw.n}일 기록</div>}
+        {/* 헤더: 지난 주 확정 + 이번 주 등급 (일요일 공개) */}
+        <div style={{ background: "#1e1e1e", border: `1px solid ${weeklyReport.isComplete ? "rgba(212,175,55,0.3)" : "rgba(255,255,255,0.06)"}`, borderRadius: 16, padding: 16, marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 11, color: "#707070" }}>{weeklyReport.weekLabel}</div>
+              <div style={{ fontSize: 16, fontWeight: 600, color: "#f5f5f0", marginTop: 2 }}>주간 성적표</div>
+              {!weeklyReport.isComplete && <div style={{ fontSize: 10, color: "#4a8fc9", marginTop: 4 }}>진행 중 · {weeklyReport.dayIdx + 1}/7일</div>}
+              {weeklyReport.isComplete && weeklyReport.tw.n > 0 && <div style={{ fontSize: 10, color: "#5a9e6f", marginTop: 4 }}>완료 · {weeklyReport.tw.n}일 기록</div>}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {weeklyReport.lw.n > 0 && (
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 9, color: "#555", marginBottom: 2 }}>지난 주</div>
+                  <div style={{ width: 36, height: 36, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 600, fontFamily: "monospace", border: `2px solid ${weeklyReport.lg.color}55`, color: weeklyReport.lg.color, opacity: weeklyReport.isComplete ? 0.5 : 1 }}>{weeklyReport.lg.letter}</div>
+                </div>
+              )}
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 9, color: weeklyReport.isComplete ? "#d4af37" : "#555", marginBottom: 2 }}>{weeklyReport.isComplete ? "이번 주" : "이번 주"}</div>
+                {weeklyReport.isComplete ? (
+                  <div style={{ width: 48, height: 48, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 700, fontFamily: "monospace", border: `2px solid ${weeklyReport.tg.color}`, background: `${weeklyReport.tg.color}15`, color: weeklyReport.tg.color }}>{weeklyReport.tg.letter}</div>
+                ) : (
+                  <div style={{ width: 48, height: 48, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 600, border: "2px dashed #4a4a4a", color: "#4a4a4a" }}>?</div>
+                )}
+              </div>
+            </div>
           </div>
-          <div style={{ width: 56, height: 56, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, fontWeight: 700, fontFamily: "monospace", border: `2px solid ${weeklyReport.tg.color}33`, background: `${weeklyReport.tg.color}15`, color: weeklyReport.tg.color }}>{weeklyReport.tg.letter}</div>
+          {!weeklyReport.isComplete && <div style={{ textAlign: "center", marginTop: 10, fontSize: 10, color: "#555" }}>이번 주 등급은 일요일에 공개!</div>}
         </div>
+
+        {/* 코칭 (헤더 바로 아래) */}
+        {weeklyReport.coaching && (
+          <div style={{ background: "rgba(212,175,55,0.06)", border: "1px solid rgba(212,175,55,0.15)", borderRadius: 12, padding: 12, marginBottom: 12 }}>
+            <div style={{ fontSize: 10, color: "#d4af37", fontWeight: 600, marginBottom: 4 }}>{weeklyReport.showFinal ? "이번 주 코칭" : "중간 점검 코칭"}</div>
+            <div style={{ fontSize: 11.5, color: "#d4af37", lineHeight: 1.6 }}>{weeklyReport.coaching}</div>
+          </div>
+        )}
 
         {/* 도트매트릭스 비교 */}
         <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
@@ -1491,14 +1517,6 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals }) {
                 );
               })}
             </div>
-          </div>
-        )}
-
-        {/* 코칭 */}
-        {weeklyReport.coaching && (
-          <div style={{ background: "rgba(212,175,55,0.06)", border: "1px solid rgba(212,175,55,0.15)", borderRadius: 12, padding: 12, marginBottom: 12 }}>
-            <div style={{ fontSize: 10, color: "#d4af37", fontWeight: 600, marginBottom: 4 }}>{weeklyReport.showFinal ? "이번 주 코칭" : "중간 점검 코칭"}</div>
-            <div style={{ fontSize: 11.5, color: "#d4af37", lineHeight: 1.6 }}>{weeklyReport.coaching}</div>
           </div>
         )}
 
