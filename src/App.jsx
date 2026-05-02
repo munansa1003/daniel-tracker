@@ -1139,6 +1139,7 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
   const [summaryPeriod, setSummaryPeriod] = useState("1m");
   const totalDays = Object.keys(allDays).length;
   const targets = appTargets || calcTargets(goals.weight || 75);
+  const [weekOffset, setWeekOffset] = useState(0); // 0=이번주, -1=지난주, -2=2주전...
   const latest = bodyLog[bodyLog.length - 1];
   const first = bodyLog[0];
 
@@ -1172,13 +1173,13 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
     return { from, to, dW, dF, dM, spark, dateLabel: from.date.slice(5) + " → " + to.date.slice(5), cnt: periodEntries.length, status, sColor, gW, gF, gM };
   }, [bodyLog, summaryPeriod]);
 
-  // 주간 날짜 배열 (월~일) 구하기
-  const getWeekDates = useCallback((dateStr) => {
+  // 주간 날짜 배열 (월~일) 구하기, offset만큼 과거로 이동
+  const getWeekDates = useCallback((dateStr, offset = 0) => {
     const d = new Date(dateStr + "T12:00:00");
     const day = d.getDay();
     const diff = day === 0 ? -6 : 1 - day;
     return Array.from({ length: 7 }, (_, i) => {
-      const dd = new Date(d); dd.setDate(d.getDate() + diff + i);
+      const dd = new Date(d); dd.setDate(d.getDate() + diff + i + offset * 7);
       return dd.getFullYear() + "-" + String(dd.getMonth() + 1).padStart(2, "0") + "-" + String(dd.getDate()).padStart(2, "0");
     });
   }, []);
@@ -1186,10 +1187,8 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
   // ═══ 주간 리포트 데이터 ═══
   const weeklyReport = useMemo(() => {
     const todayStr = today();
-    const thisWeekDates = getWeekDates(todayStr);
-    const prevMon = new Date(thisWeekDates[0] + "T12:00:00");
-    prevMon.setDate(prevMon.getDate() - 7);
-    const lastWeekDates = getWeekDates(prevMon.getFullYear() + "-" + String(prevMon.getMonth() + 1).padStart(2, "0") + "-" + String(prevMon.getDate()).padStart(2, "0"));
+    const thisWeekDates = getWeekDates(todayStr, weekOffset);
+    const lastWeekDates = getWeekDates(todayStr, weekOffset - 1);
     const dayLabels = ["월", "화", "수", "목", "금", "토", "일"];
 
     const analyzeWeek = (dates) => {
@@ -1212,7 +1211,8 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
     const lw = analyzeWeek(lastWeekDates);
     const todayDow = new Date(todayStr + "T12:00:00").getDay();
     const dayIdx = todayDow === 0 ? 6 : todayDow - 1;
-    const isComplete = dayIdx === 6;
+    // weekOffset < 0 → 과거 주 (완료), 0 → 이번 주 (dayIdx 체크)
+    const isComplete = weekOffset < 0 ? true : dayIdx === 6;
 
     const grade = (w) => {
       if (w.n === 0) return { letter: "—", color: "#4a4a4a" };
@@ -1250,6 +1250,44 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
     }
 
     return { tw, lw, tg: grade(tw), lg: grade(lw), isComplete, dayIdx, showMid, showFinal, coaching, weekLabel: thisWeekDates[0].slice(5) + " ~ " + thisWeekDates[6].slice(5) };
+  }, [allDays, targets, getWeekDates, weekOffset]);
+
+  // ═══ 최근 8주 등급 트렌드 (점 인디케이터용) ═══
+  const weekHistory = useMemo(() => {
+    const todayStr = today();
+    const todayDow = new Date(todayStr + "T12:00:00").getDay();
+    const dayIdx = todayDow === 0 ? 6 : todayDow - 1;
+    const grade = (w) => {
+      if (w.n === 0) return { letter: "—", color: "#252525" };
+      const s = (w.pDays / w.n) * 40 + (w.dDays / w.n) * 30 + Math.min(w.eDays / 4, 1) * 30;
+      if (s >= 90) return { letter: "A+", color: "#5a9e6f" };
+      if (s >= 80) return { letter: "A", color: "#5a9e6f" };
+      if (s >= 70) return { letter: "B+", color: "#5a9e6f" };
+      if (s >= 60) return { letter: "B", color: "#4a8fc9" };
+      if (s >= 50) return { letter: "C+", color: "#d4af37" };
+      if (s >= 40) return { letter: "C", color: "#d4af37" };
+      if (s >= 30) return { letter: "D", color: "#e05252" };
+      return { letter: "F", color: "#e05252" };
+    };
+
+    return Array.from({ length: 8 }, (_, i) => {
+      const offset = i - 7; // -7 ~ 0
+      const dates = getWeekDates(todayStr, offset);
+      let pDays = 0, dDays = 0, eDays = 0, n = 0;
+      dates.forEach(ds => {
+        const dd = allDays[ds];
+        if (!dd || ((!dd.meals || !dd.meals.length) && (!dd.exercises || !dd.exercises.length))) return;
+        const a = aggregateDay(dd);
+        n++;
+        if (a.p >= targets.p) pDays++;
+        if ((a.k - a.ex) <= targets.k) dDays++;
+        if ((dd.exercises || []).length > 0) eDays++;
+      });
+      const isCurrent = offset === 0;
+      const isInProgress = isCurrent && dayIdx < 6;
+      const g = grade({ n, pDays, dDays, eDays });
+      return { offset, grade: g, hasData: n > 0, isInProgress, dateRange: dates[0].slice(5) + "~" + dates[6].slice(5) };
+    });
   }, [allDays, targets, getWeekDates]);
 
   // ═══ 인사이트 데이터 ═══
@@ -1366,21 +1404,23 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
   // 도트매트릭스 렌더
   const DotMatrix = ({ label, thisDaily, lastDaily, field, color, thisDays, lastDays, thisN, lastN }) => {
     const delta = thisDays - lastDays;
+    const thisLabel = weekOffset === 0 ? "이번 주" : weekOffset === -1 ? "지난 주" : `${Math.abs(weekOffset)}주 전`;
+    const lastLabel = weekOffset === 0 ? "지난 주" : weekOffset === -1 ? "지지난 주" : `${Math.abs(weekOffset) + 1}주 전`;
     return (
       <div style={{ marginBottom: 14 }}>
         <div style={{ fontSize: 11.5, color: "#f5f5f0", marginBottom: 6 }}>{label}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-          <div style={{ minWidth: 42, fontSize: 10, color: "#707070" }}>이번 주</div>
+          <div style={{ minWidth: 52, fontSize: 10, color: "#707070" }}>{thisLabel}</div>
           <div style={{ display: "flex", gap: 3 }}>{thisDaily.map((d, i) => <div key={i} style={{ width: 12, height: 12, borderRadius: 3, background: d.has ? (d[field] ? color : `${color}22`) : "#2a2a2a" }} />)}</div>
           <span style={{ fontSize: 12, fontFamily: "monospace", fontWeight: 500, color, minWidth: 28, textAlign: "right" }}>{thisDays}/{thisN}</span>
           {lastN > 0 && delta !== 0 && <span style={{ fontSize: 10, fontFamily: "monospace", fontWeight: 500, padding: "1px 6px", borderRadius: 99, background: delta > 0 ? "rgba(90,158,111,0.12)" : "rgba(224,82,82,0.12)", color: delta > 0 ? "#5a9e6f" : "#e05252" }}>{delta > 0 ? "▲" : "▼"}{Math.abs(delta)}</span>}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
-          <div style={{ minWidth: 42, fontSize: 10, color: "#4a4a4a" }}>지난 주</div>
+          <div style={{ minWidth: 52, fontSize: 10, color: "#4a4a4a" }}>{lastLabel}</div>
           <div style={{ display: "flex", gap: 3 }}>{lastDaily.map((d, i) => <div key={i} style={{ width: 12, height: 12, borderRadius: 3, background: d.has ? (d[field] ? `${color}55` : `${color}15`) : "rgba(42,42,42,0.3)" }} />)}</div>
           <span style={{ fontSize: 12, fontFamily: "monospace", color: "#4a4a4a", minWidth: 28, textAlign: "right" }}>{lastDays}/{lastN}</span>
         </div>
-        <div style={{ display: "flex", gap: 3, marginLeft: 50, marginTop: 2 }}>
+        <div style={{ display: "flex", gap: 3, marginLeft: 60, marginTop: 2 }}>
           {["월", "화", "수", "목", "금", "토", "일"].map(l => <span key={l} style={{ width: 12, fontSize: 8, color: "#4a4a4a", textAlign: "center" }}>{l}</span>)}
         </div>
       </div>
@@ -1450,24 +1490,60 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
 
       {/* ═══ 주간 성적표 ═══ */}
       {statsTab === "report" && (<>
+        {/* 점 인디케이터 (최근 8주 등급 트렌드) */}
+        <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 10, padding: "10px 12px", marginBottom: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <span style={{ fontSize: 10, color: "#707070" }}>주차 선택</span>
+            <span style={{ fontSize: 10, color: "#d4af37" }}>
+              {weekOffset === 0 ? "이번 주" : weekOffset === -1 ? "지난 주" : `${Math.abs(weekOffset)}주 전`} · {weeklyReport.weekLabel}
+            </span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 4 }}>
+            {weekHistory.map((w, i) => {
+              const isSelected = w.offset === weekOffset;
+              const dotColor = !w.hasData ? "#252525" : w.isInProgress ? "#4a4a4a" : w.grade.color;
+              return (
+                <div key={i} onClick={() => setWeekOffset(w.offset)}
+                  style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", cursor: "pointer", padding: "4px 0" }}
+                  title={`${w.dateRange} · ${w.isInProgress ? "진행 중" : w.grade.letter}`}>
+                  <div style={{
+                    width: isSelected ? 14 : 10,
+                    height: isSelected ? 14 : 10,
+                    borderRadius: "50%",
+                    background: isSelected ? "#d4af37" : `${dotColor}99`,
+                    border: isSelected ? "2px solid #fff" : w.isInProgress ? "1.5px dashed #4a4a4a" : "none",
+                    boxShadow: isSelected ? "0 0 8px rgba(212,175,55,0.4)" : "none",
+                    transition: "all 0.2s"
+                  }} />
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+            <span style={{ fontSize: 8, color: "#555" }}>7주 전</span>
+            <span style={{ fontSize: 8, color: "#555" }}>이번 주</span>
+          </div>
+        </div>
+
         {/* 헤더: 지난 주 확정 + 이번 주 등급 (일요일 공개) */}
         <div style={{ background: "#1e1e1e", border: `1px solid ${weeklyReport.isComplete ? "rgba(212,175,55,0.3)" : "rgba(255,255,255,0.06)"}`, borderRadius: 16, padding: 16, marginBottom: 12 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 11, color: "#707070" }}>{weeklyReport.weekLabel}</div>
               <div style={{ fontSize: 16, fontWeight: 600, color: "#f5f5f0", marginTop: 2 }}>주간 성적표</div>
-              {!weeklyReport.isComplete && <div style={{ fontSize: 10, color: "#4a8fc9", marginTop: 4 }}>진행 중 · {weeklyReport.dayIdx + 1}/7일</div>}
+              {weekOffset === 0 && !weeklyReport.isComplete && <div style={{ fontSize: 10, color: "#4a8fc9", marginTop: 4 }}>진행 중 · {weeklyReport.dayIdx + 1}/7일</div>}
               {weeklyReport.isComplete && weeklyReport.tw.n > 0 && <div style={{ fontSize: 10, color: "#5a9e6f", marginTop: 4 }}>완료 · {weeklyReport.tw.n}일 기록</div>}
+              {weeklyReport.isComplete && weeklyReport.tw.n === 0 && <div style={{ fontSize: 10, color: "#555", marginTop: 4 }}>기록 없음</div>}
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               {weeklyReport.lw.n > 0 && (
                 <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: 9, color: "#555", marginBottom: 2 }}>지난 주</div>
+                  <div style={{ fontSize: 9, color: "#555", marginBottom: 2 }}>{weekOffset === 0 ? "지난 주" : weekOffset === -1 ? "지지난 주" : `${Math.abs(weekOffset) + 1}주 전`}</div>
                   <div style={{ width: 36, height: 36, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 600, fontFamily: "monospace", border: `2px solid ${weeklyReport.lg.color}55`, color: weeklyReport.lg.color, opacity: weeklyReport.isComplete ? 0.5 : 1 }}>{weeklyReport.lg.letter}</div>
                 </div>
               )}
               <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 9, color: weeklyReport.isComplete ? "#d4af37" : "#555", marginBottom: 2 }}>{weeklyReport.isComplete ? "이번 주" : "이번 주"}</div>
+                <div style={{ fontSize: 9, color: weeklyReport.isComplete ? "#d4af37" : "#555", marginBottom: 2 }}>{weekOffset === 0 ? "이번 주" : weekOffset === -1 ? "지난 주" : `${Math.abs(weekOffset)}주 전`}</div>
                 {weeklyReport.isComplete ? (
                   <div style={{ width: 48, height: 48, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 700, fontFamily: "monospace", border: `2px solid ${weeklyReport.tg.color}`, background: `${weeklyReport.tg.color}15`, color: weeklyReport.tg.color }}>{weeklyReport.tg.letter}</div>
                 ) : (
@@ -1476,13 +1552,13 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
               </div>
             </div>
           </div>
-          {!weeklyReport.isComplete && <div style={{ textAlign: "center", marginTop: 10, fontSize: 10, color: "#555" }}>이번 주 등급은 일요일에 공개!</div>}
+          {weekOffset === 0 && !weeklyReport.isComplete && <div style={{ textAlign: "center", marginTop: 10, fontSize: 10, color: "#555" }}>이번 주 등급은 월요일 0시에 공개!</div>}
         </div>
 
         {/* 코칭 (헤더 바로 아래) */}
         {weeklyReport.coaching && (
           <div style={{ background: "rgba(212,175,55,0.06)", border: "1px solid rgba(212,175,55,0.15)", borderRadius: 12, padding: 12, marginBottom: 12 }}>
-            <div style={{ fontSize: 10, color: "#d4af37", fontWeight: 600, marginBottom: 4 }}>{weeklyReport.showFinal ? "이번 주 코칭" : "중간 점검 코칭"}</div>
+            <div style={{ fontSize: 10, color: "#d4af37", fontWeight: 600, marginBottom: 4 }}>{weekOffset === 0 ? (weeklyReport.showFinal ? "이번 주 코칭" : "중간 점검 코칭") : `${weekOffset === -1 ? "지난 주" : Math.abs(weekOffset) + "주 전"} 코칭`}</div>
             <div style={{ fontSize: 11.5, color: "#d4af37", lineHeight: 1.6 }}>{weeklyReport.coaching}</div>
           </div>
         )}
