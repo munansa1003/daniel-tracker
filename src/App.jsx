@@ -1134,11 +1134,11 @@ function getMonthKey(ds) { return ds.slice(0, 7); }
 function getYearKey(ds) { return ds.slice(0, 4); }
 
 /* ───── 통계 탭 (A: 주간 성적표 + C: 나의 인사이트) ───── */
-function StatsTab({ bodyLog, allDays, goals, onSaveGoals }) {
+function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
   const [statsTab, setStatsTab] = useState("report");
   const [summaryPeriod, setSummaryPeriod] = useState("1m");
   const totalDays = Object.keys(allDays).length;
-  const targets = useMemo(() => calcTargets(goals.weight || 75), [goals.weight]);
+  const targets = appTargets || calcTargets(goals.weight || 75);
   const latest = bodyLog[bodyLog.length - 1];
   const first = bodyLog[0];
 
@@ -1200,7 +1200,7 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals }) {
           return { date: ds, label: dayLabels[i], has: false, pHit: false, dHit: false, eHit: false };
         const a = aggregateDay(dd);
         n++; totP += a.p; totK += a.k; totEx += a.ex;
-        const ph = a.p >= targets.p, dh = a.k <= targets.k, eh = (dd.exercises || []).length > 0;
+        const ph = a.p >= targets.p, dh = (a.k - a.ex) <= targets.k, eh = (dd.exercises || []).length > 0;
         if (ph) pDays++; if (dh) dDays++; if (eh) eDays++;
         const lateEat = (dd.meals || []).some(m => (m.hour || 0) >= 22);
         return { date: ds, label: dayLabels[i], has: true, pHit: ph, dHit: dh, eHit: eh, p: Math.round(a.p), k: Math.round(a.k), ex: Math.round(a.ex), lateEat };
@@ -1492,7 +1492,7 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals }) {
           <div style={{ fontSize: 13, color: "#707070", marginBottom: 12 }}>핵심 지표 달성률</div>
           <DotMatrix label={`단백질 목표 (${targets.p}g+)`} thisDaily={weeklyReport.tw.daily} lastDaily={weeklyReport.lw.daily} field="pHit" color="#5a9e6f" thisDays={weeklyReport.tw.pDays} lastDays={weeklyReport.lw.pDays} thisN={weeklyReport.tw.n} lastN={weeklyReport.lw.n} />
           <div style={{ height: 1, background: "rgba(255,255,255,0.04)", margin: "4px 0 14px" }} />
-          <DotMatrix label={`칼로리 적자 (${targets.k}kcal 이하)`} thisDaily={weeklyReport.tw.daily} lastDaily={weeklyReport.lw.daily} field="dHit" color="#d4af37" thisDays={weeklyReport.tw.dDays} lastDays={weeklyReport.lw.dDays} thisN={weeklyReport.tw.n} lastN={weeklyReport.lw.n} />
+          <DotMatrix label={`Net 칼로리 적자 (${targets.k}kcal 이하)`} thisDaily={weeklyReport.tw.daily} lastDaily={weeklyReport.lw.daily} field="dHit" color="#d4af37" thisDays={weeklyReport.tw.dDays} lastDays={weeklyReport.lw.dDays} thisN={weeklyReport.tw.n} lastN={weeklyReport.lw.n} />
           <div style={{ height: 1, background: "rgba(255,255,255,0.04)", margin: "4px 0 14px" }} />
           <DotMatrix label="운동 실행 (주 4회+ 목표)" thisDaily={weeklyReport.tw.daily} lastDaily={weeklyReport.lw.daily} field="eHit" color="#4a8fc9" thisDays={weeklyReport.tw.eDays} lastDays={weeklyReport.lw.eDays} thisN={weeklyReport.tw.n} lastN={weeklyReport.lw.n} />
         </div>
@@ -2907,7 +2907,7 @@ function MainApp({ user, onLogout }) {
         </>)}
 
         {tab === "body" && <BodyTab bodyLog={bodyLog} addBody={addBody} date={date} onEditBody={editBody} onDeleteBody={deleteBody} user={user} goals={goals} onSaveGoals={saveGoals} allDays={allDays} />}
-        {tab === "stats" && <StatsTab bodyLog={bodyLog} allDays={allDays} goals={goals} onSaveGoals={saveGoals} />}
+        {tab === "stats" && <StatsTab bodyLog={bodyLog} allDays={allDays} goals={goals} onSaveGoals={saveGoals} appTargets={TARGETS} />}
       </div>
 
       {/* Bottom Nav */}
