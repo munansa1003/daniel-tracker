@@ -1211,8 +1211,9 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
     const lw = analyzeWeek(lastWeekDates);
     const todayDow = new Date(todayStr + "T12:00:00").getDay();
     const dayIdx = todayDow === 0 ? 6 : todayDow - 1;
-    // weekOffset < 0 → 과거 주 (완료), 0 → 이번 주 (dayIdx 체크)
-    const isComplete = weekOffset < 0 ? true : dayIdx === 6;
+    // 이번 주(weekOffset=0)는 항상 진행 중. 월요일 0시가 되면 새 "이번 주"가 시작되고
+    // 방금 끝난 주는 자동으로 weekOffset=-1로 밀려나면서 등급 공개됨.
+    const isComplete = weekOffset < 0;
 
     const grade = (w) => {
       if (w.n === 0) return { letter: "—", color: "#4a4a4a" };
@@ -1228,8 +1229,10 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
     };
 
     // 코칭 생성
+    // 중간 점검: 이번 주(weekOffset=0) + 수~토(dayIdx 2~5) + 3일 이상 기록
+    // 최종 코칭: 과거 주(weekOffset<0) + 5일 이상 기록
     let coaching = "";
-    const showMid = !isComplete && dayIdx >= 2 && tw.n >= 3;
+    const showMid = weekOffset === 0 && dayIdx >= 2 && dayIdx <= 5 && tw.n >= 3;
     const showFinal = isComplete && tw.n >= 5;
     if (showMid || showFinal) {
       const pts = [];
@@ -1284,11 +1287,158 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
         if ((dd.exercises || []).length > 0) eDays++;
       });
       const isCurrent = offset === 0;
-      const isInProgress = isCurrent && dayIdx < 6;
+      const isInProgress = isCurrent; // 이번 주는 항상 진행 중 (월요일에 자동으로 지난 주로 밀려남)
       const g = grade({ n, pDays, dDays, eDays });
       return { offset, grade: g, hasData: n > 0, isInProgress, dateRange: dates[0].slice(5) + "~" + dates[6].slice(5) };
     });
   }, [allDays, targets, getWeekDates]);
+
+  // ═══ 패턴 분석 (Phase 3++) ═══
+  const [analysisPeriodIdx, setAnalysisPeriodIdx] = useState(1); // 0:2주, 1:1개월, 2:3개월, 3:6개월
+  const [analysisCategory, setAnalysisCategory] = useState("compare"); // compare / food / exercise / formula
+  const periodOptions = [
+    { idx: 0, label: "2주", days: 14, hint: "빠른 변화 감지" },
+    { idx: 1, label: "1개월", days: 30, hint: "노이즈 적정 · 추천" },
+    { idx: 2, label: "3개월", days: 90, hint: "트렌드 명확" },
+    { idx: 3, label: "6개월", days: 180, hint: "장기 패턴" },
+  ];
+
+  const patternAnalysis = useMemo(() => {
+    if (bodyLog.length < 4) return null;
+    const period = periodOptions[analysisPeriodIdx];
+    const sorted = [...bodyLog].sort((a, b) => a.date.localeCompare(b.date));
+    const todayStr = today();
+
+    // 분석 기간으로 데이터 자르기
+    const startDate = (() => {
+      const d = new Date(todayStr + "T12:00:00");
+      d.setDate(d.getDate() - period.days);
+      return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    })();
+    const periodBody = sorted.filter(b => b.date >= startDate);
+    if (periodBody.length < 3) return null;
+
+    // 주 단위로 그룹화 (월~일 기준)
+    const weekGroups = {};
+    periodBody.forEach(b => {
+      const d = new Date(b.date + "T12:00:00");
+      const day = d.getDay();
+      const diff = day === 0 ? -6 : 1 - day;
+      const monday = new Date(d); monday.setDate(d.getDate() + diff);
+      const wkKey = monday.getFullYear() + "-" + String(monday.getMonth() + 1).padStart(2, "0") + "-" + String(monday.getDate()).padStart(2, "0");
+      if (!weekGroups[wkKey]) weekGroups[wkKey] = { startDate: wkKey, body: [], dates: [] };
+      weekGroups[wkKey].body.push(b);
+      weekGroups[wkKey].dates.push(b.date);
+    });
+
+    // 주별 변화량 + 식단/운동 집계
+    const weeks = Object.values(weekGroups).map(w => {
+      const sortedB = [...w.body].sort((a, b) => a.date.localeCompare(b.date));
+      const startW = sortedB[0], endW = sortedB[sortedB.length - 1];
+      const fatDelta = endW.fatPct - startW.fatPct;
+      const muscleDelta = endW.muscle - startW.muscle;
+
+      // 그 주의 식단/운동 데이터 수집
+      const weekStartD = new Date(w.startDate + "T12:00:00");
+      const foods = {}, exercises = {};
+      let totP = 0, dayCount = 0, lateCount = 0;
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(weekStartD); d.setDate(d.getDate() + i);
+        const ds = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+        const dd = allDays[ds];
+        if (!dd) continue;
+        if ((dd.meals || []).length > 0) {
+          dayCount++;
+          (dd.meals || []).forEach(m => {
+            foods[m.n] = (foods[m.n] || 0) + 1;
+            totP += (m.p || 0) * (m.serving || 1);
+            if ((m.hour || 0) >= 22) lateCount++;
+          });
+        }
+        (dd.exercises || []).forEach(e => {
+          exercises[e.n] = (exercises[e.n] || 0) + 1;
+        });
+      }
+      return {
+        weekStart: w.startDate, fatDelta, muscleDelta,
+        foods, exercises,
+        avgP: dayCount > 0 ? Math.round(totP / dayCount) : 0,
+        exerciseCount: Object.values(exercises).reduce((s, v) => s + v, 0),
+        lateCount,
+        dayCount
+      };
+    }).filter(w => w.dayCount >= 3);
+
+    if (weeks.length < 2) return null;
+
+    // 잘 빠진 주 vs 정체된 주 분리
+    const sortedByFat = [...weeks].sort((a, b) => a.fatDelta - b.fatDelta);
+    const goodWeeks = sortedByFat.slice(0, Math.max(1, Math.floor(weeks.length / 3)));
+    const badWeeks = sortedByFat.slice(-Math.max(1, Math.floor(weeks.length / 3)));
+
+    // 음식 효과 랭킹 (잘 빠진 주에 더 많이 등장한 음식)
+    const foodEffect = {};
+    goodWeeks.forEach(w => Object.entries(w.foods).forEach(([n, c]) => {
+      foodEffect[n] = foodEffect[n] || { good: 0, bad: 0 };
+      foodEffect[n].good += c;
+    }));
+    badWeeks.forEach(w => Object.entries(w.foods).forEach(([n, c]) => {
+      foodEffect[n] = foodEffect[n] || { good: 0, bad: 0 };
+      foodEffect[n].bad += c;
+    }));
+    const goodFoods = Object.entries(foodEffect)
+      .filter(([, v]) => v.good >= 3 && v.good > v.bad)
+      .map(([n, v]) => ({ name: n, score: v.good - v.bad, count: v.good }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+    const badFoods = Object.entries(foodEffect)
+      .filter(([, v]) => v.bad >= 3 && v.bad > v.good)
+      .map(([n, v]) => ({ name: n, score: v.bad - v.good, count: v.bad }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3);
+
+    // 운동 효과 (골격근 증가와 상관관계)
+    const sortedByMuscle = [...weeks].sort((a, b) => b.muscleDelta - a.muscleDelta);
+    const muscleGoodWeeks = sortedByMuscle.slice(0, Math.max(1, Math.floor(weeks.length / 3)));
+    const exerciseEffect = {};
+    muscleGoodWeeks.forEach(w => Object.entries(w.exercises).forEach(([n, c]) => {
+      exerciseEffect[n] = (exerciseEffect[n] || 0) + c;
+    }));
+    const goodExercises = Object.entries(exerciseEffect)
+      .map(([n, c]) => ({ name: n, count: c, weeklyAvg: Math.round(c / muscleGoodWeeks.length * 10) / 10 }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    // 황금 공식 도출
+    const avgP_good = goodWeeks.reduce((s, w) => s + w.avgP, 0) / goodWeeks.length;
+    const avgEx_good = goodWeeks.reduce((s, w) => s + w.exerciseCount, 0) / goodWeeks.length;
+    const avgLate_good = goodWeeks.reduce((s, w) => s + w.lateCount, 0) / goodWeeks.length;
+    const avgP_bad = badWeeks.reduce((s, w) => s + w.avgP, 0) / badWeeks.length;
+    const avgEx_bad = badWeeks.reduce((s, w) => s + w.exerciseCount, 0) / badWeeks.length;
+    const avgLate_bad = badWeeks.reduce((s, w) => s + w.lateCount, 0) / badWeeks.length;
+
+    return {
+      period,
+      bestWeek: goodWeeks[0],
+      worstWeek: badWeeks[badWeeks.length - 1],
+      goodFoods, badFoods, goodExercises,
+      formula: {
+        protein: Math.round(avgP_good),
+        exercise: Math.round(avgEx_good * 10) / 10,
+        lateAvoid: Math.round(avgLate_good * 10) / 10,
+        topFood: goodFoods[0]?.name || "",
+        topExercise: goodExercises[0]?.name || "",
+      },
+      diff: {
+        proteinDelta: Math.round(avgP_good - avgP_bad),
+        exerciseDelta: Math.round((avgEx_good - avgEx_bad) * 10) / 10,
+        lateDelta: Math.round((avgLate_good - avgLate_bad) * 10) / 10,
+      },
+      weekCount: weeks.length,
+      goodCount: goodWeeks.length,
+      badCount: badWeeks.length,
+    };
+  }, [bodyLog, allDays, analysisPeriodIdx]);
 
   // ═══ 인사이트 데이터 ═══
   const insights = useMemo(() => {
@@ -1531,7 +1681,7 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 11, color: "#707070" }}>{weeklyReport.weekLabel}</div>
               <div style={{ fontSize: 16, fontWeight: 600, color: "#f5f5f0", marginTop: 2 }}>주간 성적표</div>
-              {weekOffset === 0 && !weeklyReport.isComplete && <div style={{ fontSize: 10, color: "#4a8fc9", marginTop: 4 }}>진행 중 · {weeklyReport.dayIdx + 1}/7일</div>}
+              {weekOffset === 0 && <div style={{ fontSize: 10, color: "#4a8fc9", marginTop: 4 }}>진행 중 · {weeklyReport.dayIdx + 1}/7일</div>}
               {weeklyReport.isComplete && weeklyReport.tw.n > 0 && <div style={{ fontSize: 10, color: "#5a9e6f", marginTop: 4 }}>완료 · {weeklyReport.tw.n}일 기록</div>}
               {weeklyReport.isComplete && weeklyReport.tw.n === 0 && <div style={{ fontSize: 10, color: "#555", marginTop: 4 }}>기록 없음</div>}
             </div>
@@ -1552,7 +1702,7 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
               </div>
             </div>
           </div>
-          {weekOffset === 0 && !weeklyReport.isComplete && <div style={{ textAlign: "center", marginTop: 10, fontSize: 10, color: "#555" }}>이번 주 등급은 월요일 0시에 공개!</div>}
+          {weekOffset === 0 && <div style={{ textAlign: "center", marginTop: 10, fontSize: 10, color: "#555" }}>이번 주 등급은 월요일 0시에 공개!</div>}
         </div>
 
         {/* 코칭 (헤더 바로 아래) */}
@@ -1604,6 +1754,196 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
 
       {/* ═══ 나의 인사이트 ═══ */}
       {statsTab === "insight" && (<>
+        {/* 패턴 분석 (슬라이더 + 스토리) */}
+        {patternAnalysis && (
+          <div style={{ background: "#1e1e1e", border: "1px solid rgba(212,175,55,0.25)", borderRadius: 16, padding: 14, marginBottom: 12 }}>
+            {/* 헤더 */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#f5f5f0" }}>📊 패턴 분석</div>
+              <div style={{ fontSize: 9, color: "#707070" }}>{patternAnalysis.weekCount}주 데이터 분석</div>
+            </div>
+
+            {/* 슬라이더 (분석 기간) */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
+              <span style={{ fontSize: 9, color: "#707070" }}>분석 기간</span>
+              <span style={{ fontSize: 14, color: "#d4af37", fontWeight: 600 }}>{patternAnalysis.period.label}</span>
+            </div>
+            <div style={{ position: "relative", height: 28, display: "flex", alignItems: "center", marginBottom: 4 }}>
+              <div style={{ position: "absolute", left: 12, right: 12, height: 3, background: "#252525", borderRadius: 2 }} />
+              <div style={{ position: "absolute", left: 12, width: `calc((100% - 24px) * ${analysisPeriodIdx / 3})`, height: 3, background: "linear-gradient(90deg, #5a9e6f, #d4af37)", borderRadius: 2 }} />
+              {[0, 1, 2, 3].map(i => (
+                <div key={i} onClick={() => setAnalysisPeriodIdx(i)}
+                  style={{
+                    position: "absolute",
+                    left: `calc(12px + (100% - 24px) * ${i / 3} - 12px)`,
+                    width: 24, height: 24,
+                    borderRadius: "50%",
+                    background: i === analysisPeriodIdx ? "#1e1e1e" : "transparent",
+                    border: i === analysisPeriodIdx ? "2px solid #d4af37" : i < analysisPeriodIdx ? "2px solid #5a9e6f" : "2px solid #4a4a4a",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    cursor: "pointer",
+                    boxShadow: i === analysisPeriodIdx ? "0 0 12px rgba(212,175,55,0.3)" : "none",
+                    transition: "all 0.2s"
+                  }}>
+                  {i === analysisPeriodIdx && <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#d4af37" }} />}
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "#555", padding: "0 4px" }}>
+              {periodOptions.map(p => <span key={p.idx} style={{ color: p.idx === analysisPeriodIdx ? "#d4af37" : "#555" }}>{p.label}</span>)}
+            </div>
+            <div style={{ fontSize: 9, color: "#707070", textAlign: "center", marginTop: 4, fontStyle: "italic" }}>{patternAnalysis.period.hint}</div>
+
+            {/* 분석 항목 토글 */}
+            <div style={{ display: "flex", gap: 3, marginTop: 12, marginBottom: 16 }}>
+              {[
+                { k: "compare", l: "📅 비교" },
+                { k: "food", l: "🍱 음식" },
+                { k: "exercise", l: "💪 운동" },
+                { k: "formula", l: "🎯 공식" },
+              ].map(t => (
+                <button key={t.k} onClick={() => setAnalysisCategory(t.k)}
+                  style={{
+                    flex: 1, padding: 6, fontSize: 10,
+                    background: analysisCategory === t.k ? "rgba(212,175,55,0.15)" : "#252525",
+                    border: analysisCategory === t.k ? "1px solid #d4af37" : "1px solid transparent",
+                    borderRadius: 4,
+                    color: analysisCategory === t.k ? "#d4af37" : "#999",
+                    fontWeight: analysisCategory === t.k ? 500 : 400,
+                    cursor: "pointer"
+                  }}>{t.l}</button>
+              ))}
+            </div>
+
+            {/* 스토리 타임라인 */}
+            {analysisCategory === "compare" && (
+              <>
+                <div style={{ position: "relative", paddingLeft: 22, marginBottom: 12, borderLeft: "2px solid #d4af37" }}>
+                  <div style={{ position: "absolute", left: -7, top: 0, width: 12, height: 12, borderRadius: "50%", background: "#d4af37" }} />
+                  <div style={{ fontSize: 9, color: "#d4af37", marginBottom: 2 }}>단계 1</div>
+                  <div style={{ fontSize: 12, color: "#f5f5f0", fontWeight: 500, marginBottom: 6 }}>잘 빠진 주는?</div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <div style={{ flex: 1, background: "rgba(90,158,111,0.08)", border: "1px solid rgba(90,158,111,0.2)", borderRadius: 6, padding: 8, textAlign: "center" }}>
+                      <div style={{ fontSize: 8, color: "#5a9e6f" }}>최고</div>
+                      <div style={{ fontSize: 10, color: "#f5f5f0", marginTop: 2 }}>{patternAnalysis.bestWeek.weekStart.slice(5)} 주</div>
+                      <div style={{ fontSize: 11, color: "#5a9e6f", marginTop: 2, fontWeight: 500 }}>{patternAnalysis.bestWeek.fatDelta > 0 ? "+" : ""}{patternAnalysis.bestWeek.fatDelta.toFixed(1)}%</div>
+                    </div>
+                    <div style={{ flex: 1, background: "rgba(224,82,82,0.08)", border: "1px solid rgba(224,82,82,0.2)", borderRadius: 6, padding: 8, textAlign: "center" }}>
+                      <div style={{ fontSize: 8, color: "#e05252" }}>정체</div>
+                      <div style={{ fontSize: 10, color: "#f5f5f0", marginTop: 2 }}>{patternAnalysis.worstWeek.weekStart.slice(5)} 주</div>
+                      <div style={{ fontSize: 11, color: "#e05252", marginTop: 2, fontWeight: 500 }}>{patternAnalysis.worstWeek.fatDelta > 0 ? "+" : ""}{patternAnalysis.worstWeek.fatDelta.toFixed(1)}%</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ position: "relative", paddingLeft: 22, marginBottom: 12, borderLeft: "2px solid #5a9e6f" }}>
+                  <div style={{ position: "absolute", left: -7, top: 0, width: 12, height: 12, borderRadius: "50%", background: "#5a9e6f" }} />
+                  <div style={{ fontSize: 9, color: "#5a9e6f", marginBottom: 2 }}>단계 2</div>
+                  <div style={{ fontSize: 12, color: "#f5f5f0", fontWeight: 500, marginBottom: 4 }}>식단 차이는?</div>
+                  <div style={{ background: "#252525", borderRadius: 6, padding: 8, fontSize: 10, color: "#c0b896", lineHeight: 1.7 }}>
+                    {patternAnalysis.diff.proteinDelta > 0 ? `단백질 +${patternAnalysis.diff.proteinDelta}g/일 더 섭취` : `단백질 ${patternAnalysis.diff.proteinDelta}g/일 차이`}
+                    {patternAnalysis.diff.lateDelta < 0 && <><br />야식 {Math.abs(patternAnalysis.diff.lateDelta)}회/주 줄임</>}
+                  </div>
+                </div>
+
+                <div style={{ position: "relative", paddingLeft: 22, marginBottom: 12, borderLeft: "2px solid #4a8fc9" }}>
+                  <div style={{ position: "absolute", left: -7, top: 0, width: 12, height: 12, borderRadius: "50%", background: "#4a8fc9" }} />
+                  <div style={{ fontSize: 9, color: "#4a8fc9", marginBottom: 2 }}>단계 3</div>
+                  <div style={{ fontSize: 12, color: "#f5f5f0", fontWeight: 500, marginBottom: 4 }}>운동 차이는?</div>
+                  <div style={{ background: "#252525", borderRadius: 6, padding: 8, fontSize: 10, color: "#c0b896", lineHeight: 1.7 }}>
+                    {patternAnalysis.diff.exerciseDelta > 0 ? `운동 +${patternAnalysis.diff.exerciseDelta}회/주 더 실행` : `운동 ${patternAnalysis.diff.exerciseDelta}회/주 차이`}
+                  </div>
+                </div>
+
+                <div style={{ position: "relative", paddingLeft: 22, borderLeft: "2px solid #d4af37" }}>
+                  <div style={{ position: "absolute", left: -7, top: 0, width: 12, height: 12, borderRadius: "50%", background: "#d4af37", boxShadow: "0 0 8px rgba(212,175,55,0.5)" }} />
+                  <div style={{ fontSize: 9, color: "#d4af37", marginBottom: 2 }}>결론</div>
+                  <div style={{ fontSize: 12, color: "#f5f5f0", fontWeight: 500, marginBottom: 4 }}>핵심 포인트</div>
+                  <div style={{ background: "rgba(212,175,55,0.08)", border: "1px solid rgba(212,175,55,0.2)", borderRadius: 6, padding: 8, fontSize: 10, color: "#c0b896", lineHeight: 1.7 }}>
+                    잘 빠진 주에는 단백질 평균 {patternAnalysis.formula.protein}g+, 운동 {patternAnalysis.formula.exercise}회/주를 유지했습니다.
+                  </div>
+                </div>
+              </>
+            )}
+
+            {analysisCategory === "food" && (
+              <>
+                {patternAnalysis.goodFoods.length > 0 && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, color: "#5a9e6f", fontWeight: 500, marginBottom: 8 }}>🍱 효과 있던 음식 TOP {patternAnalysis.goodFoods.length}</div>
+                    {patternAnalysis.goodFoods.map((f, i) => {
+                      const max = patternAnalysis.goodFoods[0].count;
+                      return (
+                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: i < patternAnalysis.goodFoods.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none" }}>
+                          <span style={{ fontSize: 11, color: i === 0 ? "#d4af37" : "#999", width: 14, textAlign: "center", fontWeight: i === 0 ? 600 : 400 }}>{i + 1}</span>
+                          <span style={{ flex: 1, fontSize: 11, color: "#f5f5f0" }}>{f.name}</span>
+                          <div style={{ width: 60, height: 5, background: "#252525", borderRadius: 3, overflow: "hidden" }}><div style={{ width: (f.count / max * 100) + "%", height: "100%", background: "#5a9e6f", borderRadius: 3 }} /></div>
+                          <span style={{ fontSize: 9, color: "#5a9e6f", width: 28, textAlign: "right" }}>{f.count}회</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {patternAnalysis.badFoods.length > 0 && (
+                  <div style={{ background: "rgba(224,82,82,0.04)", border: "1px solid rgba(224,82,82,0.15)", borderRadius: 8, padding: 10 }}>
+                    <div style={{ fontSize: 11, color: "#e05252", fontWeight: 500, marginBottom: 6 }}>⚠️ 주의 음식</div>
+                    <div style={{ fontSize: 10, color: "#c0b896", lineHeight: 1.7 }}>
+                      {patternAnalysis.badFoods.map(f => `${f.name} (${f.count}회)`).join(" · ")}
+                    </div>
+                    <div style={{ fontSize: 9, color: "#707070", marginTop: 4 }}>정체된 주에 자주 등장한 음식</div>
+                  </div>
+                )}
+                {patternAnalysis.goodFoods.length === 0 && patternAnalysis.badFoods.length === 0 && (
+                  <div style={{ textAlign: "center", padding: 20, color: "#555", fontSize: 11 }}>분석할 음식 데이터가 부족합니다.</div>
+                )}
+              </>
+            )}
+
+            {analysisCategory === "exercise" && (
+              <>
+                {patternAnalysis.goodExercises.length > 0 ? (
+                  <>
+                    <div style={{ fontSize: 11, color: "#4a8fc9", fontWeight: 500, marginBottom: 8 }}>💪 골격근 증가에 효과적인 운동</div>
+                    {patternAnalysis.goodExercises.map((e, i) => {
+                      const max = patternAnalysis.goodExercises[0].count;
+                      return (
+                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: i < patternAnalysis.goodExercises.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none" }}>
+                          <span style={{ fontSize: 11, color: i === 0 ? "#d4af37" : "#999", width: 14, textAlign: "center", fontWeight: i === 0 ? 600 : 400 }}>{i + 1}</span>
+                          <span style={{ flex: 1, fontSize: 11, color: "#f5f5f0" }}>{e.name}</span>
+                          <div style={{ width: 60, height: 5, background: "#252525", borderRadius: 3, overflow: "hidden" }}><div style={{ width: (e.count / max * 100) + "%", height: "100%", background: "#4a8fc9", borderRadius: 3 }} /></div>
+                          <span style={{ fontSize: 9, color: "#4a8fc9", width: 36, textAlign: "right" }}>{e.weeklyAvg}회/주</span>
+                        </div>
+                      );
+                    })}
+                  </>
+                ) : (
+                  <div style={{ textAlign: "center", padding: 20, color: "#555", fontSize: 11 }}>분석할 운동 데이터가 부족합니다.</div>
+                )}
+              </>
+            )}
+
+            {analysisCategory === "formula" && (
+              <div style={{ background: "rgba(212,175,55,0.06)", border: "1px solid rgba(212,175,55,0.25)", borderRadius: 10, padding: 14 }}>
+                <div style={{ fontSize: 13, color: "#d4af37", fontWeight: 600, marginBottom: 10 }}>🎯 너의 황금 공식</div>
+                <div style={{ fontSize: 11, color: "#c0b896", lineHeight: 2 }}>
+                  ✓ 단백질 <strong style={{ color: "#5a9e6f" }}>{patternAnalysis.formula.protein}g+/일</strong><br />
+                  ✓ 운동 <strong style={{ color: "#4a8fc9" }}>{patternAnalysis.formula.exercise}회+/주</strong><br />
+                  ✓ 야식 <strong style={{ color: "#e05252" }}>{patternAnalysis.formula.lateAvoid.toFixed(1)}회/주 이하</strong>
+                  {patternAnalysis.formula.topFood && <><br />✓ 추천 음식: <strong style={{ color: "#5a9e6f" }}>{patternAnalysis.formula.topFood}</strong></>}
+                  {patternAnalysis.formula.topExercise && <><br />✓ 추천 운동: <strong style={{ color: "#4a8fc9" }}>{patternAnalysis.formula.topExercise}</strong></>}
+                </div>
+                <div style={{ fontSize: 9, color: "#707070", marginTop: 10, lineHeight: 1.5 }}>잘 빠진 주 {patternAnalysis.goodCount}개를 분석한 너만의 패턴입니다.</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {!patternAnalysis && (
+          <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 12, textAlign: "center" }}>
+            <div style={{ fontSize: 12, color: "#707070", lineHeight: 1.6 }}>패턴 분석을 위해<br/>체성분 측정 4회 이상 + 식단/운동 데이터가 필요합니다.</div>
+          </div>
+        )}
+
         {/* 황금 패턴 */}
         {insights.golden && (
           <div style={{ background: "#1e1e1e", border: "1px solid rgba(212,175,55,0.2)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
