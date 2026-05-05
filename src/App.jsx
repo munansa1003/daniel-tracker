@@ -48,6 +48,10 @@ const today = () => {
 };
 const nowHour = () => new Date().getHours();
 
+// 통계용 헬퍼: 오늘은 미완성 데이터이므로 평균/이상치/달성률 계산에서 제외
+// (홈 탭의 "오늘 진행률" 같은 의도된 partial 표시는 별도 처리)
+const isCompletedDay = (dateStr) => dateStr < today();
+
 // 체중 기반 목표 단탄지 계산 (Mifflin-St Jeor, 활동계수 1.55, 20% 적자)
 function calcTargets(weight, height = 175, age = 35) {
   const bmr = 10 * weight + 6.25 * height - 5 * age + 5;
@@ -747,9 +751,11 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
   }, [chartData, cc.key]);
 
   // 측정 사이 식단/운동 요약
+  // 오늘 체성분을 측정한 경우(latest.date===오늘) 오늘 partial 데이터가 평균을 왜곡하므로 제외
+  // 이 요약은 AI 체성분 코칭 API 입력으로도 사용되므로 정확도/비용 모두 영향
   const periodSummary = useMemo(() => {
     if (!prev || !latest || !allDays) return null;
-    const entries = Object.entries(allDays).filter(([d]) => d > prev.date && d <= latest.date);
+    const entries = Object.entries(allDays).filter(([d]) => d > prev.date && d <= latest.date && isCompletedDay(d));
     if (entries.length === 0) return null;
     let totalP = 0, totalK = 0, totalEx = 0, exDays = 0;
     entries.forEach(([, d]) => {
@@ -1194,15 +1200,19 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
     const analyzeWeek = (dates) => {
       let pDays = 0, dDays = 0, eDays = 0, totP = 0, totK = 0, totEx = 0, n = 0;
       const daily = dates.map((ds, i) => {
+        const isToday = ds === todayStr;
         const dd = allDays[ds];
         if (!dd || ((!dd.meals || !dd.meals.length) && (!dd.exercises || !dd.exercises.length)))
-          return { date: ds, label: dayLabels[i], has: false, pHit: false, dHit: false, eHit: false };
+          return { date: ds, label: dayLabels[i], has: false, pHit: false, dHit: false, eHit: false, isToday };
         const a = aggregateDay(dd);
-        n++; totP += a.p; totK += a.k; totEx += a.ex;
         const ph = a.p >= targets.p, dh = (a.k - a.ex) <= targets.k, eh = (dd.exercises || []).length > 0;
-        if (ph) pDays++; if (dh) dDays++; if (eh) eDays++;
         const lateEat = (dd.meals || []).some(m => (m.hour || 0) >= 22);
-        return { date: ds, label: dayLabels[i], has: true, pHit: ph, dHit: dh, eHit: eh, p: Math.round(a.p), k: Math.round(a.k), ex: Math.round(a.ex), lateEat };
+        // 오늘은 미완성이므로 평균/카운트에서 제외 (시각화에는 isToday 플래그로 별도 표시)
+        if (!isToday) {
+          n++; totP += a.p; totK += a.k; totEx += a.ex;
+          if (ph) pDays++; if (dh) dDays++; if (eh) eDays++;
+        }
+        return { date: ds, label: dayLabels[i], has: true, pHit: ph, dHit: dh, eHit: eh, p: Math.round(a.p), k: Math.round(a.k), ex: Math.round(a.ex), lateEat, isToday };
       });
       return { daily, n, pDays, dDays, eDays, avgP: n ? Math.round(totP / n) : 0, avgK: n ? Math.round(totK / n) : 0, avgEx: n ? Math.round(totEx / n) : 0 };
     };
@@ -1278,6 +1288,8 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
       const dates = getWeekDates(todayStr, offset);
       let pDays = 0, dDays = 0, eDays = 0, n = 0;
       dates.forEach(ds => {
+        // 오늘은 미완성이므로 grade 계산에서 제외 (방어적 — UI는 isInProgress로 가려져 있지만 grade 객체 정확도 확보)
+        if (!isCompletedDay(ds)) return;
         const dd = allDays[ds];
         if (!dd || ((!dd.meals || !dd.meals.length) && (!dd.exercises || !dd.exercises.length))) return;
         const a = aggregateDay(dd);
@@ -1345,6 +1357,8 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
       for (let i = 0; i < 7; i++) {
         const d = new Date(weekStartD); d.setDate(d.getDate() + i);
         const ds = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+        // 오늘은 미완성이므로 패턴 분석(잘 빠진 주 vs 정체된 주 비교)에서 제외
+        if (!isCompletedDay(ds)) continue;
         const dd = allDays[ds];
         if (!dd) continue;
         if ((dd.meals || []).length > 0) {
@@ -1449,7 +1463,8 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
       const good = [], bad = [];
       for (let i = 1; i < sorted.length; i++) {
         const prev = sorted[i - 1], curr = sorted[i];
-        const entries = Object.entries(allDays).filter(([d]) => d >= prev.date && d <= curr.date);
+        // 오늘 체성분을 측정한 경우 curr.date===오늘 → today partial 데이터가 평균을 왜곡하므로 제외
+        const entries = Object.entries(allDays).filter(([d]) => d >= prev.date && d <= curr.date && isCompletedDay(d));
         if (entries.length < 3) continue;
         let tP = 0, tK = 0, eD = 0, latD = 0;
         entries.forEach(([, data]) => { const a = aggregateDay(data); tP += a.p; tK += a.k; if ((data.exercises || []).length > 0) eD++; if ((data.meals || []).some(m => (m.hour || 0) >= 22)) latD++; });
@@ -1469,8 +1484,9 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
     }
 
     // 2. 이상치 감지 (이번 주)
+    // 오늘은 미완성 데이터(아침만 먹은 상태 등)이므로 이상치 검사에서 제외
     const anomalies = [];
-    const recentEntries = Object.entries(allDays).sort(([a], [b]) => a.localeCompare(b));
+    const recentEntries = Object.entries(allDays).filter(([d]) => isCompletedDay(d)).sort(([a], [b]) => a.localeCompare(b));
     if (recentEntries.length >= 7) {
       const last14 = recentEntries.slice(-14);
       let sumP = 0, sumK = 0, sumEx = 0, cnt = 0;
@@ -1561,7 +1577,14 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
         <div style={{ fontSize: 11.5, color: "#f5f5f0", marginBottom: 6 }}>{label}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
           <div style={{ minWidth: 52, fontSize: 10, color: "#707070" }}>{thisLabel}</div>
-          <div style={{ display: "flex", gap: 3 }}>{thisDaily.map((d, i) => <div key={i} style={{ width: 12, height: 12, borderRadius: 3, background: d.has ? (d[field] ? color : `${color}22`) : "#2a2a2a" }} />)}</div>
+          <div style={{ display: "flex", gap: 3 }}>{thisDaily.map((d, i) => {
+            // 오늘 dot은 미완성이므로 별도 시각: 흐린 배경 + 점선 outline (진행 중 의미)
+            const bg = d.isToday && d.has
+              ? `${color}1a`
+              : (d.has ? (d[field] ? color : `${color}22`) : "#2a2a2a");
+            const outline = d.isToday && d.has ? `1px dashed ${color}99` : "none";
+            return <div key={i} style={{ width: 12, height: 12, borderRadius: 3, background: bg, outline, outlineOffset: -1 }} />;
+          })}</div>
           <span style={{ fontSize: 12, fontFamily: "monospace", fontWeight: 500, color, minWidth: 28, textAlign: "right" }}>{thisDays}/{thisN}</span>
           {lastN > 0 && delta !== 0 && <span style={{ fontSize: 10, fontFamily: "monospace", fontWeight: 500, padding: "1px 6px", borderRadius: 99, background: delta > 0 ? "rgba(90,158,111,0.12)" : "rgba(224,82,82,0.12)", color: delta > 0 ? "#5a9e6f" : "#e05252" }}>{delta > 0 ? "▲" : "▼"}{Math.abs(delta)}</span>}
         </div>
@@ -2023,12 +2046,14 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
               return dd.getFullYear() + "-" + String(dd.getMonth() + 1).padStart(2, "0") + "-" + String(dd.getDate()).padStart(2, "0");
             });
           })();
+          // 오늘은 미완성이므로 챌린지 달성률 계산에서 제외 (eHits 운동 챌린지도 동일)
           const pHits = thisWeekDates.filter(ds => {
+            if (!isCompletedDay(ds)) return false;
             const dd = allDays[ds]; if (!dd || !dd.meals || !dd.meals.length) return false;
             const p = (dd.meals || []).reduce((s, ml) => s + ml.p * ml.serving, 0);
             return p >= targets.p;
           }).length;
-          const recorded = thisWeekDates.filter(ds => allDays[ds] && allDays[ds].meals && allDays[ds].meals.length > 0).length;
+          const recorded = thisWeekDates.filter(ds => isCompletedDay(ds) && allDays[ds] && allDays[ds].meals && allDays[ds].meals.length > 0).length;
           const pct = recorded > 0 ? Math.round(pHits / recorded * 100) : 0;
           const eHits = thisWeekDates.filter(ds => {
             const dd = allDays[ds]; return dd && dd.exercises && dd.exercises.length > 0;
@@ -2097,7 +2122,8 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
           const fatPos = Math.max(5, Math.min(95, 100 - ((fatPct - 10) / 25 * 100)));
 
           const weekP = (() => {
-            const last7 = Object.entries(allDays).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 7);
+            // 오늘은 미완성이므로 평균에서 제외 → 완성된 최근 7일만
+            const last7 = Object.entries(allDays).filter(([d]) => isCompletedDay(d)).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 7);
             if (last7.length === 0) return 0;
             const total = last7.reduce((s, [, d]) => s + (d.meals || []).reduce((ms, ml) => ms + ml.p * ml.serving, 0), 0);
             return Math.round(total / last7.length);
@@ -2739,7 +2765,9 @@ function MainApp({ user, onLogout }) {
                 const pP = a ? Math.min(a.p / TARGETS.p, 1) : 0;
                 const pC = a ? Math.min(a.c / TARGETS.c, 1) : 0;
                 const pF = a ? Math.min(a.f / TARGETS.f, 1) : 0;
-                const calOk = a ? (a.k - a.ex) <= TARGETS.k : null;
+                // 오늘은 미완성이므로 적자/초과 판정 dot을 보이지 않음 (false positive 방지)
+                // 영양소 ring은 진행률 의미로 자연스러우므로 그대로 표시
+                const calOk = a && !isToday ? (a.k - a.ex) <= TARGETS.k : null;
                 const hasData = !!a && a.k > 0;
                 const dow = (offset + i) % 7;
                 return (
