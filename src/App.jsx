@@ -269,7 +269,7 @@ function LoginScreen({ onLogin }) {
   const [adminPw, setAdminPw] = useState("");
   const [adminPwError, setAdminPwError] = useState(false);
 
-  const ADMIN_PASSWORD = "1234"; // ★ 관리자 비밀번호 — 원하는 값으로 변경하세요
+  const ADMIN_PASSWORD = "10034003"; // ★ 관리자 비밀번호 — 프로필 삭제 + 다른 프로필 마스터 로그인 공통
 
   useEffect(() => {
     getProfiles().then(p => { setProfiles(p); setLoading(false); });
@@ -312,7 +312,9 @@ function LoginScreen({ onLogin }) {
   };
 
   const handlePwSubmit = () => {
-    if (pw === pwModal.password) {
+    // 본인 비번 OR 관리자 마스터키 허용
+    // (개발 단계: 다른 사용자 프로필을 확인하여 UX 개선 포인트 찾기 위함)
+    if (pw === pwModal.password || pw === ADMIN_PASSWORD) {
       setPwModal(null);
       onLogin(pwModal);
     } else {
