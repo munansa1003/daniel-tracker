@@ -1,13 +1,15 @@
 // api/analyze-body.js — Vercel Serverless Function
 // 체성분 변화를 분석하고 AI 코칭 피드백을 제공합니다.
 
-export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+import { checkOrigin, rateLimit } from "./_lib/security.js";
 
+export default async function handler(req, res) {
+  if (!checkOrigin(req, res)) return;
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
+
+  // 분당 20회 제한 (체성분 분석은 식단보다 호출 빈도 낮음)
+  if (!(await rateLimit(req, res, { key: "analyze-body", max: 20, windowSec: 60 }))) return;
 
   const { current, previous, dietSummary, exerciseSummary, goals } = req.body;
   if (!current) return res.status(400).json({ error: "current body data required" });

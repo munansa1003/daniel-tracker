@@ -3,17 +3,20 @@
 // 텍스트 쿼리 또는 사진(base64) 입력을 모두 지원합니다.
 // API 키는 Vercel 환경변수(ANTHROPIC_API_KEY)에서 가져옵니다.
 
-export default async function handler(req, res) {
-  // CORS 헤더
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+import { checkOrigin, rateLimit } from "./_lib/security.js";
 
+export default async function handler(req, res) {
+  if (!checkOrigin(req, res)) return;
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
 
   const { query, image, mediaType } = req.body;
   const isPhoto = !!image;
+
+  // 사진 분석은 토큰/비용 더 큼 → 더 빡빡한 제한
+  const limitKey = isPhoto ? "analyze-food-photo" : "analyze-food-text";
+  const limitMax = isPhoto ? 10 : 30;
+  if (!(await rateLimit(req, res, { key: limitKey, max: limitMax, windowSec: 60 }))) return;
 
   if (!isPhoto && (!query || !query.trim())) {
     return res.status(400).json({ error: "query or image is required" });

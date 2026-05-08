@@ -2,14 +2,15 @@
 // Claude API를 호출하여 운동의 MET 계수를 분석합니다.
 // API 키는 Vercel 환경변수(ANTHROPIC_API_KEY)에서 가져옵니다.
 
-export default async function handler(req, res) {
-  // CORS 헤더
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+import { checkOrigin, rateLimit } from "./_lib/security.js";
 
+export default async function handler(req, res) {
+  if (!checkOrigin(req, res)) return;
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
+
+  // 분당 30회 제한
+  if (!(await rateLimit(req, res, { key: "analyze-exercise", max: 30, windowSec: 60 }))) return;
 
   const { query } = req.body;
   if (!query || !query.trim()) {

@@ -265,11 +265,28 @@ function LoginScreen({ onLogin }) {
   const [pwModal, setPwModal] = useState(null); // 비밀번호 입력 대상 프로필
   const [pw, setPw] = useState("");
   const [pwError, setPwError] = useState(false);
+  const [pwSubmitting, setPwSubmitting] = useState(false);
   const [deleteIdx, setDeleteIdx] = useState(null); // 삭제 대상 인덱스
   const [adminPw, setAdminPw] = useState("");
   const [adminPwError, setAdminPwError] = useState(false);
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
 
-  const ADMIN_PASSWORD = "10034003"; // ★ 관리자 비밀번호 — 프로필 삭제 + 다른 프로필 마스터 로그인 공통
+  // 관리자 마스터키는 클라이언트 번들에 두지 않고 서버(/api/verify-master)에서 검증
+  // 본인 비번은 클라이언트에서 즉시 비교 (서버 라운드트립 불필요)
+  const verifyMasterKey = async (candidate) => {
+    try {
+      const res = await fetch("/api/verify-master", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pw: candidate }),
+      });
+      if (!res.ok) return false;
+      const data = await res.json();
+      return !!data.ok;
+    } catch {
+      return false;
+    }
+  };
 
   useEffect(() => {
     getProfiles().then(p => { setProfiles(p); setLoading(false); });
@@ -291,14 +308,21 @@ function LoginScreen({ onLogin }) {
   };
 
   const handleDeleteConfirm = async () => {
-    if (adminPw !== ADMIN_PASSWORD) {
-      setAdminPwError(true);
-      return;
+    if (deleteSubmitting) return;
+    setDeleteSubmitting(true);
+    try {
+      const ok = await verifyMasterKey(adminPw);
+      if (!ok) {
+        setAdminPwError(true);
+        return;
+      }
+      const newProfiles = profiles.filter((_, i) => i !== deleteIdx);
+      setProfiles(newProfiles);
+      await saveProfiles(newProfiles);
+      setDeleteIdx(null);
+    } finally {
+      setDeleteSubmitting(false);
     }
-    const newProfiles = profiles.filter((_, i) => i !== deleteIdx);
-    setProfiles(newProfiles);
-    await saveProfiles(newProfiles);
-    setDeleteIdx(null);
   };
 
   const handleProfileClick = (profile) => {
@@ -311,14 +335,26 @@ function LoginScreen({ onLogin }) {
     }
   };
 
-  const handlePwSubmit = () => {
-    // 본인 비번 OR 관리자 마스터키 허용
-    // (개발 단계: 다른 사용자 프로필을 확인하여 UX 개선 포인트 찾기 위함)
-    if (pw === pwModal.password || pw === ADMIN_PASSWORD) {
+  const handlePwSubmit = async () => {
+    if (pwSubmitting) return;
+    // 1) 본인 비번 즉시 검증 (오프라인에서도 동작)
+    if (pw === pwModal.password) {
       setPwModal(null);
       onLogin(pwModal);
-    } else {
-      setPwError(true);
+      return;
+    }
+    // 2) 마스터키는 서버에서 검증 (브루트포스 방지 + 번들 노출 제거)
+    setPwSubmitting(true);
+    try {
+      const ok = await verifyMasterKey(pw);
+      if (ok) {
+        setPwModal(null);
+        onLogin(pwModal);
+      } else {
+        setPwError(true);
+      }
+    } finally {
+      setPwSubmitting(false);
     }
   };
 
@@ -379,8 +415,8 @@ function LoginScreen({ onLogin }) {
               style={{ width: "100%", padding: 12, background: "#252525", border: `1px solid ${pwError ? "#e05252" : "rgba(255,255,255,0.08)"}`, borderRadius: 8, color: "#f5f5f0", fontSize: 15, boxSizing: "border-box", marginBottom: 6 }} />
             {pwError && <div style={{ fontSize: 12, color: "#e05252", marginBottom: 8 }}>비밀번호가 틀렸습니다</div>}
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-              <button onClick={() => setPwModal(null)} style={{ flex: 1, padding: 12, background: "#2a2a2a", border: "none", borderRadius: 16, color: "#8a8a8a", fontSize: 14, cursor: "pointer" }}>취소</button>
-              <button onClick={handlePwSubmit} style={{ flex: 1, padding: 12, background: "#d4af37", border: "none", borderRadius: 12, color: "#141414", fontSize: 14, fontWeight: 500, cursor: "pointer" }}>로그인</button>
+              <button onClick={() => setPwModal(null)} disabled={pwSubmitting} style={{ flex: 1, padding: 12, background: "#2a2a2a", border: "none", borderRadius: 16, color: "#8a8a8a", fontSize: 14, cursor: pwSubmitting ? "not-allowed" : "pointer", opacity: pwSubmitting ? 0.6 : 1 }}>취소</button>
+              <button onClick={handlePwSubmit} disabled={pwSubmitting} style={{ flex: 1, padding: 12, background: "#d4af37", border: "none", borderRadius: 12, color: "#141414", fontSize: 14, fontWeight: 500, cursor: pwSubmitting ? "not-allowed" : "pointer", opacity: pwSubmitting ? 0.6 : 1 }}>{pwSubmitting ? "확인 중..." : "로그인"}</button>
             </div>
           </div>
         </div>
@@ -402,8 +438,8 @@ function LoginScreen({ onLogin }) {
               style={{ width: "100%", padding: 12, background: "#252525", border: `1px solid ${adminPwError ? "#e05252" : "rgba(255,255,255,0.08)"}`, borderRadius: 8, color: "#f5f5f0", fontSize: 15, boxSizing: "border-box", marginBottom: 6 }} />
             {adminPwError && <div style={{ fontSize: 12, color: "#e05252", marginBottom: 8 }}>관리자 비밀번호가 틀렸습니다</div>}
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-              <button onClick={() => setDeleteIdx(null)} style={{ flex: 1, padding: 12, background: "#2a2a2a", border: "none", borderRadius: 16, color: "#8a8a8a", fontSize: 14, cursor: "pointer" }}>취소</button>
-              <button onClick={handleDeleteConfirm} style={{ flex: 1, padding: 12, background: "#e05252", border: "none", borderRadius: 16, color: "#fff", fontSize: 14, fontWeight: 500, cursor: "pointer" }}>삭제</button>
+              <button onClick={() => setDeleteIdx(null)} disabled={deleteSubmitting} style={{ flex: 1, padding: 12, background: "#2a2a2a", border: "none", borderRadius: 16, color: "#8a8a8a", fontSize: 14, cursor: deleteSubmitting ? "not-allowed" : "pointer", opacity: deleteSubmitting ? 0.6 : 1 }}>취소</button>
+              <button onClick={handleDeleteConfirm} disabled={deleteSubmitting} style={{ flex: 1, padding: 12, background: "#e05252", border: "none", borderRadius: 16, color: "#fff", fontSize: 14, fontWeight: 500, cursor: deleteSubmitting ? "not-allowed" : "pointer", opacity: deleteSubmitting ? 0.6 : 1 }}>{deleteSubmitting ? "확인 중..." : "삭제"}</button>
             </div>
           </div>
         </div>

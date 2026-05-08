@@ -1,0 +1,42 @@
+rules_version = '2';
+
+// Daniel Tracker — Firestore Security Rules
+//
+// 보호 전략: Firebase App Check (reCAPTCHA v3) 토큰을 가진 요청만 허용.
+// → 너의 앱(공식 도메인 + reCAPTCHA 통과)에서 온 요청만 통과
+// → 외부 SDK 직접 호출, curl, 봇 등은 차단
+//
+// 주의: 이 룰은 App Check가 클라이언트에 통합되고 정상 동작하는 게 확인된 후에 deploy해야 함.
+// 그렇지 않으면 앱이 Firestore에 접근 못 해서 즉시 다운됨.
+//
+// 단계적 deploy:
+//   1단계 (지금): App Check 통합 후 firebase.js 배포
+//   2단계 (검증 후): 이 룰을 콘솔에 붙여넣고 Publish
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 프로필 목록 (로그인 화면에서 모든 사용자가 봐야 함)
+    // App Check 통과한 클라이언트만 읽기/쓰기 허용
+    match /users/_shared/data/profiles {
+      allow read, write: if request.app != null;
+    }
+
+    // 공용 음식 / 운동 DB (모든 사용자가 함께 사용)
+    match /users/_shared/data/{doc} {
+      allow read, write: if request.app != null;
+    }
+
+    // 개인 사용자 데이터 (식단, 체성분, 설정 등)
+    // 현재 단계: App Check만 검증. 추후 Firebase Auth 도입 시
+    //   `request.auth.uid == uid` 추가하여 본인 데이터만 접근 가능하게 강화 예정
+    match /users/{uid}/data/{document=**} {
+      allow read, write: if request.app != null;
+    }
+
+    // 그 외 모든 경로는 명시적 차단
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
