@@ -116,10 +116,12 @@ async function verifyProfilePassword(profile, candidate) {
   return false;
 }
 
-// 체중 기반 목표 단탄지 계산 (Mifflin-St Jeor, 활동계수 1.55, 20% 적자)
+// 체중 기반 목표 단탄지 계산 (Mifflin-St Jeor, 활동계수 1.35, 20% 적자)
+// 활동계수 1.35: 실제 기록 데이터로 역산한 유지칼로리에 맞춰 보정한 값
+// (공식 1.55는 유지칼로리를 과대평가 → "적정"이 사실상 유지선이 되는 문제가 있었음)
 function calcTargets(weight, height = 175, age = 35) {
   const bmr = 10 * weight + 6.25 * height - 5 * age + 5;
-  const tdee = bmr * 1.55;
+  const tdee = bmr * 1.35;
   const k = Math.round(tdee * 0.80);
   const p = Math.round(weight * 2.2);
   const f = Math.round(weight * 0.8);
@@ -222,21 +224,24 @@ function useLongPress(delay = 400) {
 }
 
 // Net 칼로리 카드 (신호등 스타일 — 개인 목표 기반)
+// 섭취 칼로리 평가 (목표 대비). 운동은 '추가 적자(보너스)'로만 표시하며 먹는 허용량을 늘리지 않는다.
 function NetCalCard({ intake, exercise, targetK }) {
-  const net = Math.round(intake - exercise);
-  const t = targetK || 2000;
+  const intk = Math.round(intake);
+  const ex = Math.round(exercise);
+  const net = intk - ex;
+  const t = targetK || 1800;
   const z1 = Math.round(t * 0.75), z2 = Math.round(t * 0.90);
   let status, color, emoji;
-  if (net < z1) { status = "위험"; color = "#e05252"; emoji = "🔴"; }
-  else if (net < z2) { status = "주의"; color = "#d4af37"; emoji = "🟡"; }
-  else if (net <= t) { status = "적정"; color = "#5a9e6f"; emoji = "🟢"; }
-  else { status = "초과"; color = "#d4af37"; emoji = "🟡"; }
+  if (intk < z1) { status = "너무 적음"; color = "#e05252"; emoji = "🔴"; }
+  else if (intk < z2) { status = "공격적"; color = "#d4af37"; emoji = "🟡"; }
+  else if (intk <= t) { status = "적정"; color = "#5a9e6f"; emoji = "🟢"; }
+  else { status = "초과"; color = "#d4af37"; emoji = "🟠"; }
 
   const zones = [
-    { l: "위험", r: `~${z1.toLocaleString()}`, c: "#e05252", bg: "rgba(224,82,82,0.1)", active: net < z1 },
-    { l: "주의", r: `${z1.toLocaleString()}~${z2.toLocaleString()}`, c: "#d4af37", bg: "rgba(212,175,55,0.1)", active: net >= z1 && net < z2 },
-    { l: "적정", r: `${z2.toLocaleString()}~${t.toLocaleString()}`, c: "#5a9e6f", bg: "rgba(90,158,111,0.1)", active: net >= z2 && net <= t },
-    { l: "초과", r: `${t.toLocaleString()}~`, c: "#d4af37", bg: "rgba(212,175,55,0.1)", active: net > t }
+    { l: "위험", r: `~${z1.toLocaleString()}`, c: "#e05252", bg: "rgba(224,82,82,0.1)", active: intk < z1 },
+    { l: "주의", r: `${z1.toLocaleString()}~${z2.toLocaleString()}`, c: "#d4af37", bg: "rgba(212,175,55,0.1)", active: intk >= z1 && intk < z2 },
+    { l: "적정", r: `${z2.toLocaleString()}~${t.toLocaleString()}`, c: "#5a9e6f", bg: "rgba(90,158,111,0.1)", active: intk >= z2 && intk <= t },
+    { l: "초과", r: `${t.toLocaleString()}~`, c: "#d4af37", bg: "rgba(212,175,55,0.1)", active: intk > t }
   ];
 
   return (
@@ -244,9 +249,9 @@ function NetCalCard({ intake, exercise, targetK }) {
       <div style={{ background: `${color}11`, border: `1px solid ${color}33`, borderRadius: 16, padding: "12px 14px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
-            <div style={{ fontSize: 11, color: "#707070", marginBottom: 2 }}>Net 칼로리</div>
+            <div style={{ fontSize: 11, color: "#707070", marginBottom: 2 }}>섭취 칼로리 (목표 {t.toLocaleString()})</div>
             <div style={{ fontSize: 22, fontWeight: 500, fontFamily: "monospace", color }}>
-              {net.toLocaleString()} <span style={{ fontSize: 12, color: "#707070" }}>kcal</span>
+              {intk.toLocaleString()} <span style={{ fontSize: 12, color: "#707070" }}>kcal</span>
             </div>
           </div>
           <div style={{ textAlign: "right" }}>
@@ -255,7 +260,9 @@ function NetCalCard({ intake, exercise, targetK }) {
           </div>
         </div>
         <div style={{ marginTop: 8, fontSize: 12, color: "#707070", lineHeight: 1.5 }}>
-          섭취 {Math.round(intake).toLocaleString()} - 운동 {Math.round(exercise).toLocaleString()} = <span style={{ color: "#f5f5f0" }}>Net {net.toLocaleString()}</span>
+          {ex > 0
+            ? <>운동 <span style={{ color: "#4a8fc9" }}>−{ex.toLocaleString()}</span> kcal 추가 적자(보너스) · 실질 Net <span style={{ color: "#f5f5f0" }}>{net.toLocaleString()}</span></>
+            : <>운동을 기록하면 추가 적자(보너스)로 반영됩니다</>}
         </div>
       </div>
       <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
@@ -2629,11 +2636,10 @@ function MainApp({ user, onLogout }) {
     return { p: Math.round(p), c: Math.round(c), f: Math.round(f), k: Math.round(k) };
   }, [meals]);
   const exTotal = useMemo(() => exercises.reduce((s, e) => s + (e.kcal || 0), 0), [exercises]);
-  const netKcal = totals.k - exTotal;
 
-  // 운동량 기반 동적 탄수화물 목표 (운동 소모의 50%를 탄수로 보충)
-  const carbBonus = useMemo(() => Math.round((exTotal * 0.5) / 4), [exTotal]);
-  const adjustedC = useMemo(() => TARGETS.c + carbBonus, [TARGETS.c, carbBonus]);
+  // 운동보충 제거: 운동은 먹는 양을 늘리지 않고 '추가 적자(보너스)'로만 반영
+  const carbBonus = 0;
+  const adjustedC = TARGETS.c;
 
   const filteredFoods = useMemo(() => {
     if (!search.trim()) return [];
@@ -2948,7 +2954,7 @@ function MainApp({ user, onLogout }) {
           <div className="dbp-fade dbp-card" style={cs}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
               <span style={{ fontSize: 13, color: THEME.sub }}>오늘의 요약</span>
-              <span style={{ fontSize: 12, fontFamily: "monospace", color: netKcal < TARGETS.k * 0.75 ? "#e05252" : netKcal < TARGETS.k * 0.9 ? "#d4af37" : netKcal <= TARGETS.k ? "#5a9e6f" : "#d4af37" }}>Net {Math.round(netKcal)} kcal</span>
+              <span style={{ fontSize: 12, fontFamily: "monospace", color: totals.k < TARGETS.k * 0.75 ? "#e05252" : totals.k < TARGETS.k * 0.9 ? "#d4af37" : totals.k <= TARGETS.k ? "#5a9e6f" : "#d4af37" }}>섭취 {Math.round(totals.k)} kcal</span>
             </div>
             <div style={{ display: "flex", gap: 12, justifyContent: "center", marginBottom: 16 }}>
               {[{ l: "단백질", v: totals.p, t: TARGETS.p, c: COLORS.p }, { l: "탄수", v: totals.c, t: adjustedC, c: COLORS.c, bonus: carbBonus }, { l: "지방", v: totals.f, t: TARGETS.f, c: COLORS.f }].map(x => (
