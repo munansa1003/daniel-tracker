@@ -52,6 +52,70 @@ const nowHour = () => new Date().getHours();
 // (홈 탭의 "오늘 진행률" 같은 의도된 partial 표시는 별도 처리)
 const isCompletedDay = (dateStr) => dateStr < today();
 
+/* ───── 비밀번호 해싱 (평문 저장 방지 + brute-force 저항) ─────
+   PBKDF2-HMAC-SHA256 (10만 회 반복) + 프로필별 랜덤 salt 사용.
+   저장 포맷에 algo/iters를 함께 기록해 향후 파라미터 상향이 가능하다.
+   crypto.subtle은 보안 컨텍스트(https/localhost)에서만 동작하므로,
+   불가한 환경(예: http://LAN-IP)에서는 기존 평문 방식으로 폴백한다. */
+const PWD_ALGO = "pbkdf2-sha256";
+const PBKDF2_ITERS = 100000;
+
+function cryptoAvailable() {
+  return typeof crypto !== "undefined" && crypto.subtle
+    && typeof crypto.subtle.deriveBits === "function"
+    && typeof crypto.subtle.importKey === "function";
+}
+function bytesToHex(bytes) {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+function hexToBytes(hex) {
+  const arr = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < arr.length; i++) arr[i] = parseInt(hex.substr(i * 2, 2), 16);
+  return arr;
+}
+function genSalt() {
+  const arr = new Uint8Array(16);
+  crypto.getRandomValues(arr);
+  return bytesToHex(arr);
+}
+// PBKDF2 파생 (현재 방식)
+async function pbkdf2Hash(password, saltHex, iterations) {
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(password), { name: "PBKDF2" }, false, ["deriveBits"]
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt: hexToBytes(saltHex), iterations, hash: "SHA-256" },
+    keyMaterial, 256
+  );
+  return bytesToHex(new Uint8Array(bits));
+}
+// 레거시 단일 SHA-256 (이전 구현 호환용 — 검증 시에만 사용)
+async function sha256Hash(password, salt) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(salt + ":" + password));
+  return bytesToHex(new Uint8Array(buf));
+}
+// 비밀번호 필드 생성 (생성/업그레이드 공통)
+async function makePasswordFields(plainPw) {
+  const passwordSalt = genSalt();
+  const passwordHash = await pbkdf2Hash(plainPw, passwordSalt, PBKDF2_ITERS);
+  return { passwordHash, passwordSalt, passwordAlgo: PWD_ALGO, passwordIters: PBKDF2_ITERS };
+}
+// 검증: PBKDF2 → 레거시 SHA-256 → 평문 순으로 호환 (어떤 단계 사용자든 잠금 없음)
+async function verifyProfilePassword(profile, candidate) {
+  if (profile.passwordAlgo === PWD_ALGO) {
+    if (!cryptoAvailable()) return false;
+    try { return (await pbkdf2Hash(candidate, profile.passwordSalt || "", profile.passwordIters || PBKDF2_ITERS)) === profile.passwordHash; }
+    catch { return false; }
+  }
+  if (profile.passwordHash) { // 레거시 단일 SHA-256
+    if (!cryptoAvailable()) return false;
+    try { return (await sha256Hash(candidate, profile.passwordSalt || "")) === profile.passwordHash; }
+    catch { return false; }
+  }
+  if (profile.password != null) return candidate === profile.password; // 평문
+  return false;
+}
+
 // 체중 기반 목표 단탄지 계산 (Mifflin-St Jeor, 활동계수 1.55, 20% 적자)
 function calcTargets(weight, height = 175, age = 35) {
   const bmr = 10 * weight + 6.25 * height - 5 * age + 5;
@@ -293,11 +357,19 @@ function LoginScreen({ onLogin }) {
   }, []);
 
   const handleCreate = async (profile) => {
-    const newProfiles = [...profiles, profile];
+    let toSave = profile;
+    // 비밀번호가 있으면 해싱하여 저장 (평문 저장 방지)
+    if (profile.password && cryptoAvailable()) {
+      try {
+        const { password, ...rest } = profile;
+        toSave = { ...rest, ...(await makePasswordFields(profile.password)) };
+      } catch (e) { console.error("password hashing failed, storing as-is:", e); }
+    }
+    const newProfiles = [...profiles, toSave];
     setProfiles(newProfiles);
     await saveProfiles(newProfiles);
     setShowNew(false);
-    onLogin(profile);
+    onLogin(toSave);
   };
 
   const handleDeleteRequest = (idx, e) => {
@@ -326,7 +398,7 @@ function LoginScreen({ onLogin }) {
   };
 
   const handleProfileClick = (profile) => {
-    if (profile.password) {
+    if (profile.password || profile.passwordHash) {
       setPwModal(profile);
       setPw("");
       setPwError(false);
@@ -335,17 +407,36 @@ function LoginScreen({ onLogin }) {
     }
   };
 
+  // 로그인 성공 시, 아직 PBKDF2가 아닌 프로필(평문 또는 레거시 SHA-256)을 자동 업그레이드
+  const upgradePasswordIfNeeded = async (profile, plainPw) => {
+    if (profile.passwordAlgo === PWD_ALGO || !cryptoAvailable()) return;
+    if (!profile.passwordHash && profile.password == null) return; // 비번 없는 프로필
+    try {
+      const fields = await makePasswordFields(plainPw);
+      const upgraded = profiles.map(p => {
+        if (p === profile || (p.id === profile.id && p.createdAt === profile.createdAt)) {
+          const { password, ...rest } = p;
+          return { ...rest, ...fields };
+        }
+        return p;
+      });
+      setProfiles(upgraded);
+      await saveProfiles(upgraded);
+    } catch (e) { console.error("password upgrade failed:", e); }
+  };
+
   const handlePwSubmit = async () => {
     if (pwSubmitting) return;
-    // 1) 본인 비번 즉시 검증 (오프라인에서도 동작)
-    if (pw === pwModal.password) {
-      setPwModal(null);
-      onLogin(pwModal);
-      return;
-    }
-    // 2) 마스터키는 서버에서 검증 (브루트포스 방지 + 번들 노출 제거)
     setPwSubmitting(true);
     try {
+      // 1) 본인 비번 검증 (해시 또는 평문) — 오프라인에서도 동작
+      if (await verifyProfilePassword(pwModal, pw)) {
+        await upgradePasswordIfNeeded(pwModal, pw);
+        setPwModal(null);
+        onLogin(pwModal);
+        return;
+      }
+      // 2) 마스터키는 서버에서 검증 (브루트포스 방지 + 번들 노출 제거)
       const ok = await verifyMasterKey(pw);
       if (ok) {
         setPwModal(null);
@@ -382,7 +473,7 @@ function LoginScreen({ onLogin }) {
                 </div>
                 <div style={{ fontSize: 15, fontWeight: 500 }}>{p.name}</div>
                 <div style={{ fontSize: 11, color: THEME.sub, marginTop: 4 }}>목표 체지방 {p.targetFat}%</div>
-                {p.password && <div style={{ fontSize: 10, color: THEME.hint, marginTop: 4 }}>🔒</div>}
+                {(p.password || p.passwordHash) && <div style={{ fontSize: 10, color: THEME.hint, marginTop: 4 }}>🔒</div>}
               </div>
             ))}
 
@@ -586,7 +677,7 @@ function AddFoodForm({ initialName, onSave, onCancel }) {
 }
 
 /* ───── 운동 추가 폼 ───── */
-function AddExForm({ initialName, onSave, onCancel }) {
+function AddExForm({ initialName, onSave, onCancel, weight }) {
   const [n, setN] = useState(initialName || "");
   const [m, setM] = useState("");
   const [memo, setMemo] = useState("");
@@ -608,7 +699,7 @@ function AddExForm({ initialName, onSave, onCancel }) {
       </div>
       <div style={{ fontSize: 12, color: "#707070", marginBottom: 4 }}>메모</div>
       <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="선택사항" style={is} />
-      {valid && <div style={{ background: "#252525", borderRadius: 6, padding: 10, marginBottom: 12, fontSize: 12, fontFamily: "monospace", color: "#8a8a8a" }}>30분 시 약 {Math.round((parseFloat(m) * 77.5 * 30) / 60)}kcal 소모</div>}
+      {valid && <div style={{ background: "#252525", borderRadius: 6, padding: 10, marginBottom: 12, fontSize: 12, fontFamily: "monospace", color: "#8a8a8a" }}>30분 시 약 {Math.round((parseFloat(m) * (weight || 77.5) * 30) / 60)}kcal 소모</div>}
       <div style={{ display: "flex", gap: 8 }}>
         <button onClick={onCancel} style={{ flex: 1, padding: 12, background: "#2a2a2a", border: "none", borderRadius: 8, color: "#8a8a8a", fontSize: 14, cursor: "pointer" }}>취소</button>
         <button disabled={!valid} onClick={() => onSave({ n: n.trim(), m: parseFloat(m), memo: memo.trim() })}
@@ -3404,7 +3495,7 @@ function MainApp({ user, onLogout }) {
         <AddFoodForm initialName={search} onSave={saveCustomFood} onCancel={() => setShowAddFood(false)} />
       </Modal>
       <Modal open={showAddEx} onClose={() => setShowAddEx(false)} title="새 운동 추가">
-        <AddExForm initialName={exSearch} onSave={saveCustomEx} onCancel={() => setShowAddEx(false)} />
+        <AddExForm initialName={exSearch} onSave={saveCustomEx} onCancel={() => setShowAddEx(false)} weight={TARGETS.weight} />
       </Modal>
       <Modal open={showManage} onClose={() => setShowManage(false)} title="설정 / 데이터">
         <div style={{ display: "flex", gap: 0, marginBottom: 14, borderRadius: 8, overflow: "hidden" }}>
