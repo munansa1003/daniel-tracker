@@ -52,6 +52,34 @@ const nowHour = () => new Date().getHours();
 // (홈 탭의 "오늘 진행률" 같은 의도된 partial 표시는 별도 처리)
 const isCompletedDay = (dateStr) => dateStr < today();
 
+/* ───── 비밀번호 해싱 (평문 저장 방지) ─────
+   Web Crypto SHA-256 + 프로필별 랜덤 salt 사용.
+   crypto.subtle은 보안 컨텍스트(https/localhost)에서만 동작하므로,
+   불가한 환경(예: http://LAN-IP)에서는 기존 평문 방식으로 폴백한다. */
+function cryptoAvailable() {
+  return typeof crypto !== "undefined" && crypto.subtle && typeof crypto.subtle.digest === "function";
+}
+function genSalt() {
+  const arr = new Uint8Array(16);
+  crypto.getRandomValues(arr);
+  return Array.from(arr).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+async function hashPassword(password, salt) {
+  const data = new TextEncoder().encode(salt + ":" + password);
+  const buf = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+// 평문/해시 프로필 모두 지원하는 검증 (기존 평문 프로필 마이그레이션 호환)
+async function verifyProfilePassword(profile, candidate) {
+  if (profile.passwordHash) {
+    if (!cryptoAvailable()) return false;
+    try { return (await hashPassword(candidate, profile.passwordSalt || "")) === profile.passwordHash; }
+    catch { return false; }
+  }
+  if (profile.password != null) return candidate === profile.password;
+  return false;
+}
+
 // 체중 기반 목표 단탄지 계산 (Mifflin-St Jeor, 활동계수 1.55, 20% 적자)
 function calcTargets(weight, height = 175, age = 35) {
   const bmr = 10 * weight + 6.25 * height - 5 * age + 5;
@@ -293,11 +321,21 @@ function LoginScreen({ onLogin }) {
   }, []);
 
   const handleCreate = async (profile) => {
-    const newProfiles = [...profiles, profile];
+    let toSave = profile;
+    // 비밀번호가 있으면 해싱하여 저장 (평문 저장 방지)
+    if (profile.password && cryptoAvailable()) {
+      try {
+        const passwordSalt = genSalt();
+        const passwordHash = await hashPassword(profile.password, passwordSalt);
+        const { password, ...rest } = profile;
+        toSave = { ...rest, passwordHash, passwordSalt };
+      } catch (e) { console.error("password hashing failed, storing as-is:", e); }
+    }
+    const newProfiles = [...profiles, toSave];
     setProfiles(newProfiles);
     await saveProfiles(newProfiles);
     setShowNew(false);
-    onLogin(profile);
+    onLogin(toSave);
   };
 
   const handleDeleteRequest = (idx, e) => {
@@ -326,7 +364,7 @@ function LoginScreen({ onLogin }) {
   };
 
   const handleProfileClick = (profile) => {
-    if (profile.password) {
+    if (profile.password || profile.passwordHash) {
       setPwModal(profile);
       setPw("");
       setPwError(false);
@@ -335,17 +373,36 @@ function LoginScreen({ onLogin }) {
     }
   };
 
+  // 로그인 성공 시, 평문으로 저장돼 있던 기존 프로필을 해시로 자동 업그레이드
+  const upgradePlaintextProfile = async (profile, plainPw) => {
+    if (profile.passwordHash || profile.password == null || !cryptoAvailable()) return;
+    try {
+      const passwordSalt = genSalt();
+      const passwordHash = await hashPassword(plainPw, passwordSalt);
+      const upgraded = profiles.map(p => {
+        if (p === profile || (p.id === profile.id && p.createdAt === profile.createdAt)) {
+          const { password, ...rest } = p;
+          return { ...rest, passwordHash, passwordSalt };
+        }
+        return p;
+      });
+      setProfiles(upgraded);
+      await saveProfiles(upgraded);
+    } catch (e) { console.error("password upgrade failed:", e); }
+  };
+
   const handlePwSubmit = async () => {
     if (pwSubmitting) return;
-    // 1) 본인 비번 즉시 검증 (오프라인에서도 동작)
-    if (pw === pwModal.password) {
-      setPwModal(null);
-      onLogin(pwModal);
-      return;
-    }
-    // 2) 마스터키는 서버에서 검증 (브루트포스 방지 + 번들 노출 제거)
     setPwSubmitting(true);
     try {
+      // 1) 본인 비번 검증 (해시 또는 평문) — 오프라인에서도 동작
+      if (await verifyProfilePassword(pwModal, pw)) {
+        await upgradePlaintextProfile(pwModal, pw);
+        setPwModal(null);
+        onLogin(pwModal);
+        return;
+      }
+      // 2) 마스터키는 서버에서 검증 (브루트포스 방지 + 번들 노출 제거)
       const ok = await verifyMasterKey(pw);
       if (ok) {
         setPwModal(null);
@@ -382,7 +439,7 @@ function LoginScreen({ onLogin }) {
                 </div>
                 <div style={{ fontSize: 15, fontWeight: 500 }}>{p.name}</div>
                 <div style={{ fontSize: 11, color: THEME.sub, marginTop: 4 }}>목표 체지방 {p.targetFat}%</div>
-                {p.password && <div style={{ fontSize: 10, color: THEME.hint, marginTop: 4 }}>🔒</div>}
+                {(p.password || p.passwordHash) && <div style={{ fontSize: 10, color: THEME.hint, marginTop: 4 }}>🔒</div>}
               </div>
             ))}
 
