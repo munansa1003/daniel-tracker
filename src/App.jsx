@@ -132,38 +132,35 @@ function sortByHour(arr) {
   return [...arr].sort((a, b) => (a.hour || 0) - (b.hour || 0));
 }
 
+// 시간대 단일 기준 (식단/운동 그룹핑 + 시간 선택 라벨이 모두 이 정의를 사용)
+const TIME_PERIODS = [
+  { key: "dawn",    name: "새벽", emoji: "🌌", start: 0,  end: 5  },
+  { key: "morning", name: "아침", emoji: "🌅", start: 6,  end: 10 },
+  { key: "lunch",   name: "점심", emoji: "🌞", start: 11, end: 16 },
+  { key: "dinner",  name: "저녁", emoji: "🌆", start: 17, end: 20 },
+  { key: "night",   name: "야간", emoji: "🌃", start: 21, end: 23 },
+];
+function periodOf(hour) {
+  const h = hour || 0;
+  return TIME_PERIODS.find(p => h >= p.start && h <= p.end) || TIME_PERIODS[0];
+}
+
 // 시간대별 식단 그룹핑
 function groupMealsByTime(meals) {
-  const groups = [
-    { label: "🌅 아침", key: "morning", meals: [] },
-    { label: "🌞 점심", key: "lunch", meals: [] },
-    { label: "🌙 저녁", key: "dinner", meals: [] },
-    { label: "🌃 야식", key: "night", meals: [] }
-  ];
+  const groups = TIME_PERIODS.map(p => ({ label: `${p.emoji} ${p.name}`, key: p.key, meals: [] }));
+  const idxByKey = Object.fromEntries(TIME_PERIODS.map((p, i) => [p.key, i]));
   meals.forEach((m, idx) => {
-    const h = m.hour || 0;
-    if (h >= 4 && h <= 10) groups[0].meals.push({ ...m, _idx: idx });
-    else if (h >= 11 && h <= 14) groups[1].meals.push({ ...m, _idx: idx });
-    else if (h >= 15 && h <= 20) groups[2].meals.push({ ...m, _idx: idx });
-    else groups[3].meals.push({ ...m, _idx: idx });
+    groups[idxByKey[periodOf(m.hour).key]].meals.push({ ...m, _idx: idx });
   });
   return groups.filter(g => g.meals.length > 0);
 }
 
 // 시간대별 운동 그룹핑
 function groupExercisesByTime(exercises) {
-  const groups = [
-    { label: "🌅 아침", key: "morning", items: [] },
-    { label: "🌞 점심", key: "lunch", items: [] },
-    { label: "🌙 저녁", key: "dinner", items: [] },
-    { label: "🌃 야간", key: "night", items: [] }
-  ];
+  const groups = TIME_PERIODS.map(p => ({ label: `${p.emoji} ${p.name}`, key: p.key, items: [] }));
+  const idxByKey = Object.fromEntries(TIME_PERIODS.map((p, i) => [p.key, i]));
   exercises.forEach((e, idx) => {
-    const h = e.hour || 0;
-    if (h >= 4 && h <= 10) groups[0].items.push({ ...e, _idx: idx });
-    else if (h >= 11 && h <= 14) groups[1].items.push({ ...e, _idx: idx });
-    else if (h >= 15 && h <= 20) groups[2].items.push({ ...e, _idx: idx });
-    else groups[3].items.push({ ...e, _idx: idx });
+    groups[idxByKey[periodOf(e.hour).key]].items.push({ ...e, _idx: idx });
   });
   return groups.filter(g => g.items.length > 0);
 }
@@ -726,7 +723,7 @@ function EditMealForm({ meal, onSave, onCancel, onDelete }) {
       <select value={hour} onChange={e => setHour(parseInt(e.target.value))}
         style={{ ...is, fontFamily: "monospace" }}>
         {Array.from({ length: 24 }, (_, h) => (
-          <option key={h} value={h}>{String(h).padStart(2, "0")}:00 {h < 4 ? "새벽" : h < 12 ? "오전" : h < 18 ? "오후" : "저녁"}</option>
+          <option key={h} value={h}>{String(h).padStart(2, "0")}:00 {periodOf(h).name}</option>
         ))}
       </select>
       {parseFloat(serving) > 0 && (
@@ -762,7 +759,7 @@ function EditExForm({ exercise, onSave, onCancel, onDelete, weight }) {
       <select value={hour} onChange={e => setHour(parseInt(e.target.value))}
         style={{ ...is, fontFamily: "monospace" }}>
         {Array.from({ length: 24 }, (_, h) => (
-          <option key={h} value={h}>{String(h).padStart(2, "0")}:00 {h < 4 ? "새벽" : h < 12 ? "오전" : h < 18 ? "오후" : "저녁"}</option>
+          <option key={h} value={h}>{String(h).padStart(2, "0")}:00 {periodOf(h).name}</option>
         ))}
       </select>
       <div style={{ background: "#252525", borderRadius: 6, padding: 10, marginBottom: 12, fontSize: 12, fontFamily: "monospace", color: "#8a8a8a" }}>
@@ -3030,7 +3027,7 @@ function MainApp({ user, onLogout }) {
             <select value={mealHour} onChange={e => setMealHour(parseInt(e.target.value))}
               style={{ flex: 1, padding: "6px 8px", background: "#252525", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, color: "#f5f5f0", fontSize: 14, fontFamily: "monospace" }}>
               {Array.from({ length: 24 }, (_, h) => (
-                <option key={h} value={h}>{String(h).padStart(2, "0")}:00 {h < 4 ? "새벽" : h < 12 ? "오전" : h < 18 ? "오후" : "저녁"}</option>
+                <option key={h} value={h}>{String(h).padStart(2, "0")}:00 {periodOf(h).name}</option>
               ))}
             </select>
             <button onClick={() => setMealHour(nowHour())} style={{ padding: "6px 10px", background: "#2a2a2a", border: "none", borderRadius: 6, color: "#8a8a8a", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>지금</button>
@@ -3308,7 +3305,7 @@ function MainApp({ user, onLogout }) {
             <select value={exHour} onChange={e => setExHour(parseInt(e.target.value))}
               style={{ flex: 1, padding: "6px 8px", background: "#252525", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, color: "#f5f5f0", fontSize: 14, fontFamily: "monospace" }}>
               {Array.from({ length: 24 }, (_, h) => (
-                <option key={h} value={h}>{String(h).padStart(2, "0")}:00 {h < 4 ? "새벽" : h < 12 ? "오전" : h < 18 ? "오후" : "저녁"}</option>
+                <option key={h} value={h}>{String(h).padStart(2, "0")}:00 {periodOf(h).name}</option>
               ))}
             </select>
             <button onClick={() => setExHour(nowHour())} style={{ padding: "6px 10px", background: "#2a2a2a", border: "none", borderRadius: 6, color: "#8a8a8a", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>지금</button>
