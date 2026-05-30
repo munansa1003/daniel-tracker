@@ -120,12 +120,14 @@ async function verifyProfilePassword(profile, candidate) {
 // 비운동 기초유지 ≈ BMR×1.05 (정확기록 데이터로 역산 보정; 공식 활동계수 1.55는 유지칼로리를 과대평가했음).
 // 휴식일 섭취 목표 K = 기초유지 − 기초적자(175). 운동일엔 운동 소모의 50%를 carbBonus로 되먹어
 // 평균 하루 적자 ≈ 400kcal(주 0.37kg)을 유지하면서 큰 운동일의 과한 적자/근손실을 방지한다.
+// 매크로: 단백질 2.2g/kg(근육 보존), 지방 0.6g/kg(호르몬 유지 최소선 이상), 나머지는 탄수.
+// (지방 0.8 → 0.6: 칼로리 인하 시 탄수가 과하게 짜부라지던 것을 완화 → 에너지/운동수행/지속성 개선)
 function calcTargets(weight, height = 175, age = 35) {
   const bmr = 10 * weight + 6.25 * height - 5 * age + 5;
   const baseMaintenance = bmr * 1.05;
   const k = Math.round(baseMaintenance - 175);
   const p = Math.round(weight * 2.2);
-  const f = Math.round(weight * 0.8);
+  const f = Math.round(weight * 0.6);
   const c = Math.round((k - p * 4 - f * 9) / 4);
   return { p, c, f, k, weight: Math.round(weight * 10) / 10 };
 }
