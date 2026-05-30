@@ -1341,7 +1341,7 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
         if (!dd || ((!dd.meals || !dd.meals.length) && (!dd.exercises || !dd.exercises.length)))
           return { date: ds, label: dayLabels[i], has: false, pHit: false, dHit: false, eHit: false, isToday };
         const a = aggregateDay(dd);
-        const ph = a.p >= targets.p, dh = (a.k - a.ex) <= targets.k, eh = (dd.exercises || []).length > 0;
+        const ph = a.p >= targets.p, dh = a.k <= targets.k + a.ex * 0.5, eh = (dd.exercises || []).length > 0;
         const lateEat = (dd.meals || []).some(m => (m.hour || 0) >= 22);
         // 오늘은 미완성이므로 평균/카운트에서 제외 (시각화에는 isToday 플래그로 별도 표시)
         if (!isToday) {
@@ -1431,7 +1431,7 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
         const a = aggregateDay(dd);
         n++;
         if (a.p >= targets.p) pDays++;
-        if ((a.k - a.ex) <= targets.k) dDays++;
+        if (a.k <= targets.k + a.ex * 0.5) dDays++;
         if ((dd.exercises || []).length > 0) eDays++;
       });
       const isCurrent = offset === 0;
@@ -1877,7 +1877,7 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
           <div style={{ fontSize: 13, color: "#707070", marginBottom: 12 }}>핵심 지표 달성률</div>
           <DotMatrix label={`단백질 목표 (${targets.p}g+)`} thisDaily={weeklyReport.tw.daily} lastDaily={weeklyReport.lw.daily} field="pHit" color="#5a9e6f" thisDays={weeklyReport.tw.pDays} lastDays={weeklyReport.lw.pDays} thisN={weeklyReport.tw.n} lastN={weeklyReport.lw.n} />
           <div style={{ height: 1, background: "rgba(255,255,255,0.04)", margin: "4px 0 14px" }} />
-          <DotMatrix label={`Net 칼로리 적자 (${targets.k}kcal 이하)`} thisDaily={weeklyReport.tw.daily} lastDaily={weeklyReport.lw.daily} field="dHit" color="#d4af37" thisDays={weeklyReport.tw.dDays} lastDays={weeklyReport.lw.dDays} thisN={weeklyReport.tw.n} lastN={weeklyReport.lw.n} />
+          <DotMatrix label={`섭취 목표 달성 (${targets.k}kcal + 운동50%)`} thisDaily={weeklyReport.tw.daily} lastDaily={weeklyReport.lw.daily} field="dHit" color="#d4af37" thisDays={weeklyReport.tw.dDays} lastDays={weeklyReport.lw.dDays} thisN={weeklyReport.tw.n} lastN={weeklyReport.lw.n} />
           <div style={{ height: 1, background: "rgba(255,255,255,0.04)", margin: "4px 0 14px" }} />
           <DotMatrix label="운동 실행 (주 4회+ 목표)" thisDaily={weeklyReport.tw.daily} lastDaily={weeklyReport.lw.daily} field="eHit" color="#4a8fc9" thisDays={weeklyReport.tw.eDays} lastDays={weeklyReport.lw.eDays} thisN={weeklyReport.tw.n} lastN={weeklyReport.lw.n} />
         </div>
@@ -2904,7 +2904,7 @@ function MainApp({ user, onLogout }) {
                 const pF = a ? Math.min(a.f / TARGETS.f, 1) : 0;
                 // 오늘은 미완성이므로 적자/초과 판정 dot을 보이지 않음 (false positive 방지)
                 // 영양소 ring은 진행률 의미로 자연스러우므로 그대로 표시
-                const calOk = a && !isToday ? (a.k - a.ex) <= TARGETS.k : null;
+                const calOk = a && !isToday ? a.k <= TARGETS.k + a.ex * 0.5 : null;
                 const hasData = !!a && a.k > 0;
                 const dow = (offset + i) % 7;
                 return (
