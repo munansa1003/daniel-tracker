@@ -116,13 +116,14 @@ async function verifyProfilePassword(profile, candidate) {
   return false;
 }
 
-// 체중 기반 목표 단탄지 계산 (Mifflin-St Jeor, 활동계수 1.35, 20% 적자)
-// 활동계수 1.35: 실제 기록 데이터로 역산한 유지칼로리에 맞춰 보정한 값
-// (공식 1.55는 유지칼로리를 과대평가 → "적정"이 사실상 유지선이 되는 문제가 있었음)
+// 체중 기반 목표 단탄지 계산 (Mifflin-St Jeor)
+// 비운동 기초유지 ≈ BMR×1.05 (정확기록 데이터로 역산 보정; 공식 활동계수 1.55는 유지칼로리를 과대평가했음).
+// 휴식일 섭취 목표 K = 기초유지 − 기초적자(175). 운동일엔 운동 소모의 50%를 carbBonus로 되먹어
+// 평균 하루 적자 ≈ 400kcal(주 0.37kg)을 유지하면서 큰 운동일의 과한 적자/근손실을 방지한다.
 function calcTargets(weight, height = 175, age = 35) {
   const bmr = 10 * weight + 6.25 * height - 5 * age + 5;
-  const tdee = bmr * 1.35;
-  const k = Math.round(tdee * 0.80);
+  const baseMaintenance = bmr * 1.05;
+  const k = Math.round(baseMaintenance - 175);
   const p = Math.round(weight * 2.2);
   const f = Math.round(weight * 0.8);
   const c = Math.round((k - p * 4 - f * 9) / 4);
@@ -261,8 +262,8 @@ function NetCalCard({ intake, exercise, targetK }) {
         </div>
         <div style={{ marginTop: 8, fontSize: 12, color: "#707070", lineHeight: 1.5 }}>
           {ex > 0
-            ? <>운동 <span style={{ color: "#4a8fc9" }}>−{ex.toLocaleString()}</span> kcal 추가 적자(보너스) · 실질 Net <span style={{ color: "#f5f5f0" }}>{net.toLocaleString()}</span></>
-            : <>운동을 기록하면 추가 적자(보너스)로 반영됩니다</>}
+            ? <>운동 <span style={{ color: "#4a8fc9" }}>{ex.toLocaleString()}</span>kcal 중 50%(<span style={{ color: "#5a9e6f" }}>+{Math.round(ex * 0.5).toLocaleString()}</span>)를 목표에 반영 · 실질 Net <span style={{ color: "#f5f5f0" }}>{net.toLocaleString()}</span></>
+            : <>운동을 기록하면 소모의 50%가 목표에 가산됩니다</>}
         </div>
       </div>
       <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
@@ -2637,9 +2638,11 @@ function MainApp({ user, onLogout }) {
   }, [meals]);
   const exTotal = useMemo(() => exercises.reduce((s, e) => s + (e.kcal || 0), 0), [exercises]);
 
-  // 운동보충 제거: 운동은 먹는 양을 늘리지 않고 '추가 적자(보너스)'로만 반영
-  const carbBonus = 0;
-  const adjustedC = TARGETS.c;
+  // 운동 50% 되먹기: 운동 소모의 절반을 그날 탄수로 보충 (큰 운동일 과한 적자/근손실 방지)
+  const carbBonus = useMemo(() => Math.round((exTotal * 0.5) / 4), [exTotal]);
+  const adjustedC = useMemo(() => TARGETS.c + carbBonus, [TARGETS.c, carbBonus]);
+  // 그날 섭취 목표 = 기초 목표 + 운동 50% 되먹기(kcal)
+  const effectiveTargetK = useMemo(() => TARGETS.k + Math.round(exTotal * 0.5), [TARGETS.k, exTotal]);
 
   const filteredFoods = useMemo(() => {
     if (!search.trim()) return [];
@@ -2954,7 +2957,7 @@ function MainApp({ user, onLogout }) {
           <div className="dbp-fade dbp-card" style={cs}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
               <span style={{ fontSize: 13, color: THEME.sub }}>오늘의 요약</span>
-              <span style={{ fontSize: 12, fontFamily: "monospace", color: totals.k < TARGETS.k * 0.75 ? "#e05252" : totals.k < TARGETS.k * 0.9 ? "#d4af37" : totals.k <= TARGETS.k ? "#5a9e6f" : "#d4af37" }}>섭취 {Math.round(totals.k)} kcal</span>
+              <span style={{ fontSize: 12, fontFamily: "monospace", color: totals.k < effectiveTargetK * 0.75 ? "#e05252" : totals.k < effectiveTargetK * 0.9 ? "#d4af37" : totals.k <= effectiveTargetK ? "#5a9e6f" : "#d4af37" }}>섭취 {Math.round(totals.k)} kcal</span>
             </div>
             <div style={{ display: "flex", gap: 12, justifyContent: "center", marginBottom: 16 }}>
               {[{ l: "단백질", v: totals.p, t: TARGETS.p, c: COLORS.p }, { l: "탄수", v: totals.c, t: adjustedC, c: COLORS.c, bonus: carbBonus }, { l: "지방", v: totals.f, t: TARGETS.f, c: COLORS.f }].map(x => (
@@ -2968,14 +2971,14 @@ function MainApp({ user, onLogout }) {
                 </div>
               ))}
             </div>
-            <ProgressBar value={totals.k} max={TARGETS.k} color="#5a9e6f" label="섭취 칼로리" unit="kcal" />
+            <ProgressBar value={totals.k} max={effectiveTargetK} color="#5a9e6f" label="섭취 칼로리" unit="kcal" />
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, padding: "8px 0" }}>
               <span style={{ fontSize: 13, color: "#8a8a8a" }}>운동 소모</span>
               <span style={{ fontFamily: "monospace", fontSize: 14, fontWeight: 500, color: exTotal > 0 ? "#4a8fc9" : "#4a4a4a" }}>
                 -{exTotal.toLocaleString()} kcal
               </span>
             </div>
-            <NetCalCard intake={totals.k} exercise={exTotal} targetK={TARGETS.k} />
+            <NetCalCard intake={totals.k} exercise={exTotal} targetK={effectiveTargetK} />
           </div>
           <div style={cs}>
             <div style={{ fontSize: 13, color: "#707070", marginBottom: 10 }}>오늘 먹은 것 ({meals.length}건)</div>
