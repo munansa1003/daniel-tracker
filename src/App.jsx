@@ -52,31 +52,67 @@ const nowHour = () => new Date().getHours();
 // (홈 탭의 "오늘 진행률" 같은 의도된 partial 표시는 별도 처리)
 const isCompletedDay = (dateStr) => dateStr < today();
 
-/* ───── 비밀번호 해싱 (평문 저장 방지) ─────
-   Web Crypto SHA-256 + 프로필별 랜덤 salt 사용.
+/* ───── 비밀번호 해싱 (평문 저장 방지 + brute-force 저항) ─────
+   PBKDF2-HMAC-SHA256 (10만 회 반복) + 프로필별 랜덤 salt 사용.
+   저장 포맷에 algo/iters를 함께 기록해 향후 파라미터 상향이 가능하다.
    crypto.subtle은 보안 컨텍스트(https/localhost)에서만 동작하므로,
    불가한 환경(예: http://LAN-IP)에서는 기존 평문 방식으로 폴백한다. */
+const PWD_ALGO = "pbkdf2-sha256";
+const PBKDF2_ITERS = 100000;
+
 function cryptoAvailable() {
-  return typeof crypto !== "undefined" && crypto.subtle && typeof crypto.subtle.digest === "function";
+  return typeof crypto !== "undefined" && crypto.subtle
+    && typeof crypto.subtle.deriveBits === "function"
+    && typeof crypto.subtle.importKey === "function";
+}
+function bytesToHex(bytes) {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+function hexToBytes(hex) {
+  const arr = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < arr.length; i++) arr[i] = parseInt(hex.substr(i * 2, 2), 16);
+  return arr;
 }
 function genSalt() {
   const arr = new Uint8Array(16);
   crypto.getRandomValues(arr);
-  return Array.from(arr).map(b => b.toString(16).padStart(2, "0")).join("");
+  return bytesToHex(arr);
 }
-async function hashPassword(password, salt) {
-  const data = new TextEncoder().encode(salt + ":" + password);
-  const buf = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+// PBKDF2 파생 (현재 방식)
+async function pbkdf2Hash(password, saltHex, iterations) {
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(password), { name: "PBKDF2" }, false, ["deriveBits"]
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt: hexToBytes(saltHex), iterations, hash: "SHA-256" },
+    keyMaterial, 256
+  );
+  return bytesToHex(new Uint8Array(bits));
 }
-// 평문/해시 프로필 모두 지원하는 검증 (기존 평문 프로필 마이그레이션 호환)
+// 레거시 단일 SHA-256 (이전 구현 호환용 — 검증 시에만 사용)
+async function sha256Hash(password, salt) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(salt + ":" + password));
+  return bytesToHex(new Uint8Array(buf));
+}
+// 비밀번호 필드 생성 (생성/업그레이드 공통)
+async function makePasswordFields(plainPw) {
+  const passwordSalt = genSalt();
+  const passwordHash = await pbkdf2Hash(plainPw, passwordSalt, PBKDF2_ITERS);
+  return { passwordHash, passwordSalt, passwordAlgo: PWD_ALGO, passwordIters: PBKDF2_ITERS };
+}
+// 검증: PBKDF2 → 레거시 SHA-256 → 평문 순으로 호환 (어떤 단계 사용자든 잠금 없음)
 async function verifyProfilePassword(profile, candidate) {
-  if (profile.passwordHash) {
+  if (profile.passwordAlgo === PWD_ALGO) {
     if (!cryptoAvailable()) return false;
-    try { return (await hashPassword(candidate, profile.passwordSalt || "")) === profile.passwordHash; }
+    try { return (await pbkdf2Hash(candidate, profile.passwordSalt || "", profile.passwordIters || PBKDF2_ITERS)) === profile.passwordHash; }
     catch { return false; }
   }
-  if (profile.password != null) return candidate === profile.password;
+  if (profile.passwordHash) { // 레거시 단일 SHA-256
+    if (!cryptoAvailable()) return false;
+    try { return (await sha256Hash(candidate, profile.passwordSalt || "")) === profile.passwordHash; }
+    catch { return false; }
+  }
+  if (profile.password != null) return candidate === profile.password; // 평문
   return false;
 }
 
@@ -325,10 +361,8 @@ function LoginScreen({ onLogin }) {
     // 비밀번호가 있으면 해싱하여 저장 (평문 저장 방지)
     if (profile.password && cryptoAvailable()) {
       try {
-        const passwordSalt = genSalt();
-        const passwordHash = await hashPassword(profile.password, passwordSalt);
         const { password, ...rest } = profile;
-        toSave = { ...rest, passwordHash, passwordSalt };
+        toSave = { ...rest, ...(await makePasswordFields(profile.password)) };
       } catch (e) { console.error("password hashing failed, storing as-is:", e); }
     }
     const newProfiles = [...profiles, toSave];
@@ -373,16 +407,16 @@ function LoginScreen({ onLogin }) {
     }
   };
 
-  // 로그인 성공 시, 평문으로 저장돼 있던 기존 프로필을 해시로 자동 업그레이드
-  const upgradePlaintextProfile = async (profile, plainPw) => {
-    if (profile.passwordHash || profile.password == null || !cryptoAvailable()) return;
+  // 로그인 성공 시, 아직 PBKDF2가 아닌 프로필(평문 또는 레거시 SHA-256)을 자동 업그레이드
+  const upgradePasswordIfNeeded = async (profile, plainPw) => {
+    if (profile.passwordAlgo === PWD_ALGO || !cryptoAvailable()) return;
+    if (!profile.passwordHash && profile.password == null) return; // 비번 없는 프로필
     try {
-      const passwordSalt = genSalt();
-      const passwordHash = await hashPassword(plainPw, passwordSalt);
+      const fields = await makePasswordFields(plainPw);
       const upgraded = profiles.map(p => {
         if (p === profile || (p.id === profile.id && p.createdAt === profile.createdAt)) {
           const { password, ...rest } = p;
-          return { ...rest, passwordHash, passwordSalt };
+          return { ...rest, ...fields };
         }
         return p;
       });
@@ -397,7 +431,7 @@ function LoginScreen({ onLogin }) {
     try {
       // 1) 본인 비번 검증 (해시 또는 평문) — 오프라인에서도 동작
       if (await verifyProfilePassword(pwModal, pw)) {
-        await upgradePlaintextProfile(pwModal, pw);
+        await upgradePasswordIfNeeded(pwModal, pw);
         setPwModal(null);
         onLogin(pwModal);
         return;
