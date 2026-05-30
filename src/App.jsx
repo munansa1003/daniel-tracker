@@ -586,7 +586,7 @@ function AddFoodForm({ initialName, onSave, onCancel }) {
 }
 
 /* ───── 운동 추가 폼 ───── */
-function AddExForm({ initialName, onSave, onCancel }) {
+function AddExForm({ initialName, onSave, onCancel, weight }) {
   const [n, setN] = useState(initialName || "");
   const [m, setM] = useState("");
   const [memo, setMemo] = useState("");
@@ -608,7 +608,7 @@ function AddExForm({ initialName, onSave, onCancel }) {
       </div>
       <div style={{ fontSize: 12, color: "#707070", marginBottom: 4 }}>메모</div>
       <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="선택사항" style={is} />
-      {valid && <div style={{ background: "#252525", borderRadius: 6, padding: 10, marginBottom: 12, fontSize: 12, fontFamily: "monospace", color: "#8a8a8a" }}>30분 시 약 {Math.round((parseFloat(m) * 77.5 * 30) / 60)}kcal 소모</div>}
+      {valid && <div style={{ background: "#252525", borderRadius: 6, padding: 10, marginBottom: 12, fontSize: 12, fontFamily: "monospace", color: "#8a8a8a" }}>30분 시 약 {Math.round((parseFloat(m) * (weight || 77.5) * 30) / 60)}kcal 소모</div>}
       <div style={{ display: "flex", gap: 8 }}>
         <button onClick={onCancel} style={{ flex: 1, padding: 12, background: "#2a2a2a", border: "none", borderRadius: 8, color: "#8a8a8a", fontSize: 14, cursor: "pointer" }}>취소</button>
         <button disabled={!valid} onClick={() => onSave({ n: n.trim(), m: parseFloat(m), memo: memo.trim() })}
@@ -3404,7 +3404,7 @@ function MainApp({ user, onLogout }) {
         <AddFoodForm initialName={search} onSave={saveCustomFood} onCancel={() => setShowAddFood(false)} />
       </Modal>
       <Modal open={showAddEx} onClose={() => setShowAddEx(false)} title="새 운동 추가">
-        <AddExForm initialName={exSearch} onSave={saveCustomEx} onCancel={() => setShowAddEx(false)} />
+        <AddExForm initialName={exSearch} onSave={saveCustomEx} onCancel={() => setShowAddEx(false)} weight={TARGETS.weight} />
       </Modal>
       <Modal open={showManage} onClose={() => setShowManage(false)} title="설정 / 데이터">
         <div style={{ display: "flex", gap: 0, marginBottom: 14, borderRadius: 8, overflow: "hidden" }}>
