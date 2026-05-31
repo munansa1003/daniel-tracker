@@ -806,6 +806,7 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
   const [showCoachToast, setShowCoachToast] = useState(false);
   const [toastChanges, setToastChanges] = useState(null);
   const [chartTab, setChartTab] = useState("weight");
+  const [chartPeriod, setChartPeriod] = useState(30); // 7 | 30 | 90 | 9999(전체) — 날짜(일) 기준
   const [showAllHistory, setShowAllHistory] = useState(false);
   const lpBody = useLongPress(400);
 
@@ -861,16 +862,25 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
   const dF = prev && latest ? Math.round((latest.fatPct - prev.fatPct) * 10) / 10 : null;
   const dS = prev && latest ? (latest.score || 0) - (prev.score || 0) : null;
 
-  // 차트 데이터
+  // 차트 데이터 — 기간(일) 기준 필터 + 날짜 비례 X축(ts: epoch ms)
   const chartData = useMemo(() => {
-    return bodyLog.slice(-30).map(b => ({
+    let rows = bodyLog;
+    if (chartPeriod < 9999 && bodyLog.length > 0) {
+      const lastDate = bodyLog[bodyLog.length - 1].date;
+      const from = new Date(lastDate);
+      from.setDate(from.getDate() - chartPeriod);
+      const fromStr = from.toISOString().slice(0, 10);
+      rows = bodyLog.filter(b => b.date >= fromStr);
+    }
+    return rows.map(b => ({
       d: b.date.slice(5),
+      ts: new Date(b.date).getTime(),
       weight: b.weight,
       muscle: b.muscle,
       fatPct: b.fatPct,
       score: b.score || 0
     }));
-  }, [bodyLog]);
+  }, [bodyLog, chartPeriod]);
 
   const chartConfig = {
     weight: { key: "weight", color: "#4a8fc9", label: "체중", unit: "kg", target: goals?.weight },
@@ -1063,10 +1073,10 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
             </div>
           </div>
 
-          {/* 추이 차트 (탭 전환) */}
-          {chartData.length >= 2 && (
+          {/* 추이 차트 (탭 전환 + 기간 선택 + 날짜 비례 X축) */}
+          {bodyLog.length >= 2 && (
             <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 14, padding: 14, marginBottom: 10 }}>
-              <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
+              <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
                 {Object.entries(chartConfig).map(([key, cfg]) => (
                   <div key={key} onClick={() => setChartTab(key)}
                     style={{ flex: 1, textAlign: "center", padding: 6, background: chartTab === key ? cfg.color : "#252525", borderRadius: 6, fontSize: 11, fontWeight: chartTab === key ? 500 : 400, color: chartTab === key ? "#fff" : "#707070", cursor: "pointer", transition: "all 0.2s" }}>
@@ -1074,15 +1084,30 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
                   </div>
                 ))}
               </div>
-              <ResponsiveContainer width="100%" height={130}>
-                <LineChart data={chartData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
-                  <XAxis dataKey="d" tick={{ fill: "#4a4a4a", fontSize: 9 }} axisLine={false} tickLine={false} interval={Math.max(0, Math.floor(chartData.length / 5) - 1)} />
-                  <YAxis domain={["auto", "auto"]} tick={{ fill: "#4a4a4a", fontSize: 9 }} axisLine={false} tickLine={false} />
-                  <Tooltip contentStyle={{ background: "#252525", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, fontSize: 11, color: "#f5f5f0" }} formatter={(v) => [v + cc.unit, cc.label]} labelStyle={{ color: "#707070" }} />
-                  <Line type="monotone" dataKey={cc.key} stroke={cc.color} strokeWidth={2} dot={false} activeDot={{ r: 4, fill: cc.color }} />
-                  {cc.target && <ReferenceLine y={cc.target} stroke="#d4af37" strokeDasharray="4 3" strokeWidth={1} label={{ value: `목표 ${cc.target}`, fill: "#d4af37", fontSize: 9, position: "insideTopRight" }} />}
-                </LineChart>
-              </ResponsiveContainer>
+              {/* 기간 선택 */}
+              <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
+                {[{ v: 7, l: "1주" }, { v: 30, l: "1개월" }, { v: 90, l: "3개월" }, { v: 9999, l: "전체" }].map(p => (
+                  <div key={p.v} onClick={() => setChartPeriod(p.v)}
+                    style={{ flex: 1, textAlign: "center", padding: 5, background: chartPeriod === p.v ? "rgba(255,255,255,0.08)" : "transparent", border: `1px solid ${chartPeriod === p.v ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.04)"}`, borderRadius: 6, fontSize: 10, fontWeight: chartPeriod === p.v ? 500 : 400, color: chartPeriod === p.v ? "#f5f5f0" : "#707070", cursor: "pointer", transition: "all 0.2s" }}>
+                    {p.l}
+                  </div>
+                ))}
+              </div>
+              {chartData.length >= 2 ? (
+                <ResponsiveContainer width="100%" height={130}>
+                  <LineChart data={chartData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                    <XAxis dataKey="ts" type="number" scale="time" domain={["dataMin", "dataMax"]}
+                      tickFormatter={(t) => { const d = new Date(t); return `${d.getMonth() + 1}/${d.getDate()}`; }}
+                      tick={{ fill: "#4a4a4a", fontSize: 9 }} axisLine={false} tickLine={false} minTickGap={28} />
+                    <YAxis domain={["auto", "auto"]} tick={{ fill: "#4a4a4a", fontSize: 9 }} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={{ background: "#252525", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, fontSize: 11, color: "#f5f5f0" }} formatter={(v) => [v + cc.unit, cc.label]} labelFormatter={(t) => new Date(t).toISOString().slice(0, 10)} labelStyle={{ color: "#707070" }} />
+                    <Line type="monotone" dataKey={cc.key} stroke={cc.color} strokeWidth={2} dot={false} activeDot={{ r: 4, fill: cc.color }} />
+                    {cc.target && <ReferenceLine y={cc.target} stroke="#d4af37" strokeDasharray="4 3" strokeWidth={1} label={{ value: `목표 ${cc.target}`, fill: "#d4af37", fontSize: 9, position: "insideTopRight" }} />}
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div style={{ height: 130, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#4a4a4a" }}>이 기간에는 측정 기록이 부족합니다</div>
+              )}
               {chartStats && (
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "#4a4a4a", marginTop: 4 }}>
                   <span>최고 {chartStats.max} · 최저 {chartStats.min}</span>
