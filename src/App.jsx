@@ -226,25 +226,29 @@ function useLongPress(delay = 400) {
   return { selectedIdx, bind, wasLongPress, clear };
 }
 
-// Net 칼로리 카드 (신호등 스타일 — 개인 목표 기반)
-// 섭취 칼로리 평가 (목표 대비). 운동은 '추가 적자(보너스)'로만 표시하며 먹는 허용량을 늘리지 않는다.
+// 칼로리 카드 (신호등 + 진행막대) — 운동 50% 되먹기를 '보정 섭취' 한 기준으로 일관 표시
+// 판정/막대/신호등 모두 (섭취 − 운동50%) vs 휴식일 목표 로 통일하여 혼란을 제거한다.
 function NetCalCard({ intake, exercise, targetK }) {
   const intk = Math.round(intake);
   const ex = Math.round(exercise);
-  const net = intk - ex;
-  const t = targetK || 1800;
+  const eatback = Math.round(ex * 0.5);        // 운동 50% 되먹기
+  const adj = intk - eatback;                  // 보정 섭취 (이 값으로 모든 판정)
+  const t = (targetK || 1800) - eatback;       // 휴식일 기본 목표 (effectiveTargetK에서 역산)
   const z1 = Math.round(t * 0.75), z2 = Math.round(t * 0.90);
   let status, color, emoji;
-  if (intk < z1) { status = "너무 적음"; color = "#e05252"; emoji = "🔴"; }
-  else if (intk < z2) { status = "공격적"; color = "#d4af37"; emoji = "🟡"; }
-  else if (intk <= t) { status = "적정"; color = "#5a9e6f"; emoji = "🟢"; }
+  if (adj < z1) { status = "너무 적음"; color = "#e05252"; emoji = "🔴"; }
+  else if (adj < z2) { status = "공격적"; color = "#d4af37"; emoji = "🟡"; }
+  else if (adj <= t) { status = "적정"; color = "#5a9e6f"; emoji = "🟢"; }
   else { status = "초과"; color = "#d4af37"; emoji = "🟠"; }
 
+  const pct = Math.min((adj / t) * 100, 100);
+  const over = adj > t;
+
   const zones = [
-    { l: "위험", r: `~${z1.toLocaleString()}`, c: "#e05252", bg: "rgba(224,82,82,0.1)", active: intk < z1 },
-    { l: "주의", r: `${z1.toLocaleString()}~${z2.toLocaleString()}`, c: "#d4af37", bg: "rgba(212,175,55,0.1)", active: intk >= z1 && intk < z2 },
-    { l: "적정", r: `${z2.toLocaleString()}~${t.toLocaleString()}`, c: "#5a9e6f", bg: "rgba(90,158,111,0.1)", active: intk >= z2 && intk <= t },
-    { l: "초과", r: `${t.toLocaleString()}~`, c: "#d4af37", bg: "rgba(212,175,55,0.1)", active: intk > t }
+    { l: "위험", r: `~${z1.toLocaleString()}`, c: "#e05252", bg: "rgba(224,82,82,0.1)", active: adj < z1 },
+    { l: "주의", r: `${z1.toLocaleString()}~${z2.toLocaleString()}`, c: "#d4af37", bg: "rgba(212,175,55,0.1)", active: adj >= z1 && adj < z2 },
+    { l: "적정", r: `${z2.toLocaleString()}~${t.toLocaleString()}`, c: "#5a9e6f", bg: "rgba(90,158,111,0.1)", active: adj >= z2 && adj <= t },
+    { l: "초과", r: `${t.toLocaleString()}~`, c: "#d4af37", bg: "rgba(212,175,55,0.1)", active: adj > t }
   ];
 
   return (
@@ -252,20 +256,23 @@ function NetCalCard({ intake, exercise, targetK }) {
       <div style={{ background: `${color}11`, border: `1px solid ${color}33`, borderRadius: 16, padding: "12px 14px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
-            <div style={{ fontSize: 11, color: "#707070", marginBottom: 2 }}>섭취 칼로리 (목표 {t.toLocaleString()})</div>
+            <div style={{ fontSize: 11, color: "#707070", marginBottom: 2 }}>보정 섭취 {emoji} <span style={{ color }}>{status}</span></div>
             <div style={{ fontSize: 22, fontWeight: 500, fontFamily: "monospace", color }}>
-              {intk.toLocaleString()} <span style={{ fontSize: 12, color: "#707070" }}>kcal</span>
+              {adj.toLocaleString()} <span style={{ fontSize: 12, color: "#707070" }}>kcal</span>
             </div>
           </div>
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 20 }}>{emoji}</div>
-            <div style={{ fontSize: 11, color }}>{status}</div>
+          <div style={{ textAlign: "right", fontSize: 11, color: "#707070", lineHeight: 1.5 }}>
+            <div>섭취 {intk.toLocaleString()}</div>
+            {ex > 0 && <div>− 운동50% {eatback.toLocaleString()}</div>}
           </div>
         </div>
-        <div style={{ marginTop: 8, fontSize: 12, color: "#707070", lineHeight: 1.5 }}>
-          {ex > 0
-            ? <>운동 <span style={{ color: "#4a8fc9" }}>{ex.toLocaleString()}</span>kcal 중 50%(<span style={{ color: "#5a9e6f" }}>+{Math.round(ex * 0.5).toLocaleString()}</span>)를 목표에 반영 · 실질 Net <span style={{ color: "#f5f5f0" }}>{net.toLocaleString()}</span></>
-            : <>운동을 기록하면 소모의 50%가 목표에 가산됩니다</>}
+        {/* 진행 막대 (A안: 양 끝에 현재치 / 목표치) */}
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, fontFamily: "monospace", marginTop: 10, marginBottom: 4 }}>
+          <span style={{ color, fontWeight: 600 }}>현재 {adj.toLocaleString()}</span>
+          <span style={{ color: "#707070" }}>목표 {t.toLocaleString()}{over && <span style={{ color: "#e05252", marginLeft: 4 }}>(+{(adj - t).toLocaleString()})</span>}</span>
+        </div>
+        <div style={{ height: 10, background: "#2a2a2a", borderRadius: 5, overflow: "hidden" }}>
+          <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 5, transition: "width 0.4s" }} />
         </div>
       </div>
       <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
