@@ -1336,7 +1336,15 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
     const dW = Math.round((to.weight - from.weight) * 10) / 10;
     const dF = Math.round((to.fatPct - from.fatPct) * 10) / 10;
     const dM = Math.round((to.muscle - from.muscle) * 10) / 10;
-    const spark = periodEntries.slice(-8);
+    // 선택 기간 전체를 스파크라인에 반영 (점이 많으면 균등 샘플링으로 최대 24개)
+    const MAX_SPARK = 24;
+    let spark;
+    if (periodEntries.length <= MAX_SPARK) {
+      spark = periodEntries;
+    } else {
+      const step = (periodEntries.length - 1) / (MAX_SPARK - 1);
+      spark = Array.from({ length: MAX_SPARK }, (_, i) => periodEntries[Math.round(i * step)]);
+    }
     const gW = dW <= 0, gF = dF <= 0, gM = dM >= 0;
     const gc = (gW ? 1 : 0) + (gF ? 1 : 0) + (gM ? 1 : 0);
     const pLabel = { "1w": "1주", "1m": "1개월", "3m": "3개월", "all": "전체" }[summaryPeriod];
