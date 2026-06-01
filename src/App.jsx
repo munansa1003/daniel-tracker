@@ -1348,12 +1348,54 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
     const gW = dW <= 0, gF = dF <= 0, gM = dM >= 0;
     const gc = (gW ? 1 : 0) + (gF ? 1 : 0) + (gM ? 1 : 0);
     const pLabel = { "1w": "1주", "1m": "1개월", "3m": "3개월", "all": "전체" }[summaryPeriod];
+
+    // 같은 기간(측정 from~to)의 식단/운동 집계 — 코멘트 근거로 사용
+    let diet = null;
+    if (allDays) {
+      let tK = 0, tP = 0, tEx = 0, exDays = 0, n = 0;
+      Object.entries(allDays).forEach(([d, day]) => {
+        if (d >= from.date && d <= to.date && isCompletedDay(d)) {
+          const a = aggregateDay(day);
+          if (a.k > 0) { tK += a.k; tP += a.p; n++; }
+          if (a.ex > 0) { tEx += a.ex; exDays++; }
+        }
+      });
+      if (n > 0) diet = { avgK: Math.round(tK / n), avgP: Math.round(tP / n), avgEx: exDays > 0 ? Math.round(tEx / exDays) : 0, exDays, days: n };
+    }
+
+    // ── 풍부한 코멘트 생성 (규칙 기반) ──
     let status, sColor;
-    if (gc === 3) { status = `${pLabel} 리컴프 진행 중! 체중↓ 체지방↓ 골격근↑`; sColor = "#5a9e6f"; }
-    else if (gc >= 2) { const bad = !gW ? "체중↑" : !gF ? "체지방↑" : "골격근↓"; status = `${pLabel} 전반적 양호 · ${bad} 주의`; sColor = "#d4af37"; }
-    else { status = `${pLabel} 관리가 필요합니다`; sColor = "#e05252"; }
-    return { from, to, dW, dF, dM, spark, dateLabel: from.date.slice(5) + " → " + to.date.slice(5), cnt: periodEntries.length, status, sColor, gW, gF, gM };
-  }, [bodyLog, summaryPeriod]);
+    const head = gc === 3 ? `${pLabel} 리컴프 진행 중 💪` : gc >= 2 ? `${pLabel} 전반적으로 양호` : `${pLabel} 관리가 필요해요`;
+    sColor = gc === 3 ? "#5a9e6f" : gc >= 2 ? "#d4af37" : "#e05252";
+
+    // 변화 요약 (방향 + 수치)
+    const chg = [];
+    if (dW !== 0) chg.push(`체중 ${dW > 0 ? "+" : ""}${dW}kg`);
+    if (dF !== 0) chg.push(`체지방 ${dF > 0 ? "+" : ""}${dF}%p`);
+    if (dM !== 0) chg.push(`골격근 ${dM > 0 ? "+" : ""}${dM}kg`);
+    const chgStr = chg.length ? chg.join(" · ") : "변화 거의 없음";
+
+    // 원인/조언 (식단·운동 데이터 연계)
+    let advice = "";
+    if (diet) {
+      const overK = diet.avgK - targets.k;
+      const pOk = diet.avgP >= targets.p * 0.9;
+      if (!gW || !gF) {
+        // 체중/체지방이 늘었거나 안 빠진 경우 → 섭취 점검
+        if (overK > 80) advice = `일평균 섭취 ${diet.avgK.toLocaleString()}kcal로 목표(${targets.k.toLocaleString()})보다 ${overK}kcal 높았어요. 총량을 줄이면 개선됩니다.`;
+        else advice = `섭취는 목표 부근(${diet.avgK.toLocaleString()}kcal)이었어요. 기록 누락이나 활동량을 점검해보세요.`;
+        if (pOk) advice += ` 단백질(${diet.avgP}g)은 충분했습니다.`;
+      } else if (gc === 3) {
+        advice = `일평균 ${diet.avgK.toLocaleString()}kcal·단백질 ${diet.avgP}g, 운동 ${diet.exDays}일. 지금 페이스가 이상적이에요!`;
+      } else {
+        advice = `일평균 섭취 ${diet.avgK.toLocaleString()}kcal·단백질 ${diet.avgP}g, 운동 ${diet.exDays}일 기록.`;
+        if (!pOk) advice += ` 단백질이 목표(${targets.p}g)보다 부족하니 보충해보세요.`;
+      }
+    }
+
+    status = advice ? `${head} — ${chgStr}. ${advice}` : `${head} — ${chgStr}.`;
+    return { from, to, dW, dF, dM, spark, dateLabel: from.date.slice(5) + " → " + to.date.slice(5), cnt: periodEntries.length, status, sColor, gW, gF, gM, diet };
+  }, [bodyLog, summaryPeriod, allDays, targets]);
 
   // 주간 날짜 배열 (월~일) 구하기, offset만큼 과거로 이동
   const getWeekDates = useCallback((dateStr, offset = 0) => {
@@ -1816,8 +1858,8 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
                 );
               })}
             </div>
-            <div style={{ marginTop: 10, background: `${periodSummary.sColor}0F`, border: `0.5px solid ${periodSummary.sColor}25`, borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
-              <span style={{ fontSize: 11, color: periodSummary.sColor }}>{periodSummary.status}</span>
+            <div style={{ marginTop: 10, background: `${periodSummary.sColor}0F`, border: `0.5px solid ${periodSummary.sColor}25`, borderRadius: 8, padding: "10px 12px" }}>
+              <span style={{ fontSize: 11.5, color: periodSummary.sColor, lineHeight: 1.6 }}>{periodSummary.status}</span>
             </div>
           </>) : (
             <div style={{ textAlign: "center", padding: 20 }}>
