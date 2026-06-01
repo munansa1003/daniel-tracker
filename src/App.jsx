@@ -2630,30 +2630,30 @@ function MainApp({ user, onLogout }) {
     await store.set("goals", newGoals);
   };
 
-  // 어제 기록 복사 (개별) — 시간은 현재 선택된 시간 사용
+  // 어제 기록 복사 (개별) — 어제 원래 시간 유지 (시간 없는 옛 데이터는 현재 시간 폴백)
   const copyMealFromYesterday = (meal) => {
-    const entry = { ...meal, ts: Date.now(), hour: parseInt(mealHour) || nowHour() };
+    const entry = { ...meal, ts: Date.now(), hour: meal.hour ?? (parseInt(mealHour) || nowHour()) };
     const nm = sortByHour([...meals, entry]);
     setMeals(nm); saveDay(date, nm, exercises);
   };
 
   const copyExFromYesterday = (ex) => {
-    const entry = { ...ex, ts: Date.now(), hour: parseInt(exHour) || nowHour() };
+    const entry = { ...ex, ts: Date.now(), hour: ex.hour ?? (parseInt(exHour) || nowHour()) };
     const ne = sortByHour([...exercises, entry]);
     setExercises(ne); saveDay(date, meals, ne);
   };
 
-  // 어제 전체 복사 — 시간은 현재 선택된 시간 사용
+  // 어제 전체 복사 — 각 항목의 어제 원래 시간 유지
   const copyAllMealsFromYesterday = () => {
-    const hour = parseInt(mealHour) || nowHour();
-    const newMeals = yesterdayData.meals.map(m => ({ ...m, ts: Date.now(), hour }));
+    const fallback = parseInt(mealHour) || nowHour();
+    const newMeals = yesterdayData.meals.map(m => ({ ...m, ts: Date.now(), hour: m.hour ?? fallback }));
     const nm = sortByHour([...meals, ...newMeals]);
     setMeals(nm); saveDay(date, nm, exercises);
   };
 
   const copyAllExFromYesterday = () => {
-    const hour = parseInt(exHour) || nowHour();
-    const newEx = yesterdayData.exercises.map(e => ({ ...e, ts: Date.now(), hour }));
+    const fallback = parseInt(exHour) || nowHour();
+    const newEx = yesterdayData.exercises.map(e => ({ ...e, ts: Date.now(), hour: e.hour ?? fallback }));
     const ne = sortByHour([...exercises, ...newEx]);
     setExercises(ne); saveDay(date, meals, ne);
   };
