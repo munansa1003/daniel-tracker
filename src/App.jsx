@@ -3055,31 +3055,6 @@ function MainApp({ user, onLogout }) {
                 </div>
               ))}
             </div>
-            {/* 매크로 스마트 안내 — 칼로리 상태와 탄수 부족이 충돌할 때 혼란 방지 */}
-            {(() => {
-              const adjIntake = Math.round(totals.k - exTotal * 0.5);   // 보정 섭취
-              const calLeft = TARGETS.k - adjIntake;                    // 남은 칼로리(보정 기준)
-              const carbShort = adjustedC - totals.c;                   // 탄수 부족분
-              const fatOver = totals.f - TARGETS.f;                     // 지방 초과분
-              if (carbShort > 15 && calLeft <= 60) {
-                // 탄수는 부족해 보이지만 칼로리 여유가 거의 없음 → 추가 섭취 불필요
-                return (
-                  <div style={{ fontSize: 11, color: "#7fc99a", background: "rgba(90,158,111,0.08)", border: "1px solid rgba(90,158,111,0.2)", borderRadius: 8, padding: "8px 10px", marginBottom: 12, lineHeight: 1.5 }}>
-                    ✅ 칼로리가 거의 찼어요 — 탄수가 목표보다 적어도 추가로 먹지 않아도 됩니다.
-                    {fatOver > 5 && <> 탄수를 늘리고 싶다면 지방(+{Math.round(fatOver)}g 초과)을 줄여 바꿔보세요.</>}
-                  </div>
-                );
-              }
-              if (carbShort > 15 && calLeft > 60) {
-                // 진짜로 더 먹을 여유가 있음
-                return (
-                  <div style={{ fontSize: 11, color: "#d4af37", background: "rgba(212,175,55,0.08)", border: "1px solid rgba(212,175,55,0.2)", borderRadius: 8, padding: "8px 10px", marginBottom: 12, lineHeight: 1.5 }}>
-                    🍚 약 {calLeft}kcal 여유 — 탄수 {Math.round(carbShort)}g 정도 더 채워도 좋아요.
-                  </div>
-                );
-              }
-              return null;
-            })()}
             <ProgressBar value={totals.k} max={effectiveTargetK} color="#5a9e6f" label="섭취 칼로리" unit="kcal" />
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, padding: "8px 0" }}>
               <span style={{ fontSize: 13, color: "#8a8a8a" }}>운동 소모</span>
