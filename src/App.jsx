@@ -2630,15 +2630,15 @@ function MainApp({ user, onLogout }) {
     await store.set("goals", newGoals);
   };
 
-  // 어제 기록 복사 (개별) — 어제 원래 시간 유지 (시간 없는 옛 데이터는 현재 시간 폴백)
+  // 어제 기록 복사 (개별) — 식단/운동만 추가, 시간은 현재 선택 시간 사용
   const copyMealFromYesterday = (meal) => {
-    const entry = { ...meal, ts: Date.now(), hour: meal.hour ?? (parseInt(mealHour) || nowHour()) };
+    const entry = { ...meal, ts: Date.now(), hour: parseInt(mealHour) || nowHour() };
     const nm = sortByHour([...meals, entry]);
     setMeals(nm); saveDay(date, nm, exercises);
   };
 
   const copyExFromYesterday = (ex) => {
-    const entry = { ...ex, ts: Date.now(), hour: ex.hour ?? (parseInt(exHour) || nowHour()) };
+    const entry = { ...ex, ts: Date.now(), hour: parseInt(exHour) || nowHour() };
     const ne = sortByHour([...exercises, entry]);
     setExercises(ne); saveDay(date, meals, ne);
   };
