@@ -3358,7 +3358,7 @@ function MainApp({ user, onLogout }) {
             )}
           </div>}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-            <span style={{ fontSize: 13, color: "#707070" }}>오늘 기록 ({meals.length}건)</span>
+            <span style={{ fontSize: 13, color: "#707070" }}>오늘 기록 (섭취: {Math.round(totals.k).toLocaleString()}kcal)</span>
             {meals.length > 0 && <span style={{ fontSize: 10, color: "#4a4a4a" }}>꾹 눌러서 수정/삭제</span>}
           </div>
           {groupMealsByTime(meals).map((group) => {
