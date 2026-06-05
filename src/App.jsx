@@ -1423,7 +1423,8 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
         if (!dd || ((!dd.meals || !dd.meals.length) && (!dd.exercises || !dd.exercises.length)))
           return { date: ds, label: dayLabels[i], has: false, pHit: false, dHit: false, eHit: false, isToday };
         const a = aggregateDay(dd);
-        const ph = a.p >= targets.p, dh = a.k <= targets.k + a.ex * 0.5, eh = (dd.exercises || []).length > 0;
+        // 판정은 화면 표시값(반올림) 기준 — 표시가 목표와 같으면 달성으로 직관 일치
+        const ph = Math.round(a.p) >= targets.p, dh = Math.round(a.k) <= targets.k + Math.round(a.ex * 0.5), eh = (dd.exercises || []).length > 0;
         const lateEat = (dd.meals || []).some(m => (m.hour || 0) >= 22);
         // 오늘은 미완성이므로 평균/카운트에서 제외 (시각화에는 isToday 플래그로 별도 표시)
         if (!isToday) {
@@ -1512,8 +1513,8 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
         if (!dd || ((!dd.meals || !dd.meals.length) && (!dd.exercises || !dd.exercises.length))) return;
         const a = aggregateDay(dd);
         n++;
-        if (a.p >= targets.p) pDays++;
-        if (a.k <= targets.k + a.ex * 0.5) dDays++;
+        if (Math.round(a.p) >= targets.p) pDays++;
+        if (Math.round(a.k) <= targets.k + Math.round(a.ex * 0.5)) dDays++;
         if ((dd.exercises || []).length > 0) eDays++;
       });
       const isCurrent = offset === 0;
@@ -2986,7 +2987,7 @@ function MainApp({ user, onLogout }) {
                 const pF = a ? Math.min(a.f / TARGETS.f, 1) : 0;
                 // 오늘은 미완성이므로 적자/초과 판정 dot을 보이지 않음 (false positive 방지)
                 // 영양소 ring은 진행률 의미로 자연스러우므로 그대로 표시
-                const calOk = a && !isToday ? a.k <= TARGETS.k + a.ex * 0.5 : null;
+                const calOk = a && !isToday ? Math.round(a.k) <= TARGETS.k + Math.round(a.ex * 0.5) : null;
                 const hasData = !!a && a.k > 0;
                 const dow = (offset + i) % 7;
                 return (
