@@ -1,7 +1,7 @@
 # ARCHITECTURE.md — Daniel Tracker 인수인계 문서
 
 > 새 Claude Code 세션(또는 다른 개발자)이 이 저장소 작업을 이어받을 때 읽는 문서.
-> 마지막 갱신: 2026-06 (PR #16까지 반영). **코드와 이 문서가 어긋나면 코드가 진실.**
+> 마지막 갱신: 2026-06 (Phase 0~2 리팩토링 반영). **코드와 이 문서가 어긋나면 코드가 진실.**
 
 ---
 
@@ -18,18 +18,25 @@
 | 배포 | main에 머지 → Vercel 자동 배포 (https://daniel-tracker.vercel.app) |
 | 사용자 프로필 | 175cm · 1984년생(42세) · ~77kg · 목표: 근육 유지하며 완만~표준 감량 |
 
-**테스트/린트/TS 없음** — 빌드 성공이 변수 참조 오류를 잡아주지 못함(아래 §6 주의).
+**린트/TS 없음, 테스트는 Vitest** (`npm test`) — 빌드 성공이 변수 참조 오류를 잡아주지 못하므로(아래 §6 주의) 순수 함수 단위 테스트 + App 렌더 스모크 테스트가 안전망.
 
 ## 2. 파일 구조
 
 ```
 src/
-├── App.jsx      ★ 3,750줄 단일 파일. 전체 UI+로직 (분리 대상)
-├── store.js     Firestore 우선 + localStorage 폴백 get/set. 키: day:YYYY-MM-DD, bodylog, goals 등
-├── firebase.js  Firebase 초기화 + App Check(reCAPTCHA v3, VITE_RECAPTCHA_SITE_KEY)
-├── data.js      기본 음식/운동 DB, DEFAULT_TARGETS, COLORS
-└── main.jsx     진입점
-api/             서버리스 (analyze-food/exercise/body, verify-master, _lib/security.js)
+├── App.jsx          ★ ~2,950줄. BodyTab + StatsTab + App + MainApp (Phase 3 분리 대상)
+├── theme.jsx        THEME, GlobalStyles(dbp-* 전역 CSS), PROFILE_COLORS
+├── utils.js         순수 함수 14종 (§4 참조) — 부수효과·의존성 없음
+├── hooks/
+│   └── useLongPress.js
+├── components/      소형 컴포넌트 11개 (§4 참조)
+├── __tests__/       utils.test.js, netcalcard.test.jsx, app.smoke.test.jsx
+├── store.js         Firestore 우선 + localStorage 폴백 get/set. 키: day:YYYY-MM-DD, bodylog, goals 등
+├── firebase.js      Firebase 초기화 + App Check(reCAPTCHA v3, VITE_RECAPTCHA_SITE_KEY)
+├── data.js          기본 음식/운동 DB, DEFAULT_TARGETS, COLORS
+└── main.jsx         진입점
+api/                 서버리스 (analyze-food/exercise/body, verify-master, _lib/security.js)
+vitest.config.js     테스트 전용 설정 (PWA 플러그인 미로딩)
 ```
 
 ## 3. ★ 칼로리·매크로 설계 (가장 중요한 도메인 지식 — 절대 임의 변경 금지)
@@ -44,7 +51,7 @@ BMR = Mifflin-St Jeor (10W + 6.25H − 5A + 5)
 단백질 P = W × 2.2 (g)            ← LBM당 2.8g/kg, 근보존 상단. 고정
 지방   F = W × 0.6 (g)            ← 0.8에서 하향(탄수 확보 목적). 최소 0.5 이상 유지할 것
 탄수   C = (K − P×4 − F×9) ÷ 4   ← "나머지" 구조 (의도됨)
-체중 W = 이달 체성분 월평균 (없으면 최신값 → 77.5 폴백). MainApp의 TARGETS useMemo(~2700행)
+체중 W = 이달 체성분 월평균 (없으면 최신값 → 77.5 폴백). MainApp의 TARGETS useMemo(App.jsx ~1900행)
 ```
 
 ### 운동 50% 되먹기 (핵심 컨셉)
@@ -54,62 +61,73 @@ BMR = Mifflin-St Jeor (10W + 6.25H − 5A + 5)
 
 ### 판정 규칙 (전 화면 통일 — PR #6, #8, #16)
 - **단일 부등식**: `섭취 ≤ 목표K + 운동×0.5` (⟺ 보정섭취 ≤ 기본목표, 수학적 동치)
-- 적용처: 홈 헤더 색(~3044), NetCalCard(~231), 섭취 ProgressBar(max=effectiveTargetK), 통계 주간성적표 pHit/dHit(~1427, ~1516), 달력 calOk(~2990)
+- 적용처: 홈 헤더 색, components/NetCalCard.jsx, 섭취 ProgressBar(max=effectiveTargetK), 통계 주간성적표 pHit/dHit(StatsTab 내), 달력 calOk(MainApp 내)
 - **반올림 규칙(PR #16)**: 판정은 반드시 `Math.round(표시값)` 기준 — 화면에 170으로 보이면 달성. 원본 소수로 비교하면 "표시 170인데 미달" 버그 재발함
 - NetCalCard 신호등 구간: t=기본목표 기준 위험<0.75t / 주의<0.90t / 적정≤t / 초과>t (폭이 좁은 건 사용자가 인지하고 유지 결정)
 
-### 시간대 (PR #2) — 단일 소스 `TIME_PERIODS` (~141행)
+### 시간대 (PR #2) — 단일 소스 `TIME_PERIODS` (src/utils.js)
 새벽 0-5 / 아침 6-10 / 점심 11-16 / 저녁 17-20 / 야간 21-23. 그룹핑·시간드롭다운 모두 `periodOf()` 사용. 통계의 "야식 22시+"는 별개 지표(의도).
 
 ### 어제 복사 (PR #12, #14)
 - 개별 항목 클릭 = **현재 시간**으로 추가 / "전체 복사" = **어제 원래 시간** 유지
 
-## 4. 컴포넌트 지도 (2026-06 기준 라인)
+## 4. 컴포넌트 지도 (2026-06 Phase 0~2 반영)
+
+### 분리된 모듈
+
+| 파일 | 심볼 | 비고 |
+|------|------|------|
+| theme.jsx | THEME, GlobalStyles, PROFILE_COLORS | THEME **40+곳에서 사용**. GlobalStyles는 전역 CSS(`dbp-*`, keyframes) 주입 — App 최상단 렌더 필수 |
+| utils.js | today, nowHour, isCompletedDay, calcTargets, sortByHour, TIME_PERIODS, periodOf, groupMealsByTime, groupExercisesByTime, aggregateDay, calcMovingAvg, getWeekKey, getMonthKey, getYearKey | 전부 순수 함수. calcTargets는 §3 참조 |
+| hooks/useLongPress.js | useLongPress | BodyTab·MainApp 사용 |
+| components/LongPressActionBar.jsx | LongPressActionBar | |
+| components/Modal.jsx | Modal | 14곳 사용 |
+| components/ProgressBar.jsx | ProgressBar | |
+| components/MiniDonut.jsx | MiniDonut | recharts PieChart/Pie/Cell/ResponsiveContainer 사용 |
+| components/NetCalCard.jsx | NetCalCard | 보정섭취+막대+신호등 (PR #8). netcalcard.test.jsx가 경계값 보호 |
+| components/AddFoodForm.jsx | AddFoodForm | COLORS(data.js) 사용 |
+| components/AddExForm.jsx | AddExForm | **weight prop 필요** |
+| components/EditMealForm.jsx | EditMealForm | periodOf 사용 |
+| components/EditExForm.jsx | EditExForm | **weight prop 필요**, periodOf 사용 |
+| components/ProfileSetup.jsx | ProfileSetup | PROFILE_COLORS 사용 |
+| components/LoginScreen.jsx | LoginScreen + 비밀번호 해싱 유틸(비공개) | PBKDF2-SHA256 10만회 + 레거시 SHA-256/평문 호환(PR #1)은 LoginScreen만 사용해 같은 파일에 module-private으로 둠. store의 프로필 CRUD 사용 |
+
+### App.jsx에 남은 것 (~2,950줄, 라인은 2026-06 기준)
 
 | 라인 | 심볼 | 비고 |
 |---:|------|------|
-| 7 | THEME | 모듈 상수. **40+곳에서 사용** |
-| 16 | GlobalStyles | 전역 CSS(`dbp-*` 클래스, keyframes) 주입. App 최상단 렌더 필수 |
-| 63-90 | 비밀번호 해싱 유틸 | PBKDF2-SHA256 10만회 + 레거시 SHA-256/평문 호환 (PR #1) |
-| 125 | calcTargets | §3 참조 |
-| 136-171 | sortByHour, TIME_PERIODS, periodOf, groupMeals/ExercisesByTime | |
-| 174 / 185 | LongPressActionBar / useLongPress | |
-| 231 | NetCalCard | 보정섭취+막대+신호등 (PR #8) |
-| 291 / 314 | ProgressBar / MiniDonut | |
-| 339 / 557 | LoginScreen / ProfileSetup | store의 프로필 CRUD 사용 |
-| 619 | Modal | 14곳 사용 |
-| 637-795 | AddFoodForm, AddExForm, EditMealForm, EditExForm | AddExForm/EditExForm은 weight prop 필요 |
-| 796 | BodyTab (~490줄) | 차트 기간선택+날짜비례 X축(PR #7), AI 코칭, store 직접 접근 |
-| 1288-1308 | aggregateDay, calcMovingAvg, getWeek/Month/YearKey | |
-| 1311 | StatsTab (~1100줄) | **내부에 DotMatrix·sparklinePath 중첩 정의** — 추출 시 통째로 |
-| 2416 | App (default export) | 세션 복원 |
-| 2450 | MainApp (~1300줄) | 오케스트레이터. 상태 허브. **분리 대상 아님** |
+| 20 | BodyTab (~490줄) | 차트 기간선택+날짜비례 X축(PR #7), AI 코칭, store 직접 접근. Phase 3 대상 |
+| 512 | StatsTab (~1100줄) | **내부에 DotMatrix·sparklinePath 중첩 정의** — 추출 시 통째로. Phase 3 대상 |
+| 1617 | App (default export) | 세션 복원 |
+| 1651 | MainApp (~1300줄) | 오케스트레이터. 상태 허브. **분리 대상 아님** |
 
 ## 5. 리팩토링 계획 (합의된 점진 방식 — 빅뱅 금지)
 
-### Phase 0 — 테스트 먼저 ⭐ (분리 전 필수 안전망)
-- Vitest 도입(`npm i -D vitest`, package.json에 `"test": "vitest"`)
-- 순수 함수 단위 테스트: `calcTargets`(1.05/−175/매크로 정합), `aggregateDay`, `periodOf`(0~23 전체 매핑), 신호등 판정 경계값, `getWeekKey`, 반올림 판정 규칙
+### Phase 0 — 테스트 먼저 ⭐ ✅ 완료 (2026-06)
+- Vitest 도입(`"test": "vitest"`), happy-dom(렌더 스모크용)
+- `src/__tests__/utils.test.js`: calcTargets(1.05/−175/매크로 정합), periodOf(0~23 전체), aggregateDay, getWeekKey
+- `src/__tests__/netcalcard.test.jsx`: 신호등 경계값(0.75t/0.90t/t), 반올림 판정(PR #16), 운동 50% 되먹기 — 실렌더링(renderToStaticMarkup) 검증
+- `src/__tests__/app.smoke.test.jsx`: App→MainApp 마운트 + 5개 탭 전환 (import 누락 → 흰 화면 방어)
 - 효과: §3의 캘리브레이션 값이 실수로 깨지면 즉시 검출
 
-### Phase 1 — 순수 모듈 추출 (위험 0)
-- `src/theme.js`: THEME, PROFILE_COLORS, GlobalStyles
+### Phase 1 — 순수 모듈 추출 ✅ 완료 (2026-06)
+- `src/theme.jsx`: THEME, PROFILE_COLORS, GlobalStyles (GlobalStyles가 JSX라 .jsx 확장자)
 - `src/utils.js`: today, nowHour, isCompletedDay, calcTargets, sortByHour, TIME_PERIODS, periodOf, groupMealsByTime, groupExercisesByTime, aggregateDay, calcMovingAvg, getWeek/Month/YearKey
 - `src/hooks/useLongPress.js`
 - App.jsx는 import로 대체. **순수 이동 — 로직 한 글자도 변경 금지**
 
-### Phase 2 — 소형 컴포넌트 (위험 낮음, 1개 추출 = 1커밋)
-순서: LongPressActionBar → Modal → ProgressBar → MiniDonut → NetCalCard → 폼 4종 → ProfileSetup → LoginScreen
-- 각 추출 후 `npm run build` + dev 화면 클릭 확인 후 다음으로
+### Phase 2 — 소형 컴포넌트 ✅ 완료 (2026-06, 1개 추출 = 1커밋)
+순서: LongPressActionBar → Modal → ProgressBar → MiniDonut → NetCalCard → 폼 4종 → ProfileSetup → LoginScreen (비밀번호 유틸 동반 이동)
+- 각 추출 후 `npm run build` + `npm test` 통과 확인함
 
-### Phase 3 — 큰 탭 (선택, 별도 라운드)
+### Phase 3 — 큰 탭 (선택, 별도 라운드) ⬜ 미착수
 BodyTab → StatsTab 순. StatsTab은 중첩 컴포넌트 포함 통째 이동.
 
 ### App / MainApp 은 App.jsx에 유지 (추출 금지)
 
 ## 6. ⚠️ 지뢰 목록 (반드시 읽을 것)
 
-1. **빌드는 import 누락을 못 잡음** (TS/린트 없음). `THEME` import 빠뜨려도 빌드 ✓ → 런타임 흰 화면. 추출마다 **dev 서버에서 실제 클릭 확인** 필수
+1. **빌드는 import 누락을 못 잡음** (TS/린트 없음). `THEME` import 빠뜨려도 빌드 ✓ → 런타임 흰 화면. `npm test`의 app.smoke.test.jsx(5개 탭 전환)가 1차 방어, 추출마다 **dev 서버에서 실제 클릭 확인**도 권장
 2. **TARGETS 이름 3종**: `DEFAULT_TARGETS`(data.js import 별칭) / MainApp 지역 `TARGETS`(useMemo, 동적) / StatsTab의 `appTargets` prop. 잘못 연결하면 **에러 없이 숫자만 틀려짐**
 3. **recharts import 한 줄에 14개** — MiniDonut/BodyTab/StatsTab이 나눠 씀. 분리 시 어떤 차트가 어디 필요한지 정확히 갈라야 함
 4. **GlobalStyles의 `dbp-*` CSS 클래스** — 여러 컴포넌트가 className으로 사용. GlobalStyles가 항상 렌더돼야 애니메이션 동작
@@ -122,6 +140,7 @@ BodyTab → StatsTab 순. StatsTab은 중첩 컴포넌트 포함 통째 이동.
 
 ```bash
 npm install && npm run build     # 에러 0 + PWA 산출물(sw.js, manifest.webmanifest 각 1개)
+npm test                         # Vitest (CI/비대화형에선 1회 실행, 터미널에선 watch)
 npm run dev                      # localhost:5173
 ```
 수동 체크리스트(리팩토링 후): 로그인 → 홈(도넛 3개·섭취바·NetCalCard 신호등) → 식단 탭(추가/어제복사/시간대 그룹) → 운동 탭 → 체성분(차트 기간버튼·AI코칭 버튼 존재) → 통계(주간성적표·기간요약 코멘트·달력 dot) → DB관리/CSV 내보내기.
