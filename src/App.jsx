@@ -4,6 +4,7 @@ import store, { getCurrentUserId, setUserId, logout, getProfiles, saveProfiles, 
 import { DEFAULT_FOODS, DEFAULT_EX, TARGETS as DEFAULT_TARGETS, COLORS } from "./data.js";
 import { THEME, GlobalStyles, PROFILE_COLORS } from "./theme.jsx";
 import { today, nowHour, isCompletedDay, calcTargets, sortByHour, periodOf, groupMealsByTime, groupExercisesByTime, aggregateDay } from "./utils.js";
+import { useLongPress } from "./hooks/useLongPress.js";
 
 /* ───── 비밀번호 해싱 (평문 저장 방지 + brute-force 저항) ─────
    PBKDF2-HMAC-SHA256 (10만 회 반복) + 프로필별 랜덤 salt 사용.
@@ -78,51 +79,6 @@ function LongPressActionBar({ onEdit, onDelete, onCancel, color = "#d4af37" }) {
       <button onClick={onCancel} style={{ padding: "10px 14px", borderRadius: 8, fontSize: 12, fontWeight: 500, border: "none", cursor: "pointer", background: "#2a2a2a", color: "#8a8a8a" }}>취소</button>
     </div>
   );
-}
-
-// useLongPress 훅
-function useLongPress(delay = 400) {
-  const [selectedIdx, setSelectedIdx] = useState(null);
-  const timerRef = useRef(null);
-  const movedRef = useRef(false);
-  const firedRef = useRef(false);
-  const touchedRef = useRef(false);
-
-  // 언마운트 시 타이머 정리
-  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
-
-  const bind = useCallback((idx) => ({
-    onTouchStart: () => {
-      touchedRef.current = true;
-      movedRef.current = false;
-      firedRef.current = false;
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => {
-        if (!movedRef.current) { firedRef.current = true; setSelectedIdx(prev => prev === idx ? null : idx); }
-      }, delay);
-    },
-    onTouchMove: () => { movedRef.current = true; if (timerRef.current) clearTimeout(timerRef.current); },
-    onTouchEnd: () => { if (timerRef.current) clearTimeout(timerRef.current); },
-    onMouseDown: () => {
-      if (touchedRef.current) { touchedRef.current = false; return; }
-      movedRef.current = false;
-      firedRef.current = false;
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => { firedRef.current = true; setSelectedIdx(prev => prev === idx ? null : idx); }, delay);
-    },
-    onMouseUp: () => { if (timerRef.current) clearTimeout(timerRef.current); },
-    onMouseLeave: () => { if (timerRef.current) clearTimeout(timerRef.current); },
-    onContextMenu: (e) => e.preventDefault(),
-  }), [delay]);
-
-  const wasLongPress = useCallback(() => {
-    if (firedRef.current) { firedRef.current = false; return true; }
-    return false;
-  }, []);
-
-  const clear = useCallback(() => setSelectedIdx(null), []);
-
-  return { selectedIdx, bind, wasLongPress, clear };
 }
 
 // 칼로리 카드 (신호등 + 진행막대) — 운동 50% 되먹기를 '보정 섭취' 한 기준으로 일관 표시
