@@ -1,21 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-
-// App.jsx는 store.js(→ firebase.js)를 import하므로 노드 환경에서는 모킹이 필요하다.
-// Phase 1에서 순수 함수가 utils.js로 분리되면 이 모킹은 제거된다.
-vi.mock("../store.js", () => ({
-  default: {},
-  getCurrentUserId: () => null,
-  setUserId: () => {},
-  logout: () => {},
-  getProfiles: async () => [],
-  saveProfiles: async () => {},
-  getSharedFoods: async () => [],
-  addSharedFood: async () => [],
-  getSharedExercises: async () => [],
-  addSharedExercise: async () => [],
-}));
-
-import { calcTargets, periodOf, TIME_PERIODS, aggregateDay, getWeekKey } from "../App.jsx";
+import { describe, it, expect } from "vitest";
+import { calcTargets, periodOf, TIME_PERIODS, aggregateDay, getWeekKey } from "../utils.js";
 
 describe("calcTargets — 칼로리·매크로 목표 (캘리브레이션 값 보호)", () => {
   it("스모크: 체중 77.3 / 175cm / 42세 → K=1570, P=170, F=46, C=119", () => {
