@@ -1,21 +1,6 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-
-// App.jsx는 store.js(→ firebase.js)를 import하므로 노드 환경에서는 모킹이 필요하다.
-vi.mock("../store.js", () => ({
-  default: {},
-  getCurrentUserId: () => null,
-  setUserId: () => {},
-  logout: () => {},
-  getProfiles: async () => [],
-  saveProfiles: async () => {},
-  getSharedFoods: async () => [],
-  addSharedFood: async () => [],
-  getSharedExercises: async () => [],
-  addSharedExercise: async () => [],
-}));
-
-import { NetCalCard } from "../App.jsx";
+import { NetCalCard } from "../components/NetCalCard.jsx";
 
 // 신호등 이모지는 상태 표시줄에서만 사용되므로, 렌더 결과에서 이모지로 판정을 식별한다.
 const LIGHTS = ["🔴", "🟡", "🟢", "🟠"];
