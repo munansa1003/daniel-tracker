@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar, ComposedChart, Legend, ReferenceLine } from "recharts";
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar, ComposedChart, Legend, ReferenceLine } from "recharts";
 import store, { getCurrentUserId, setUserId, logout, getProfiles, saveProfiles, getSharedFoods, addSharedFood, getSharedExercises, addSharedExercise } from "./store.js";
 import { DEFAULT_FOODS, DEFAULT_EX, TARGETS as DEFAULT_TARGETS, COLORS } from "./data.js";
 import { THEME, GlobalStyles, PROFILE_COLORS } from "./theme.jsx";
@@ -8,6 +8,7 @@ import { useLongPress } from "./hooks/useLongPress.js";
 import { LongPressActionBar } from "./components/LongPressActionBar.jsx";
 import { Modal } from "./components/Modal.jsx";
 import { ProgressBar } from "./components/ProgressBar.jsx";
+import { MiniDonut } from "./components/MiniDonut.jsx";
 
 /* ───── 비밀번호 해싱 (평문 저장 방지 + brute-force 저항) ─────
    PBKDF2-HMAC-SHA256 (10만 회 반복) + 프로필별 랜덤 salt 사용.
@@ -130,27 +131,6 @@ export function NetCalCard({ intake, exercise, targetK }) {
           </div>
         ))}
       </div>
-    </div>
-  );
-}
-
-function MiniDonut({ value, max, color, size = 72 }) {
-  const over = value > max;
-  const darkColor = color === "#4a8fc9" ? "#1e3f66" : color === "#d4af37" ? "#7a4a10" : "#801818";
-  let data, colors;
-  if (!over) {
-    const pct = Math.min(value / max, 1);
-    data = [{ v: pct }, { v: 1 - pct }];
-    colors = [color, "#2a2a2a"];
-  } else {
-    const overPct = (value - max) / value;
-    const basePct = max / value;
-    data = [{ v: overPct }, { v: basePct }];
-    colors = [darkColor, color];
-  }
-  return (
-    <div style={{ width: size, height: size }}>
-      <ResponsiveContainer><PieChart><Pie data={data} dataKey="v" innerRadius="70%" outerRadius="100%" startAngle={90} endAngle={-270} stroke="none">{data.map((_, i) => <Cell key={i} fill={colors[i]} />)}</Pie></PieChart></ResponsiveContainer>
     </div>
   );
 }
