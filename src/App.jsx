@@ -122,7 +122,7 @@ async function verifyProfilePassword(profile, candidate) {
 // 평균 하루 적자 ≈ 400kcal(주 0.37kg)을 유지하면서 큰 운동일의 과한 적자/근손실을 방지한다.
 // 매크로: 단백질 2.2g/kg(근육 보존), 지방 0.6g/kg(호르몬 유지 최소선 이상), 나머지는 탄수.
 // (지방 0.8 → 0.6: 칼로리 인하 시 탄수가 과하게 짜부라지던 것을 완화 → 에너지/운동수행/지속성 개선)
-function calcTargets(weight, height = 175, age = 35) {
+export function calcTargets(weight, height = 175, age = 35) {
   const bmr = 10 * weight + 6.25 * height - 5 * age + 5;
   const baseMaintenance = bmr * 1.05;
   const k = Math.round(baseMaintenance - 175);
@@ -138,14 +138,14 @@ function sortByHour(arr) {
 }
 
 // 시간대 단일 기준 (식단/운동 그룹핑 + 시간 선택 라벨이 모두 이 정의를 사용)
-const TIME_PERIODS = [
+export const TIME_PERIODS = [
   { key: "dawn",    name: "새벽", emoji: "🌌", start: 0,  end: 5  },
   { key: "morning", name: "아침", emoji: "🌅", start: 6,  end: 10 },
   { key: "lunch",   name: "점심", emoji: "🌞", start: 11, end: 16 },
   { key: "dinner",  name: "저녁", emoji: "🌆", start: 17, end: 20 },
   { key: "night",   name: "야간", emoji: "🌃", start: 21, end: 23 },
 ];
-function periodOf(hour) {
+export function periodOf(hour) {
   const h = hour || 0;
   return TIME_PERIODS.find(p => h >= p.start && h <= p.end) || TIME_PERIODS[0];
 }
@@ -228,7 +228,7 @@ function useLongPress(delay = 400) {
 
 // 칼로리 카드 (신호등 + 진행막대) — 운동 50% 되먹기를 '보정 섭취' 한 기준으로 일관 표시
 // 판정/막대/신호등 모두 (섭취 − 운동50%) vs 휴식일 목표 로 통일하여 혼란을 제거한다.
-function NetCalCard({ intake, exercise, targetK }) {
+export function NetCalCard({ intake, exercise, targetK }) {
   const intk = Math.round(intake);
   const ex = Math.round(exercise);
   const eatback = Math.round(ex * 0.5);        // 운동 50% 되먹기
@@ -1285,7 +1285,7 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
 }
 
 /* ───── 유틸 ───── */
-function aggregateDay(d) {
+export function aggregateDay(d) {
   if (!d) return { p: 0, c: 0, f: 0, k: 0, ex: 0, net: 0 };
   let p = 0, c = 0, f = 0, k = 0, ex = 0;
   (d.meals || []).forEach(m => { const s = m.serving; p += m.p * s; c += m.c * s; f += m.f * s; k += m.k * s; });
@@ -1303,7 +1303,7 @@ function calcMovingAvg(data, key, window = 7) {
   });
 }
 
-function getWeekKey(ds) { const d = new Date(ds); const day = d.getDay() || 7; d.setDate(d.getDate() + 4 - day); const ys = new Date(d.getFullYear(), 0, 1); return `${d.getFullYear()}-W${String(Math.ceil((((d - ys) / 86400000) + 1) / 7)).padStart(2, "0")}`; }
+export function getWeekKey(ds) { const d = new Date(ds); const day = d.getDay() || 7; d.setDate(d.getDate() + 4 - day); const ys = new Date(d.getFullYear(), 0, 1); return `${d.getFullYear()}-W${String(Math.ceil((((d - ys) / 86400000) + 1) / 7)).padStart(2, "0")}`; }
 function getMonthKey(ds) { return ds.slice(0, 7); }
 function getYearKey(ds) { return ds.slice(0, 4); }
 
