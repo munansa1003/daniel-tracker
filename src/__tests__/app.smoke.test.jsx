@@ -53,6 +53,18 @@ describe("App 렌더 스모크", () => {
       await act(async () => { btn.click(); });
       expect(div.textContent.length, `"${label}" 탭 렌더`).toBeGreaterThan(0);
     }
+
+    // 헤더 날짜 버튼 → 달력 펼침: 달력 렌더 경로(B1 칩 포함)가 크래시 없이 동작하고
+    // 요일 헤더가 일요일 시작인지 확인 (첫 칸이 '일', 마지막이 '토')
+    const dateBtn = [...div.querySelectorAll("button")].find(b => b.textContent.includes("▼"));
+    expect(dateBtn, "헤더 날짜 버튼").toBeTruthy();
+    await act(async () => { dateBtn.click(); });
+    const dowCells = [...div.querySelectorAll("div")].filter(el =>
+      el.children.length === 7 && [...el.children].every(c => ["일","월","화","수","목","금","토"].includes(c.textContent)));
+    expect(dowCells.length, "요일 헤더 행").toBeGreaterThan(0);
+    const labels = [...dowCells[0].children].map(c => c.textContent);
+    expect(labels).toEqual(["일","월","화","수","목","금","토"]); // 일요일 시작
+
     await act(async () => { root.unmount(); });
   });
 });
