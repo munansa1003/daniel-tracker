@@ -2155,10 +2155,13 @@ function MainApp({ user, onLogout }) {
         const [calY, calM] = calMonth.split("-").map(Number);
         const firstDay = new Date(calY, calM - 1, 1).getDay();
         const daysInMonth = new Date(calY, calM, 0).getDate();
-        const offset = firstDay === 0 ? 6 : firstDay - 1;
+        const offset = firstDay;
         const todayStr = today();
         const prevMonth = () => { const d = new Date(calY, calM - 2, 1); setCalMonth(d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0")); };
         const nextMonth = () => { const d = new Date(calY, calM, 1); setCalMonth(d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0")); };
+        // 오늘로 가기: 선택일을 오늘로 되돌리고 달력을 닫는다. 이미 오늘·당월에 있으면 칩 숨김.
+        const goToday = () => { setDate(todayStr); setShowCalendar(false); };
+        const showTodayChip = calMonth !== todayStr.slice(0, 7) || date !== todayStr;
         const ring = (cx, cy, r, pct, color, sw = 2.5) => {
           const c = 2 * Math.PI * r;
           const p = Math.min(Math.max(pct, 0), 1);
@@ -2169,10 +2172,13 @@ function MainApp({ user, onLogout }) {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <span onClick={prevMonth} style={{ fontSize: 14, color: "#707070", cursor: "pointer", padding: "4px 8px" }}>◀</span>
               <span style={{ fontSize: 14, fontWeight: 500, color: "#f5f5f0" }}>{calY}년 {calM}월</span>
-              <span onClick={nextMonth} style={{ fontSize: 14, color: "#707070", cursor: "pointer", padding: "4px 8px" }}>▶</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                {showTodayChip && <button onClick={goToday} style={{ background: "rgba(212,175,55,0.15)", border: "1px solid rgba(212,175,55,0.35)", borderRadius: 12, color: "#d4af37", padding: "3px 9px", fontSize: 10, fontWeight: 600, cursor: "pointer" }}>⊙ 오늘</button>}
+                <span onClick={nextMonth} style={{ fontSize: 14, color: "#707070", cursor: "pointer", padding: "4px 8px" }}>▶</span>
+              </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 1, marginBottom: 4 }}>
-              {["월", "화", "수", "목", "금", "토", "일"].map(d => <div key={d} style={{ textAlign: "center", fontSize: 9, color: d === "토" || d === "일" ? "#707070" : "#4a4a4a", padding: "2px 0" }}>{d}</div>)}
+              {["일", "월", "화", "수", "목", "금", "토"].map(d => <div key={d} style={{ textAlign: "center", fontSize: 9, color: d === "토" || d === "일" ? "#707070" : "#4a4a4a", padding: "2px 0" }}>{d}</div>)}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 2 }}>
               {Array.from({ length: offset }, (_, i) => <div key={"e" + i} />)}
@@ -2193,7 +2199,7 @@ function MainApp({ user, onLogout }) {
                 const dow = (offset + i) % 7;
                 return (
                   <div key={day} onClick={() => { setDate(ds); setShowCalendar(false); }} style={{ textAlign: "center", cursor: "pointer", padding: "1px 0" }}>
-                    <div style={{ fontSize: 7, color: isToday ? "#d4af37" : isSelected ? "#f5f5f0" : dow >= 5 ? "#707070" : "#4a4a4a", fontWeight: isToday ? 500 : 400, marginBottom: 1 }}>{day}</div>
+                    <div style={{ fontSize: 7, color: isToday ? "#d4af37" : isSelected ? "#f5f5f0" : (dow === 0 || dow === 6) ? "#707070" : "#4a4a4a", fontWeight: isToday ? 500 : 400, marginBottom: 1 }}>{day}</div>
                     <div style={{ position: "relative", display: "inline-block" }}>
                       {isToday && <div style={{ position: "absolute", top: -2, left: -2, right: -2, bottom: -2, border: "1.5px solid rgba(212,175,55,0.4)", borderRadius: "50%" }} />}
                       <svg width="36" height="36" viewBox="0 0 36 36" style={{ opacity: hasData ? 1 : 0.3 }}>
