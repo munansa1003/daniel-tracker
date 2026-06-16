@@ -555,15 +555,16 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, targetsByM
     // 같은 기간(측정 from~to)의 식단/운동 집계 — 코멘트 근거로 사용
     let diet = null;
     if (allDays) {
-      let tK = 0, tP = 0, tEx = 0, exDays = 0, n = 0;
+      let tK = 0, tP = 0, tEx = 0, tTk = 0, exDays = 0, n = 0;
       Object.entries(allDays).forEach(([d, day]) => {
         if (d >= from.date && d <= to.date && isCompletedDay(d)) {
           const a = aggregateDay(day);
-          if (a.k > 0) { tK += a.k; tP += a.p; n++; }
+          // 목표 비교는 그 날의 모드 목표를 평균(기간이 감량↔유지 전환을 걸쳐도 정확)
+          if (a.k > 0) { tK += a.k; tP += a.p; tTk += dayTargets(day.mode || "cut").k; n++; }
           if (a.ex > 0) { tEx += a.ex; exDays++; }
         }
       });
-      if (n > 0) diet = { avgK: Math.round(tK / n), avgP: Math.round(tP / n), avgEx: exDays > 0 ? Math.round(tEx / exDays) : 0, exDays, days: n };
+      if (n > 0) diet = { avgK: Math.round(tK / n), avgP: Math.round(tP / n), avgTk: Math.round(tTk / n), avgEx: exDays > 0 ? Math.round(tEx / exDays) : 0, exDays, days: n };
     }
 
     // ── 풍부한 코멘트 생성 (규칙 기반) ──
@@ -581,11 +582,11 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, targetsByM
     // 원인/조언 (식단·운동 데이터 연계)
     let advice = "";
     if (diet) {
-      const overK = diet.avgK - targets.k;
+      const overK = diet.avgK - diet.avgTk;
       const pOk = diet.avgP >= targets.p * 0.9;
       if (!gW || !gF) {
         // 체중/체지방이 늘었거나 안 빠진 경우 → 섭취 점검
-        if (overK > 80) advice = `일평균 섭취 ${diet.avgK.toLocaleString()}kcal로 목표(${targets.k.toLocaleString()})보다 ${overK}kcal 높았어요. 총량을 줄이면 개선됩니다.`;
+        if (overK > 80) advice = `일평균 섭취 ${diet.avgK.toLocaleString()}kcal로 목표(${diet.avgTk.toLocaleString()})보다 ${overK}kcal 높았어요. 총량을 줄이면 개선됩니다.`;
         else advice = `섭취는 목표 부근(${diet.avgK.toLocaleString()}kcal)이었어요. 기록 누락이나 활동량을 점검해보세요.`;
         if (pOk) advice += ` 단백질(${diet.avgP}g)은 충분했습니다.`;
       } else if (gc === 3) {
@@ -598,7 +599,7 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, targetsByM
 
     status = advice ? `${head} — ${chgStr}. ${advice}` : `${head} — ${chgStr}.`;
     return { from, to, dW, dF, dM, spark, dateLabel: from.date.slice(5) + " → " + to.date.slice(5), cnt: periodEntries.length, status, sColor, gW, gF, gM, diet };
-  }, [bodyLog, summaryPeriod, allDays, targets]);
+  }, [bodyLog, summaryPeriod, allDays, targets, targetsByMode]);
 
   // 주간 날짜 배열 (월~일) 구하기, offset만큼 과거로 이동
   const getWeekDates = useCallback((dateStr, offset = 0) => {
@@ -892,19 +893,19 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, targetsByM
         // 오늘 체성분을 측정한 경우 curr.date===오늘 → today partial 데이터가 평균을 왜곡하므로 제외
         const entries = Object.entries(allDays).filter(([d]) => d >= prev.date && d <= curr.date && isCompletedDay(d));
         if (entries.length < 3) continue;
-        let tP = 0, tK = 0, eD = 0, latD = 0;
-        entries.forEach(([, data]) => { const a = aggregateDay(data); tP += a.p; tK += a.k; if ((data.exercises || []).length > 0) eD++; if ((data.meals || []).some(m => (m.hour || 0) >= 22)) latD++; });
+        let tP = 0, tK = 0, tTk = 0, eD = 0, latD = 0;
+        entries.forEach(([, data]) => { const a = aggregateDay(data); tP += a.p; tK += a.k; tTk += dayTargets(data.mode || "cut").k; if ((data.exercises || []).length > 0) eD++; if ((data.meals || []).some(m => (m.hour || 0) >= 22)) latD++; });
         const d = entries.length;
-        const p = { avgP: Math.round(tP / d), avgK: Math.round(tK / d), weeklyEx: Math.round(eD / d * 7 * 10) / 10, lateRate: Math.round(latD / d * 100) };
+        const p = { avgP: Math.round(tP / d), avgK: Math.round(tK / d), avgTk: Math.round(tTk / d), weeklyEx: Math.round(eD / d * 7 * 10) / 10, lateRate: Math.round(latD / d * 100) };
         if (curr.fatPct < prev.fatPct) good.push(p); else if (curr.fatPct > prev.fatPct) bad.push(p);
       }
       if (good.length >= 2) {
-        const avg = { avgP: Math.round(good.reduce((s, p) => s + p.avgP, 0) / good.length), avgK: Math.round(good.reduce((s, p) => s + p.avgK, 0) / good.length), weeklyEx: Math.round(good.reduce((s, p) => s + p.weeklyEx, 0) / good.length * 10) / 10, lateRate: Math.round(good.reduce((s, p) => s + p.lateRate, 0) / good.length) };
+        const avg = { avgP: Math.round(good.reduce((s, p) => s + p.avgP, 0) / good.length), avgK: Math.round(good.reduce((s, p) => s + p.avgK, 0) / good.length), avgTk: Math.round(good.reduce((s, p) => s + p.avgTk, 0) / good.length), weeklyEx: Math.round(good.reduce((s, p) => s + p.weeklyEx, 0) / good.length * 10) / 10, lateRate: Math.round(good.reduce((s, p) => s + p.lateRate, 0) / good.length) };
         const pats = [];
         if (avg.avgP >= targets.p * 0.9) pats.push(`단백질 ${avg.avgP}g+`);
         if (avg.weeklyEx >= 3.5) pats.push(`운동 주 ${Math.round(avg.weeklyEx)}회+`);
         if (avg.lateRate < 15) pats.push("야식 없음");
-        if (avg.avgK <= targets.k * 1.05) pats.push(`칼로리 ${avg.avgK} 이하`);
+        if (avg.avgK <= avg.avgTk * 1.05) pats.push(`칼로리 ${avg.avgK} 이하`);
         golden = { patterns: pats, good: avg, count: good.length, total: good.length + bad.length };
       }
     }
@@ -975,7 +976,7 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, targetsByM
     if (!actions.length) actions.push("데이터를 더 쌓으면 맞춤 액션이 생성됩니다");
 
     return { golden, anomalies: anomalies.slice(0, 4), correlations, actions };
-  }, [allDays, bodyLog, targets, weeklyReport]);
+  }, [allDays, bodyLog, targets, targetsByMode, weeklyReport]);
 
   // 스파크라인 SVG 생성
   const sparklinePath = (entries, key, w = 60, h = 22) => {
