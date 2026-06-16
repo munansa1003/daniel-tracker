@@ -3,7 +3,7 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, 
 import store, { getCurrentUserId, setUserId, logout, getProfiles, getSharedFoods, addSharedFood, getSharedExercises, addSharedExercise } from "./store.js";
 import { DEFAULT_FOODS, DEFAULT_EX, TARGETS as DEFAULT_TARGETS, COLORS } from "./data.js";
 import { THEME, GlobalStyles } from "./theme.jsx";
-import { today, nowHour, isCompletedDay, calcTargets, sortByHour, periodOf, groupMealsByTime, groupExercisesByTime, aggregateDay } from "./utils.js";
+import { today, nowHour, isCompletedDay, calcTargets, sortByHour, periodOf, groupMealsByTime, groupExercisesByTime, aggregateDay, exFeedback, isCalOk } from "./utils.js";
 import { useLongPress } from "./hooks/useLongPress.js";
 import { LongPressActionBar } from "./components/LongPressActionBar.jsx";
 import { Modal } from "./components/Modal.jsx";
@@ -509,11 +509,13 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
 }
 
 /* ───── 통계 탭 (A: 주간 성적표 + C: 나의 인사이트) ───── */
-function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
+function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, targetsByMode, mode = "cut" }) {
   const [statsTab, setStatsTab] = useState("report");
   const [summaryPeriod, setSummaryPeriod] = useState("1m");
   const totalDays = Object.keys(allDays).length;
-  const targets = appTargets || calcTargets(goals.weight || 75);
+  const targets = appTargets || calcTargets(goals.weight || 75, 175, 35, mode);
+  // 그 날의 모드로 목표 세트를 고르는 헬퍼(달력/주간 판정용). 세트가 없으면 현재 targets로 폴백.
+  const dayTargets = (m) => (targetsByMode ? (targetsByMode[m] || targetsByMode.cut) : targets);
   const [weekOffset, setWeekOffset] = useState(0); // 0=이번주, -1=지난주, -2=2주전...
   const latest = bodyLog[bodyLog.length - 1];
   const first = bodyLog[0];
@@ -553,15 +555,16 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
     // 같은 기간(측정 from~to)의 식단/운동 집계 — 코멘트 근거로 사용
     let diet = null;
     if (allDays) {
-      let tK = 0, tP = 0, tEx = 0, exDays = 0, n = 0;
+      let tK = 0, tP = 0, tEx = 0, tTk = 0, exDays = 0, n = 0;
       Object.entries(allDays).forEach(([d, day]) => {
         if (d >= from.date && d <= to.date && isCompletedDay(d)) {
           const a = aggregateDay(day);
-          if (a.k > 0) { tK += a.k; tP += a.p; n++; }
+          // 목표 비교는 그 날의 모드 목표를 평균(기간이 감량↔유지 전환을 걸쳐도 정확)
+          if (a.k > 0) { tK += a.k; tP += a.p; tTk += dayTargets(day.mode || "cut").k; n++; }
           if (a.ex > 0) { tEx += a.ex; exDays++; }
         }
       });
-      if (n > 0) diet = { avgK: Math.round(tK / n), avgP: Math.round(tP / n), avgEx: exDays > 0 ? Math.round(tEx / exDays) : 0, exDays, days: n };
+      if (n > 0) diet = { avgK: Math.round(tK / n), avgP: Math.round(tP / n), avgTk: Math.round(tTk / n), avgEx: exDays > 0 ? Math.round(tEx / exDays) : 0, exDays, days: n };
     }
 
     // ── 풍부한 코멘트 생성 (규칙 기반) ──
@@ -579,11 +582,11 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
     // 원인/조언 (식단·운동 데이터 연계)
     let advice = "";
     if (diet) {
-      const overK = diet.avgK - targets.k;
+      const overK = diet.avgK - diet.avgTk;
       const pOk = diet.avgP >= targets.p * 0.9;
       if (!gW || !gF) {
         // 체중/체지방이 늘었거나 안 빠진 경우 → 섭취 점검
-        if (overK > 80) advice = `일평균 섭취 ${diet.avgK.toLocaleString()}kcal로 목표(${targets.k.toLocaleString()})보다 ${overK}kcal 높았어요. 총량을 줄이면 개선됩니다.`;
+        if (overK > 80) advice = `일평균 섭취 ${diet.avgK.toLocaleString()}kcal로 목표(${diet.avgTk.toLocaleString()})보다 ${overK}kcal 높았어요. 총량을 줄이면 개선됩니다.`;
         else advice = `섭취는 목표 부근(${diet.avgK.toLocaleString()}kcal)이었어요. 기록 누락이나 활동량을 점검해보세요.`;
         if (pOk) advice += ` 단백질(${diet.avgP}g)은 충분했습니다.`;
       } else if (gc === 3) {
@@ -596,7 +599,7 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
 
     status = advice ? `${head} — ${chgStr}. ${advice}` : `${head} — ${chgStr}.`;
     return { from, to, dW, dF, dM, spark, dateLabel: from.date.slice(5) + " → " + to.date.slice(5), cnt: periodEntries.length, status, sColor, gW, gF, gM, diet };
-  }, [bodyLog, summaryPeriod, allDays, targets]);
+  }, [bodyLog, summaryPeriod, allDays, targets, targetsByMode]);
 
   // 주간 날짜 배열 (월~일) 구하기, offset만큼 과거로 이동
   const getWeekDates = useCallback((dateStr, offset = 0) => {
@@ -625,7 +628,9 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
           return { date: ds, label: dayLabels[i], has: false, pHit: false, dHit: false, eHit: false, isToday };
         const a = aggregateDay(dd);
         // 판정은 화면 표시값(반올림) 기준 — 표시가 목표와 같으면 달성으로 직관 일치
-        const ph = Math.round(a.p) >= targets.p, dh = Math.round(a.k) <= targets.k + Math.round(a.ex * 0.5), eh = (dd.exercises || []).length > 0;
+        // 칼로리 판정은 '그 날의 모드' 기준(과거 감량일은 감량 기준 유지). 단백질은 모드 무관.
+        const dM = dd.mode || "cut";
+        const ph = Math.round(a.p) >= targets.p, dh = isCalOk(a.k, a.ex, dayTargets(dM).k, dM), eh = (dd.exercises || []).length > 0;
         const lateEat = (dd.meals || []).some(m => (m.hour || 0) >= 22);
         // 오늘은 미완성이므로 평균/카운트에서 제외 (시각화에는 isToday 플래그로 별도 표시)
         if (!isToday) {
@@ -669,9 +674,10 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
       if (tw.avgP >= targets.p) pts.push(`단백질 평균 ${tw.avgP}g으로 목표 달성 중!`);
       else pts.push(`단백질이 목표보다 일평균 ${targets.p - tw.avgP}g 부족합니다. 닭가슴살 1팩(~30g)을 추가해보세요.`);
       const wkendFails = tw.daily.filter((d, i) => i >= 5 && d.has && !d.dHit).length;
-      if (tw.dDays >= Math.ceil(tw.n * 0.7)) pts.push("칼로리 적자 유지율 좋습니다!");
+      const calWord = mode === "maintain" ? "목표 유지" : "적자 유지";
+      if (tw.dDays >= Math.ceil(tw.n * 0.7)) pts.push(`칼로리 ${calWord}율 좋습니다!`);
       else if (wkendFails > 0) pts.push("주말 칼로리 초과 경향 → 토요일 식단을 미리 계획해보세요.");
-      else pts.push("칼로리 적자 유지를 더 신경 써보세요.");
+      else pts.push(`칼로리 ${calWord}를 더 신경 써보세요.`);
       if (tw.eDays >= 4) pts.push("운동 빈도 훌륭합니다!");
       else pts.push(`운동 ${tw.eDays}회 → 주 4회 이상 목표로!`);
       if (lw.n > 0) {
@@ -683,7 +689,7 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
     }
 
     return { tw, lw, tg: grade(tw), lg: grade(lw), isComplete, dayIdx, showMid, showFinal, coaching, weekLabel: thisWeekDates[0].slice(5) + " ~ " + thisWeekDates[6].slice(5) };
-  }, [allDays, targets, getWeekDates, weekOffset]);
+  }, [allDays, targets, targetsByMode, mode, getWeekDates, weekOffset]);
 
   // ═══ 최근 8주 등급 트렌드 (점 인디케이터용) ═══
   const weekHistory = useMemo(() => {
@@ -713,9 +719,10 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
         const dd = allDays[ds];
         if (!dd || ((!dd.meals || !dd.meals.length) && (!dd.exercises || !dd.exercises.length))) return;
         const a = aggregateDay(dd);
+        const dM = dd.mode || "cut";
         n++;
         if (Math.round(a.p) >= targets.p) pDays++;
-        if (Math.round(a.k) <= targets.k + Math.round(a.ex * 0.5)) dDays++;
+        if (isCalOk(a.k, a.ex, dayTargets(dM).k, dM)) dDays++;
         if ((dd.exercises || []).length > 0) eDays++;
       });
       const isCurrent = offset === 0;
@@ -723,7 +730,7 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
       const g = grade({ n, pDays, dDays, eDays });
       return { offset, grade: g, hasData: n > 0, isInProgress, dateRange: dates[0].slice(5) + "~" + dates[6].slice(5) };
     });
-  }, [allDays, targets, getWeekDates]);
+  }, [allDays, targets, targetsByMode, mode, getWeekDates]);
 
   // ═══ 패턴 분석 (Phase 3++) ═══
   const [analysisPeriodIdx, setAnalysisPeriodIdx] = useState(1); // 0:2주, 1:1개월, 2:3개월, 3:6개월
@@ -886,19 +893,19 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
         // 오늘 체성분을 측정한 경우 curr.date===오늘 → today partial 데이터가 평균을 왜곡하므로 제외
         const entries = Object.entries(allDays).filter(([d]) => d >= prev.date && d <= curr.date && isCompletedDay(d));
         if (entries.length < 3) continue;
-        let tP = 0, tK = 0, eD = 0, latD = 0;
-        entries.forEach(([, data]) => { const a = aggregateDay(data); tP += a.p; tK += a.k; if ((data.exercises || []).length > 0) eD++; if ((data.meals || []).some(m => (m.hour || 0) >= 22)) latD++; });
+        let tP = 0, tK = 0, tTk = 0, eD = 0, latD = 0;
+        entries.forEach(([, data]) => { const a = aggregateDay(data); tP += a.p; tK += a.k; tTk += dayTargets(data.mode || "cut").k; if ((data.exercises || []).length > 0) eD++; if ((data.meals || []).some(m => (m.hour || 0) >= 22)) latD++; });
         const d = entries.length;
-        const p = { avgP: Math.round(tP / d), avgK: Math.round(tK / d), weeklyEx: Math.round(eD / d * 7 * 10) / 10, lateRate: Math.round(latD / d * 100) };
+        const p = { avgP: Math.round(tP / d), avgK: Math.round(tK / d), avgTk: Math.round(tTk / d), weeklyEx: Math.round(eD / d * 7 * 10) / 10, lateRate: Math.round(latD / d * 100) };
         if (curr.fatPct < prev.fatPct) good.push(p); else if (curr.fatPct > prev.fatPct) bad.push(p);
       }
       if (good.length >= 2) {
-        const avg = { avgP: Math.round(good.reduce((s, p) => s + p.avgP, 0) / good.length), avgK: Math.round(good.reduce((s, p) => s + p.avgK, 0) / good.length), weeklyEx: Math.round(good.reduce((s, p) => s + p.weeklyEx, 0) / good.length * 10) / 10, lateRate: Math.round(good.reduce((s, p) => s + p.lateRate, 0) / good.length) };
+        const avg = { avgP: Math.round(good.reduce((s, p) => s + p.avgP, 0) / good.length), avgK: Math.round(good.reduce((s, p) => s + p.avgK, 0) / good.length), avgTk: Math.round(good.reduce((s, p) => s + p.avgTk, 0) / good.length), weeklyEx: Math.round(good.reduce((s, p) => s + p.weeklyEx, 0) / good.length * 10) / 10, lateRate: Math.round(good.reduce((s, p) => s + p.lateRate, 0) / good.length) };
         const pats = [];
         if (avg.avgP >= targets.p * 0.9) pats.push(`단백질 ${avg.avgP}g+`);
         if (avg.weeklyEx >= 3.5) pats.push(`운동 주 ${Math.round(avg.weeklyEx)}회+`);
         if (avg.lateRate < 15) pats.push("야식 없음");
-        if (avg.avgK <= targets.k * 1.05) pats.push(`칼로리 ${avg.avgK} 이하`);
+        if (avg.avgK <= avg.avgTk * 1.05) pats.push(`칼로리 ${avg.avgK} 이하`);
         golden = { patterns: pats, good: avg, count: good.length, total: good.length + bad.length };
       }
     }
@@ -969,7 +976,7 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
     if (!actions.length) actions.push("데이터를 더 쌓으면 맞춤 액션이 생성됩니다");
 
     return { golden, anomalies: anomalies.slice(0, 4), correlations, actions };
-  }, [allDays, bodyLog, targets, weeklyReport]);
+  }, [allDays, bodyLog, targets, targetsByMode, weeklyReport]);
 
   // 스파크라인 SVG 생성
   const sparklinePath = (entries, key, w = 60, h = 22) => {
@@ -1161,7 +1168,7 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
           <div style={{ fontSize: 13, color: "#707070", marginBottom: 12 }}>핵심 지표 달성률</div>
           <DotMatrix label={`단백질 목표 (${targets.p}g+)`} thisDaily={weeklyReport.tw.daily} lastDaily={weeklyReport.lw.daily} field="pHit" color="#5a9e6f" thisDays={weeklyReport.tw.pDays} lastDays={weeklyReport.lw.pDays} thisN={weeklyReport.tw.n} lastN={weeklyReport.lw.n} />
           <div style={{ height: 1, background: "rgba(255,255,255,0.04)", margin: "4px 0 14px" }} />
-          <DotMatrix label={`섭취 목표 달성 (${targets.k}kcal + 운동50%)`} thisDaily={weeklyReport.tw.daily} lastDaily={weeklyReport.lw.daily} field="dHit" color="#d4af37" thisDays={weeklyReport.tw.dDays} lastDays={weeklyReport.lw.dDays} thisN={weeklyReport.tw.n} lastN={weeklyReport.lw.n} />
+          <DotMatrix label={`섭취 목표 달성 (${targets.k}kcal + 운동${mode === "maintain" ? "100" : "50"}%)`} thisDaily={weeklyReport.tw.daily} lastDaily={weeklyReport.lw.daily} field="dHit" color="#d4af37" thisDays={weeklyReport.tw.dDays} lastDays={weeklyReport.lw.dDays} thisN={weeklyReport.tw.n} lastN={weeklyReport.lw.n} />
           <div style={{ height: 1, background: "rgba(255,255,255,0.04)", margin: "4px 0 14px" }} />
           <DotMatrix label="운동 실행 (주 4회+ 목표)" thisDaily={weeklyReport.tw.daily} lastDaily={weeklyReport.lw.daily} field="eHit" color="#4a8fc9" thisDays={weeklyReport.tw.eDays} lastDays={weeklyReport.lw.eDays} thisN={weeklyReport.tw.n} lastN={weeklyReport.lw.n} />
         </div>
@@ -1758,8 +1765,12 @@ function MainApp({ user, onLogout }) {
   }, [date, loaded, allDays, getYesterday]);
 
   const saveDay = async (d, m, e) => {
-    setAllDays(prev => ({ ...prev, [d]: { meals: m, exercises: e } }));
-    await store.set(`day:${d}`, { meals: m, exercises: e });
+    // 그 날의 목표 모드를 기록에 스탬프해 둔다(달력/통계가 그 날 기준으로 판정).
+    // 오늘은 현재 모드로, 과거 날 보정은 기존 스탬프를 보존(없으면 cut 폴백).
+    const dayMode = d === today() ? mode : allDays[d]?.mode;
+    const rec = { meals: m, exercises: e, ...(dayMode ? { mode: dayMode } : {}) };
+    setAllDays(prev => ({ ...prev, [d]: rec }));
+    await store.set(`day:${d}`, rec);
   };
 
   const addMeal = (food, q) => {
@@ -1901,8 +1912,13 @@ function MainApp({ user, onLogout }) {
     } catch { return false; }
   }, []);
 
-  // 월 평균 체중 기반 동적 목표 계산
-  const TARGETS = useMemo(() => {
+  // 현재 목표 모드 (cut=감량 / maintain=유지). 기존 사용자·손상값은 cut로 폴백(화이트리스트).
+  // 화이트리스트라 targetsByMode[mode]가 항상 유효 — 홈 TARGETS 무가드 접근도 안전.
+  const mode = goals.mode === "maintain" ? "maintain" : "cut";
+
+  // 월 평균 체중 기반 동적 목표 계산 — 같은 체중으로 두 모드 목표를 모두 산출해두고
+  // (홈은 현재 모드, 달력/통계는 그 날의 모드로 골라 쓴다)
+  const targetsByMode = useMemo(() => {
     const currentMonth = date.slice(0, 7); // "2026-04"
     const monthEntries = bodyLog.filter(b => b.date.startsWith(currentMonth));
     let avgWeight;
@@ -1914,8 +1930,10 @@ function MainApp({ user, onLogout }) {
     } else {
       avgWeight = DEFAULT_TARGETS.weight; // 기본값 77.5
     }
-    return calcTargets(avgWeight, user.height || 175, user.age || 35);
+    const h = user.height || 175, a = user.age || 35;
+    return { cut: calcTargets(avgWeight, h, a, "cut"), maintain: calcTargets(avgWeight, h, a, "maintain") };
   }, [bodyLog, date, user]);
+  const TARGETS = targetsByMode[mode];
 
   const totals = useMemo(() => {
     let p = 0, c = 0, f = 0, k = 0;
@@ -1924,11 +1942,11 @@ function MainApp({ user, onLogout }) {
   }, [meals]);
   const exTotal = useMemo(() => exercises.reduce((s, e) => s + (e.kcal || 0), 0), [exercises]);
 
-  // 운동 50% 되먹기: 운동 소모의 절반을 그날 탄수로 보충 (큰 운동일 과한 적자/근손실 방지)
-  const carbBonus = useMemo(() => Math.round((exTotal * 0.5) / 4), [exTotal]);
+  // 운동 되먹기: 감량 50% / 유지 100%를 그날 탄수·섭취 목표로 보충 (큰 운동일 과한 적자/근손실 방지)
+  const carbBonus = useMemo(() => Math.round((exTotal * exFeedback(mode)) / 4), [exTotal, mode]);
   const adjustedC = useMemo(() => TARGETS.c + carbBonus, [TARGETS.c, carbBonus]);
-  // 그날 섭취 목표 = 기초 목표 + 운동 50% 되먹기(kcal)
-  const effectiveTargetK = useMemo(() => TARGETS.k + Math.round(exTotal * 0.5), [TARGETS.k, exTotal]);
+  // 그날 섭취 목표 = 기초 목표 + 운동 되먹기(kcal)
+  const effectiveTargetK = useMemo(() => TARGETS.k + Math.round(exTotal * exFeedback(mode)), [TARGETS.k, exTotal, mode]);
 
   const filteredFoods = useMemo(() => {
     if (!search.trim()) return [];
@@ -2127,7 +2145,7 @@ function MainApp({ user, onLogout }) {
       <div style={{ padding: "16px 20px 12px", borderBottom: `1px solid ${THEME.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <div style={{ fontSize: 18, fontWeight: 500, letterSpacing: "-0.3px" }}>Daniel Body Plan</div>
-          <div style={{ fontSize: 11, color: THEME.gold, fontFamily: "var(--font-mono, monospace)", opacity: 0.7 }}>체지방 {user.targetFat || 15}% · {user.name}</div>
+          <div style={{ fontSize: 11, color: THEME.gold, fontFamily: "var(--font-mono, monospace)", opacity: 0.7 }}>체지방 {user.targetFat || 15}% · {mode === "maintain" ? "유지 모드" : "감량 모드"} · {user.name}</div>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <button onClick={() => { setShowCalendar(v => { if (!v) setCalMonth(date.slice(0, 7)); return !v; }); }} style={{ background: showCalendar ? "rgba(212,175,55,0.1)" : THEME.card, border: `1px solid ${showCalendar ? "rgba(212,175,55,0.3)" : THEME.borderLight}`, borderRadius: 8, color: showCalendar ? "#d4af37" : THEME.text, padding: "6px 10px", fontSize: 11, fontFamily: "monospace", cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
@@ -2189,12 +2207,15 @@ function MainApp({ user, onLogout }) {
                 const isToday = ds === todayStr;
                 const isSelected = ds === date;
                 const a = dd ? aggregateDay(dd) : null;
-                const pP = a ? Math.min(a.p / TARGETS.p, 1) : 0;
-                const pC = a ? Math.min(a.c / TARGETS.c, 1) : 0;
-                const pF = a ? Math.min(a.f / TARGETS.f, 1) : 0;
+                // 그 날의 모드로 목표/되먹기를 골라 판정(과거 감량일은 감량 기준 그대로 유지)
+                const dMode = dd?.mode || "cut";
+                const dT = targetsByMode[dMode] || targetsByMode.cut;
+                const pP = a ? Math.min(a.p / dT.p, 1) : 0;
+                const pC = a ? Math.min(a.c / dT.c, 1) : 0;
+                const pF = a ? Math.min(a.f / dT.f, 1) : 0;
                 // 오늘은 미완성이므로 적자/초과 판정 dot을 보이지 않음 (false positive 방지)
                 // 영양소 ring은 진행률 의미로 자연스러우므로 그대로 표시
-                const calOk = a && !isToday ? Math.round(a.k) <= TARGETS.k + Math.round(a.ex * 0.5) : null;
+                const calOk = a && !isToday ? isCalOk(a.k, a.ex, dT.k, dMode) : null;
                 const hasData = !!a && a.k > 0;
                 const dow = (offset + i) % 7;
                 return (
@@ -2218,7 +2239,7 @@ function MainApp({ user, onLogout }) {
               <span style={{ fontSize: 8, color: "#d4af37", display: "flex", alignItems: "center", gap: 2 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: "#d4af37", display: "inline-block" }} />탄수</span>
               <span style={{ fontSize: 8, color: "#4a8fc9", display: "flex", alignItems: "center", gap: 2 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: "#4a8fc9", display: "inline-block" }} />단백질</span>
               <span style={{ fontSize: 8, color: "#707070" }}>|</span>
-              <span style={{ fontSize: 8, color: "#5a9e6f", display: "flex", alignItems: "center", gap: 2 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: "#5a9e6f", display: "inline-block" }} />적자</span>
+              <span style={{ fontSize: 8, color: "#5a9e6f", display: "flex", alignItems: "center", gap: 2 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: "#5a9e6f", display: "inline-block" }} />{mode === "maintain" ? "유지" : "적자"}</span>
               <span style={{ fontSize: 8, color: "#e05252", display: "flex", alignItems: "center", gap: 2 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: "#e05252", display: "inline-block" }} />초과</span>
             </div>
           </div>
@@ -2247,8 +2268,13 @@ function MainApp({ user, onLogout }) {
             </div>
           )}
           <div className="dbp-fade dbp-card" style={cs}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
-              <span style={{ fontSize: 13, color: THEME.sub }}>오늘의 요약</span>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 13, color: THEME.sub }}>오늘의 요약</span>
+                {mode === "maintain"
+                  ? <span style={{ fontSize: 10, fontWeight: 600, color: "#5a9e6f", background: "rgba(90,158,111,0.12)", border: "1px solid rgba(90,158,111,0.3)", borderRadius: 20, padding: "2px 9px" }}>유지</span>
+                  : <span style={{ fontSize: 10, fontWeight: 600, color: "#d4af37", background: "rgba(212,175,55,0.12)", border: "1px solid rgba(212,175,55,0.3)", borderRadius: 20, padding: "2px 9px" }}>감량</span>}
+              </div>
               <span style={{ fontSize: 12, fontFamily: "monospace", color: totals.k < effectiveTargetK * 0.75 ? "#e05252" : totals.k < effectiveTargetK * 0.9 ? "#d4af37" : totals.k <= effectiveTargetK ? "#5a9e6f" : "#d4af37" }}>섭취 {Math.round(totals.k)} kcal</span>
             </div>
             <div style={{ display: "flex", gap: 12, justifyContent: "center", marginBottom: 16 }}>
@@ -2270,7 +2296,7 @@ function MainApp({ user, onLogout }) {
                 -{exTotal.toLocaleString()} kcal
               </span>
             </div>
-            <NetCalCard intake={totals.k} exercise={exTotal} targetK={effectiveTargetK} />
+            <NetCalCard intake={totals.k} exercise={exTotal} targetK={effectiveTargetK} mode={mode} />
           </div>
           <div style={cs}>
             <div style={{ fontSize: 13, color: "#707070", marginBottom: 10 }}>오늘 먹은 것 ({meals.length}건)</div>
@@ -2778,7 +2804,7 @@ function MainApp({ user, onLogout }) {
         </>)}
 
         {tab === "body" && <BodyTab bodyLog={bodyLog} addBody={addBody} date={date} onEditBody={editBody} onDeleteBody={deleteBody} user={user} goals={goals} onSaveGoals={saveGoals} allDays={allDays} />}
-        {tab === "stats" && <StatsTab bodyLog={bodyLog} allDays={allDays} goals={goals} onSaveGoals={saveGoals} appTargets={TARGETS} />}
+        {tab === "stats" && <StatsTab bodyLog={bodyLog} allDays={allDays} goals={goals} onSaveGoals={saveGoals} appTargets={TARGETS} targetsByMode={targetsByMode} mode={mode} />}
       </div>
 
       {/* Bottom Nav */}
@@ -2797,10 +2823,48 @@ function MainApp({ user, onLogout }) {
       </Modal>
       <Modal open={showManage} onClose={() => setShowManage(false)} title="설정 / 데이터">
         <div style={{ display: "flex", gap: 0, marginBottom: 14, borderRadius: 8, overflow: "hidden" }}>
-          <button onClick={() => setManageTab("freq")} style={{ flex: 1, padding: 9, fontSize: 12, fontWeight: 500, background: manageTab === "freq" ? "#d4af37" : "#2a2a2a", color: manageTab === "freq" ? "#141414" : "#8a8a8a", border: "none", cursor: "pointer", borderRadius: "8px 0 0 8px" }}>자주 사용</button>
+          <button onClick={() => setManageTab("goal")} style={{ flex: 1, padding: 9, fontSize: 12, fontWeight: 500, background: manageTab === "goal" ? "#d4af37" : "#2a2a2a", color: manageTab === "goal" ? "#141414" : "#8a8a8a", border: "none", cursor: "pointer", borderRadius: "8px 0 0 8px" }}>목표</button>
+          <button onClick={() => setManageTab("freq")} style={{ flex: 1, padding: 9, fontSize: 12, fontWeight: 500, background: manageTab === "freq" ? "#d4af37" : "#2a2a2a", color: manageTab === "freq" ? "#141414" : "#8a8a8a", border: "none", cursor: "pointer" }}>자주 사용</button>
           <button onClick={() => setManageTab("food")} style={{ flex: 1, padding: 9, fontSize: 12, fontWeight: 500, background: manageTab === "food" ? "#d4af37" : "#2a2a2a", color: manageTab === "food" ? "#141414" : "#8a8a8a", border: "none", cursor: "pointer" }}>내 DB</button>
           <button onClick={() => setManageTab("data")} style={{ flex: 1, padding: 9, fontSize: 12, fontWeight: 500, background: manageTab === "data" ? "#d4af37" : "#2a2a2a", color: manageTab === "data" ? "#141414" : "#8a8a8a", border: "none", cursor: "pointer", borderRadius: "0 8px 8px 0" }}>데이터</button>
         </div>
+
+        {/* 탭 0: 목표 모드 (감량/유지) */}
+        {manageTab === "goal" && (() => {
+          const TC = targetsByMode.cut, TM = targetsByMode.maintain;
+          const opt = (key, on, label, t, sub, note) => (
+            <div onClick={() => saveGoals({ ...goals, mode: key })}
+              style={{ display: "flex", gap: 12, alignItems: "flex-start", cursor: "pointer", padding: 14, marginBottom: 10,
+                borderRadius: 14, background: on ? "rgba(90,158,111,0.07)" : "#1e1e1e",
+                border: on ? "1.5px solid #5a9e6f" : "1px solid rgba(255,255,255,0.06)" }}>
+              <div style={{ width: 18, height: 18, borderRadius: "50%", marginTop: 2, flexShrink: 0, border: `2px solid ${on ? "#5a9e6f" : "#4a4a4a"}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {on && <div style={{ width: 9, height: 9, borderRadius: "50%", background: "#5a9e6f" }} />}
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: 14, fontWeight: on ? 600 : 500, color: on ? "#5a9e6f" : "#f5f5f0" }}>{label}</span>
+                  <span style={{ fontSize: 13, fontFamily: "monospace", color: on ? "#5a9e6f" : "#8a8a8a" }}>목표 {t.k.toLocaleString()} kcal</span>
+                </div>
+                <div style={{ fontSize: 11, color: "#8a8a8a", marginTop: 6, lineHeight: 1.5 }}>{sub}<br/>P {t.p} · C {t.c} · F {t.f} (휴식일 기준)</div>
+                <div style={{ fontSize: 10, color: on ? "#5a9e6f" : "#d4af37", marginTop: 6 }}>{note}</div>
+              </div>
+            </div>
+          );
+          return (<>
+            <div style={{ fontSize: 11, color: "#707070", marginBottom: 10 }}>목표 모드 — 칼로리·매크로 계산 방식</div>
+            {opt("cut", mode === "cut", "감량 모드", TC, "기초적자 −175 · 운동 50% 되먹기", "평균 적자 ~400/일 · 주 약 0.37kg 감량")}
+            {opt("maintain", mode === "maintain", "유지 모드", TM, "적자 0 · 운동 100% 되먹기", "에너지 균형 · 체중·근육 유지 (체지방 목표 도달 후)")}
+            <div style={{ background: "#252525", borderRadius: 10, padding: 12, marginTop: 4 }}>
+              <div style={{ fontSize: 11, color: "#8a8a8a", lineHeight: 1.6 }}>
+                <b style={{ color: "#f5f5f0" }}>차이는 딱 두 가지</b><br/>
+                ① 휴식일 적자 <span style={{ fontFamily: "monospace", color: "#e05252" }}>−175</span> → <span style={{ fontFamily: "monospace", color: "#5a9e6f" }}>0</span><br/>
+                ② 운동 되먹기 <span style={{ fontFamily: "monospace", color: "#e05252" }}>×0.5</span> → <span style={{ fontFamily: "monospace", color: "#5a9e6f" }}>×1.0</span><br/>
+                단백질 2.2g/kg · 지방 0.6g/kg는 동일. 탄수가 자동으로 늘어납니다(+{TM.c - TC.c}g).
+              </div>
+              <div style={{ fontSize: 10, color: "#707070", marginTop: 8, lineHeight: 1.5 }}>전환은 오늘부터 적용됩니다. 과거 기록은 그 날의 모드 그대로 판정돼요.</div>
+            </div>
+          </>);
+        })()}
 
         {/* 탭 1: 자주 사용 */}
         {manageTab === "freq" && (<>

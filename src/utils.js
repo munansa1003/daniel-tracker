@@ -14,10 +14,26 @@ export const isCompletedDay = (dateStr) => dateStr < today();
 // 평균 하루 적자 ≈ 400kcal(주 0.37kg)을 유지하면서 큰 운동일의 과한 적자/근손실을 방지한다.
 // 매크로: 단백질 2.2g/kg(근육 보존), 지방 0.6g/kg(호르몬 유지 최소선 이상), 나머지는 탄수.
 // (지방 0.8 → 0.6: 칼로리 인하 시 탄수가 과하게 짜부라지던 것을 완화 → 에너지/운동수행/지속성 개선)
-export function calcTargets(weight, height = 175, age = 35) {
+// 목표 모드별 상수
+//  cut(감량)     : 휴식일 −175 적자 + 운동 50%만 되먹기 → 현재 체중 기준 영구 적자 구조
+//  maintain(유지): 적자 0(=BMR×1.05 그대로) + 운동 100% 되먹기 → 에너지 균형(체중·근육 유지)
+// 감량값(175 · 0.5)은 7개월 실측 캘리브레이션 — 변경 금지. 단백질 2.2/지방 0.6은 공통,
+// 탄수는 '나머지'라 유지 모드에서 자동 증가한다.
+export const MODE_DEFICIT = { cut: 175, maintain: 0 };
+export const MODE_FEEDBACK = { cut: 0.5, maintain: 1 };
+export function exFeedback(mode) { return MODE_FEEDBACK[mode] ?? MODE_FEEDBACK.cut; }
+
+// 칼로리 적정/초과 판정 단일 함수 (전 화면 통일 — §3/§6).
+// 표시값(반올림) ≤ 모드 목표 + 운동 되먹기(반올림). targetK는 해당 mode의 목표여야 한다.
+export function isCalOk(intakeK, exKcal, targetK, mode = "cut") {
+  return Math.round(intakeK) <= targetK + Math.round(exKcal * exFeedback(mode));
+}
+
+export function calcTargets(weight, height = 175, age = 35, mode = "cut") {
   const bmr = 10 * weight + 6.25 * height - 5 * age + 5;
   const baseMaintenance = bmr * 1.05;
-  const k = Math.round(baseMaintenance - 175);
+  const deficit = MODE_DEFICIT[mode] ?? MODE_DEFICIT.cut;
+  const k = Math.round(baseMaintenance - deficit);
   const p = Math.round(weight * 2.2);
   const f = Math.round(weight * 0.6);
   const c = Math.round((k - p * 4 - f * 9) / 4);

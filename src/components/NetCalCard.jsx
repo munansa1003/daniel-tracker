@@ -1,9 +1,15 @@
-// 칼로리 카드 (신호등 + 진행막대) — 운동 50% 되먹기를 '보정 섭취' 한 기준으로 일관 표시
-// 판정/막대/신호등 모두 (섭취 − 운동50%) vs 휴식일 목표 로 통일하여 혼란을 제거한다.
-export function NetCalCard({ intake, exercise, targetK }) {
+import { exFeedback } from "../utils.js";
+
+// 칼로리 카드 (신호등 + 진행막대) — 운동 되먹기를 '보정 섭취' 한 기준으로 일관 표시
+// 판정/막대/신호등 모두 (섭취 − 운동되먹기) vs 휴식일 목표 로 통일하여 혼란을 제거한다.
+// 되먹기 계수는 모드별(감량 0.5 / 유지 1.0). targetK(effectiveTargetK)와 같은 계수를 써야
+// t = targetK − eatback 역산이 정확히 휴식일 목표(TARGETS.k)로 떨어진다.
+export function NetCalCard({ intake, exercise, targetK, mode = "cut" }) {
+  const fb = exFeedback(mode);
+  const fbPct = Math.round(fb * 100);
   const intk = Math.round(intake);
   const ex = Math.round(exercise);
-  const eatback = Math.round(ex * 0.5);        // 운동 50% 되먹기
+  const eatback = Math.round(ex * fb);         // 운동 되먹기 (모드별 계수)
   const adj = intk - eatback;                  // 보정 섭취 (이 값으로 모든 판정)
   const t = (targetK || 1800) - eatback;       // 휴식일 기본 목표 (effectiveTargetK에서 역산)
   const z1 = Math.round(t * 0.75), z2 = Math.round(t * 0.90);
@@ -35,7 +41,7 @@ export function NetCalCard({ intake, exercise, targetK }) {
           </div>
           <div style={{ textAlign: "right", fontSize: 11, color: "#707070", lineHeight: 1.5 }}>
             <div>섭취 {intk.toLocaleString()}</div>
-            {ex > 0 && <div>− 운동50% {eatback.toLocaleString()}</div>}
+            {ex > 0 && <div>− 운동{fbPct}% {eatback.toLocaleString()}</div>}
           </div>
         </div>
         {/* 진행 막대 (A안: 양 끝에 현재치 / 목표치) */}

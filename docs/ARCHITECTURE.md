@@ -54,10 +54,19 @@ BMR = Mifflin-St Jeor (10W + 6.25H − 5A + 5)
 체중 W = 이달 체성분 월평균 (없으면 최신값 → 77.5 폴백). MainApp의 TARGETS useMemo(App.jsx ~1900행)
 ```
 
-### 운동 50% 되먹기 (핵심 컨셉)
-- `carbBonus = round(운동kcal × 0.5 ÷ 4)` → 그날 탄수 목표에 가산
-- `effectiveTargetK = TARGETS.k + round(운동 × 0.5)` → 그날 섭취 목표
-- **이유**: 0% 되먹기는 큰 운동일(600~1000kcal 빈번) 적자가 과해 근손실 위험, 100%는 MET 과대평가에 취약. 50%가 헤지+주기화의 균형점. MET 1.5배 부풀려져도 감량 유지됨(검증됨).
+### 운동 되먹기 (핵심 컨셉) — 모드별 계수
+- `carbBonus = round(운동kcal × exFeedback(mode) ÷ 4)` → 그날 탄수 목표에 가산
+- `effectiveTargetK = TARGETS.k + round(운동 × exFeedback(mode))` → 그날 섭취 목표
+- `exFeedback`: **감량 0.5 / 유지 1.0** (`src/utils.js`, `MODE_FEEDBACK`)
+- **이유(감량 0.5)**: 0% 되먹기는 큰 운동일(600~1000kcal 빈번) 적자가 과해 근손실 위험, 100%는 MET 과대평가에 취약. 50%가 헤지+주기화의 균형점. MET 1.5배 부풀려져도 감량 유지됨(검증됨).
+
+### ★ 목표 모드 (감량 cut / 유지 maintain) — 2026-06 도입
+- **차이는 딱 두 가지**: ① 휴식일 적자 `−175 → 0` (`MODE_DEFICIT`) ② 운동 되먹기 `×0.5 → ×1.0` (`MODE_FEEDBACK`). 단백질 2.2·지방 0.6 공통, **탄수는 나머지라 유지 모드에서 자동 +44g**.
+- **유지 모드 = 에너지 균형**: 목표 = 그날의 실측 유지칼로리(BMR×1.05) → 순에너지 0 → 떠다니는 월평균 체중 로직이 "자동 안정장치"로 작동(감량기엔 영구 적자였던 그 로직이 평형점을 만듦).
+- **저장**: 전역 현재 모드 = `goals.mode`(없으면 `cut` 폴백). 각 날 기록에 `mode` 스탬프(`saveDay`: 오늘=현재 모드, 과거 보정은 기존 스탬프 보존). **기존 데이터(필드 없음)=cut → 동작·숫자 무변화.**
+- **판정 적용처**: 홈=현재 모드 / **달력·통계 주간성적표·8주 등급 = 그 날의 모드**(과거 감량일은 감량 기준 그대로 유지, 통째 재칠 방지). 단백질·운동 판정은 모드 무관.
+- **감량값(175·0.5)은 변경 금지** — 유지값은 모드 분기로만 추가(역산 추정이라 실측 검증 권장).
+- UI: 홈 헤더/요약 모드 배지(A안) + 설정 `목표` 탭 라디오(C안). StatsTab 코칭/달력 범례의 "적자·운동50%" 문구도 모드별 분기.
 
 ### 판정 규칙 (전 화면 통일 — PR #6, #8, #16)
 - **단일 부등식**: `섭취 ≤ 목표K + 운동×0.5` (⟺ 보정섭취 ≤ 기본목표, 수학적 동치)
@@ -78,7 +87,7 @@ BMR = Mifflin-St Jeor (10W + 6.25H − 5A + 5)
 | 파일 | 심볼 | 비고 |
 |------|------|------|
 | theme.jsx | THEME, GlobalStyles, PROFILE_COLORS | THEME **40+곳에서 사용**. GlobalStyles는 전역 CSS(`dbp-*`, keyframes) 주입 — App 최상단 렌더 필수 |
-| utils.js | today, nowHour, isCompletedDay, calcTargets, sortByHour, TIME_PERIODS, periodOf, groupMealsByTime, groupExercisesByTime, aggregateDay, calcMovingAvg, getWeekKey, getMonthKey, getYearKey | 전부 순수 함수. calcTargets는 §3 참조 |
+| utils.js | today, nowHour, isCompletedDay, calcTargets, **exFeedback, isCalOk, MODE_DEFICIT, MODE_FEEDBACK**, sortByHour, TIME_PERIODS, periodOf, groupMealsByTime, groupExercisesByTime, aggregateDay, calcMovingAvg, getWeekKey, getMonthKey, getYearKey | 전부 순수 함수. calcTargets(w,h,a,**mode**)·판정 헬퍼는 §3 참조 |
 | hooks/useLongPress.js | useLongPress | BodyTab·MainApp 사용 |
 | components/LongPressActionBar.jsx | LongPressActionBar | |
 | components/Modal.jsx | Modal | 14곳 사용 |
@@ -133,7 +142,8 @@ BodyTab → StatsTab 순. StatsTab은 중첩 컴포넌트 포함 통째 이동.
 4. **GlobalStyles의 `dbp-*` CSS 클래스** — 여러 컴포넌트가 className으로 사용. GlobalStyles가 항상 렌더돼야 애니메이션 동작
 5. **StatsTab 내부 중첩** — DotMatrix(컴포넌트), sparklinePath(함수)가 StatsTab 안에 정의됨
 6. **BodyTab은 store.js 직접 접근** — getCurrentUserId, localStorage(`dt_*_body-coaching` 캐시)
-7. **판정은 반올림 기준**(§3) — 리팩토링 중 `Math.round` 빠뜨리면 PR #16 버그 재발
+7. **판정은 반올림 기준**(§3) — 리팩토링 중 `Math.round` 빠뜨리면 PR #16 버그 재발. **칼로리 판정은 `isCalOk()` 한 곳으로 통일**(반올림+모드 되먹기 내장). 직접 `<= 목표 + ex×0.5` 인라인 금지 — 0.5가 모드별(0.5/1.0)이므로 `exFeedback(mode)`/`isCalOk` 사용
+9. **모드 판정의 두 종류**(§3): 홈/오늘=`goals.mode`(현재), 달력/통계 과거=`dd.mode`(그 날). 둘을 섞으면 과거 등급이 흔들림. 새 판정 추가 시 "이건 현재 모드냐 그 날 모드냐" 먼저 결정
 8. 임시 파일(미리보기 HTML 등)은 커밋 금지 — stop hook이 untracked 파일을 잡음
 
 ## 7. 검증 방법
