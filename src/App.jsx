@@ -509,11 +509,13 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
 }
 
 /* ───── 통계 탭 (A: 주간 성적표 + C: 나의 인사이트) ───── */
-function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
+function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, targetsByMode, mode = "cut" }) {
   const [statsTab, setStatsTab] = useState("report");
   const [summaryPeriod, setSummaryPeriod] = useState("1m");
   const totalDays = Object.keys(allDays).length;
-  const targets = appTargets || calcTargets(goals.weight || 75);
+  const targets = appTargets || calcTargets(goals.weight || 75, 175, 35, mode);
+  // 그 날의 모드로 목표 세트를 고르는 헬퍼(달력/주간 판정용). 세트가 없으면 현재 targets로 폴백.
+  const dayTargets = (m) => (targetsByMode ? (targetsByMode[m] || targetsByMode.cut) : targets);
   const [weekOffset, setWeekOffset] = useState(0); // 0=이번주, -1=지난주, -2=2주전...
   const latest = bodyLog[bodyLog.length - 1];
   const first = bodyLog[0];
@@ -625,7 +627,9 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
           return { date: ds, label: dayLabels[i], has: false, pHit: false, dHit: false, eHit: false, isToday };
         const a = aggregateDay(dd);
         // 판정은 화면 표시값(반올림) 기준 — 표시가 목표와 같으면 달성으로 직관 일치
-        const ph = Math.round(a.p) >= targets.p, dh = Math.round(a.k) <= targets.k + Math.round(a.ex * 0.5), eh = (dd.exercises || []).length > 0;
+        // 칼로리 판정은 '그 날의 모드' 기준(과거 감량일은 감량 기준 유지). 단백질은 모드 무관.
+        const dM = dd.mode || "cut";
+        const ph = Math.round(a.p) >= targets.p, dh = isCalOk(a.k, a.ex, dayTargets(dM).k, dM), eh = (dd.exercises || []).length > 0;
         const lateEat = (dd.meals || []).some(m => (m.hour || 0) >= 22);
         // 오늘은 미완성이므로 평균/카운트에서 제외 (시각화에는 isToday 플래그로 별도 표시)
         if (!isToday) {
@@ -669,9 +673,10 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
       if (tw.avgP >= targets.p) pts.push(`단백질 평균 ${tw.avgP}g으로 목표 달성 중!`);
       else pts.push(`단백질이 목표보다 일평균 ${targets.p - tw.avgP}g 부족합니다. 닭가슴살 1팩(~30g)을 추가해보세요.`);
       const wkendFails = tw.daily.filter((d, i) => i >= 5 && d.has && !d.dHit).length;
-      if (tw.dDays >= Math.ceil(tw.n * 0.7)) pts.push("칼로리 적자 유지율 좋습니다!");
+      const calWord = mode === "maintain" ? "목표 유지" : "적자 유지";
+      if (tw.dDays >= Math.ceil(tw.n * 0.7)) pts.push(`칼로리 ${calWord}율 좋습니다!`);
       else if (wkendFails > 0) pts.push("주말 칼로리 초과 경향 → 토요일 식단을 미리 계획해보세요.");
-      else pts.push("칼로리 적자 유지를 더 신경 써보세요.");
+      else pts.push(`칼로리 ${calWord}를 더 신경 써보세요.`);
       if (tw.eDays >= 4) pts.push("운동 빈도 훌륭합니다!");
       else pts.push(`운동 ${tw.eDays}회 → 주 4회 이상 목표로!`);
       if (lw.n > 0) {
@@ -683,7 +688,7 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
     }
 
     return { tw, lw, tg: grade(tw), lg: grade(lw), isComplete, dayIdx, showMid, showFinal, coaching, weekLabel: thisWeekDates[0].slice(5) + " ~ " + thisWeekDates[6].slice(5) };
-  }, [allDays, targets, getWeekDates, weekOffset]);
+  }, [allDays, targets, targetsByMode, mode, getWeekDates, weekOffset]);
 
   // ═══ 최근 8주 등급 트렌드 (점 인디케이터용) ═══
   const weekHistory = useMemo(() => {
@@ -713,9 +718,10 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
         const dd = allDays[ds];
         if (!dd || ((!dd.meals || !dd.meals.length) && (!dd.exercises || !dd.exercises.length))) return;
         const a = aggregateDay(dd);
+        const dM = dd.mode || "cut";
         n++;
         if (Math.round(a.p) >= targets.p) pDays++;
-        if (Math.round(a.k) <= targets.k + Math.round(a.ex * 0.5)) dDays++;
+        if (isCalOk(a.k, a.ex, dayTargets(dM).k, dM)) dDays++;
         if ((dd.exercises || []).length > 0) eDays++;
       });
       const isCurrent = offset === 0;
@@ -723,7 +729,7 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
       const g = grade({ n, pDays, dDays, eDays });
       return { offset, grade: g, hasData: n > 0, isInProgress, dateRange: dates[0].slice(5) + "~" + dates[6].slice(5) };
     });
-  }, [allDays, targets, getWeekDates]);
+  }, [allDays, targets, targetsByMode, mode, getWeekDates]);
 
   // ═══ 패턴 분석 (Phase 3++) ═══
   const [analysisPeriodIdx, setAnalysisPeriodIdx] = useState(1); // 0:2주, 1:1개월, 2:3개월, 3:6개월
@@ -1161,7 +1167,7 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets }) {
           <div style={{ fontSize: 13, color: "#707070", marginBottom: 12 }}>핵심 지표 달성률</div>
           <DotMatrix label={`단백질 목표 (${targets.p}g+)`} thisDaily={weeklyReport.tw.daily} lastDaily={weeklyReport.lw.daily} field="pHit" color="#5a9e6f" thisDays={weeklyReport.tw.pDays} lastDays={weeklyReport.lw.pDays} thisN={weeklyReport.tw.n} lastN={weeklyReport.lw.n} />
           <div style={{ height: 1, background: "rgba(255,255,255,0.04)", margin: "4px 0 14px" }} />
-          <DotMatrix label={`섭취 목표 달성 (${targets.k}kcal + 운동50%)`} thisDaily={weeklyReport.tw.daily} lastDaily={weeklyReport.lw.daily} field="dHit" color="#d4af37" thisDays={weeklyReport.tw.dDays} lastDays={weeklyReport.lw.dDays} thisN={weeklyReport.tw.n} lastN={weeklyReport.lw.n} />
+          <DotMatrix label={`섭취 목표 달성 (${targets.k}kcal + 운동${mode === "maintain" ? "100" : "50"}%)`} thisDaily={weeklyReport.tw.daily} lastDaily={weeklyReport.lw.daily} field="dHit" color="#d4af37" thisDays={weeklyReport.tw.dDays} lastDays={weeklyReport.lw.dDays} thisN={weeklyReport.tw.n} lastN={weeklyReport.lw.n} />
           <div style={{ height: 1, background: "rgba(255,255,255,0.04)", margin: "4px 0 14px" }} />
           <DotMatrix label="운동 실행 (주 4회+ 목표)" thisDaily={weeklyReport.tw.daily} lastDaily={weeklyReport.lw.daily} field="eHit" color="#4a8fc9" thisDays={weeklyReport.tw.eDays} lastDays={weeklyReport.lw.eDays} thisN={weeklyReport.tw.n} lastN={weeklyReport.lw.n} />
         </div>
@@ -2796,7 +2802,7 @@ function MainApp({ user, onLogout }) {
         </>)}
 
         {tab === "body" && <BodyTab bodyLog={bodyLog} addBody={addBody} date={date} onEditBody={editBody} onDeleteBody={deleteBody} user={user} goals={goals} onSaveGoals={saveGoals} allDays={allDays} />}
-        {tab === "stats" && <StatsTab bodyLog={bodyLog} allDays={allDays} goals={goals} onSaveGoals={saveGoals} appTargets={TARGETS} />}
+        {tab === "stats" && <StatsTab bodyLog={bodyLog} allDays={allDays} goals={goals} onSaveGoals={saveGoals} appTargets={TARGETS} targetsByMode={targetsByMode} mode={mode} />}
       </div>
 
       {/* Bottom Nav */}
