@@ -1911,8 +1911,9 @@ function MainApp({ user, onLogout }) {
     } catch { return false; }
   }, []);
 
-  // 현재 목표 모드 (cut=감량 / maintain=유지). 기존 사용자는 필드가 없어 cut로 폴백.
-  const mode = goals.mode || "cut";
+  // 현재 목표 모드 (cut=감량 / maintain=유지). 기존 사용자·손상값은 cut로 폴백(화이트리스트).
+  // 화이트리스트라 targetsByMode[mode]가 항상 유효 — 홈 TARGETS 무가드 접근도 안전.
+  const mode = goals.mode === "maintain" ? "maintain" : "cut";
 
   // 월 평균 체중 기반 동적 목표 계산 — 같은 체중으로 두 모드 목표를 모두 산출해두고
   // (홈은 현재 모드, 달력/통계는 그 날의 모드로 골라 쓴다)
