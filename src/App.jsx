@@ -3,7 +3,7 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, 
 import store, { getCurrentUserId, setUserId, logout, getProfiles, getSharedFoods, addSharedFood, getSharedExercises, addSharedExercise } from "./store.js";
 import { DEFAULT_FOODS, DEFAULT_EX, TARGETS as DEFAULT_TARGETS, COLORS } from "./data.js";
 import { THEME, GlobalStyles } from "./theme.jsx";
-import { today, nowHour, isCompletedDay, calcTargets, sortByHour, periodOf, groupMealsByTime, groupExercisesByTime, aggregateDay } from "./utils.js";
+import { today, nowHour, isCompletedDay, calcTargets, sortByHour, periodOf, groupMealsByTime, groupExercisesByTime, aggregateDay, exFeedback, isCalOk } from "./utils.js";
 import { useLongPress } from "./hooks/useLongPress.js";
 import { LongPressActionBar } from "./components/LongPressActionBar.jsx";
 import { Modal } from "./components/Modal.jsx";
@@ -1758,8 +1758,12 @@ function MainApp({ user, onLogout }) {
   }, [date, loaded, allDays, getYesterday]);
 
   const saveDay = async (d, m, e) => {
-    setAllDays(prev => ({ ...prev, [d]: { meals: m, exercises: e } }));
-    await store.set(`day:${d}`, { meals: m, exercises: e });
+    // 그 날의 목표 모드를 기록에 스탬프해 둔다(달력/통계가 그 날 기준으로 판정).
+    // 오늘은 현재 모드로, 과거 날 보정은 기존 스탬프를 보존(없으면 cut 폴백).
+    const dayMode = d === today() ? mode : allDays[d]?.mode;
+    const rec = { meals: m, exercises: e, ...(dayMode ? { mode: dayMode } : {}) };
+    setAllDays(prev => ({ ...prev, [d]: rec }));
+    await store.set(`day:${d}`, rec);
   };
 
   const addMeal = (food, q) => {
@@ -1901,8 +1905,12 @@ function MainApp({ user, onLogout }) {
     } catch { return false; }
   }, []);
 
-  // 월 평균 체중 기반 동적 목표 계산
-  const TARGETS = useMemo(() => {
+  // 현재 목표 모드 (cut=감량 / maintain=유지). 기존 사용자는 필드가 없어 cut로 폴백.
+  const mode = goals.mode || "cut";
+
+  // 월 평균 체중 기반 동적 목표 계산 — 같은 체중으로 두 모드 목표를 모두 산출해두고
+  // (홈은 현재 모드, 달력/통계는 그 날의 모드로 골라 쓴다)
+  const targetsByMode = useMemo(() => {
     const currentMonth = date.slice(0, 7); // "2026-04"
     const monthEntries = bodyLog.filter(b => b.date.startsWith(currentMonth));
     let avgWeight;
@@ -1914,8 +1922,10 @@ function MainApp({ user, onLogout }) {
     } else {
       avgWeight = DEFAULT_TARGETS.weight; // 기본값 77.5
     }
-    return calcTargets(avgWeight, user.height || 175, user.age || 35);
+    const h = user.height || 175, a = user.age || 35;
+    return { cut: calcTargets(avgWeight, h, a, "cut"), maintain: calcTargets(avgWeight, h, a, "maintain") };
   }, [bodyLog, date, user]);
+  const TARGETS = targetsByMode[mode];
 
   const totals = useMemo(() => {
     let p = 0, c = 0, f = 0, k = 0;
@@ -1924,11 +1934,11 @@ function MainApp({ user, onLogout }) {
   }, [meals]);
   const exTotal = useMemo(() => exercises.reduce((s, e) => s + (e.kcal || 0), 0), [exercises]);
 
-  // 운동 50% 되먹기: 운동 소모의 절반을 그날 탄수로 보충 (큰 운동일 과한 적자/근손실 방지)
-  const carbBonus = useMemo(() => Math.round((exTotal * 0.5) / 4), [exTotal]);
+  // 운동 되먹기: 감량 50% / 유지 100%를 그날 탄수·섭취 목표로 보충 (큰 운동일 과한 적자/근손실 방지)
+  const carbBonus = useMemo(() => Math.round((exTotal * exFeedback(mode)) / 4), [exTotal, mode]);
   const adjustedC = useMemo(() => TARGETS.c + carbBonus, [TARGETS.c, carbBonus]);
-  // 그날 섭취 목표 = 기초 목표 + 운동 50% 되먹기(kcal)
-  const effectiveTargetK = useMemo(() => TARGETS.k + Math.round(exTotal * 0.5), [TARGETS.k, exTotal]);
+  // 그날 섭취 목표 = 기초 목표 + 운동 되먹기(kcal)
+  const effectiveTargetK = useMemo(() => TARGETS.k + Math.round(exTotal * exFeedback(mode)), [TARGETS.k, exTotal, mode]);
 
   const filteredFoods = useMemo(() => {
     if (!search.trim()) return [];
@@ -2127,7 +2137,7 @@ function MainApp({ user, onLogout }) {
       <div style={{ padding: "16px 20px 12px", borderBottom: `1px solid ${THEME.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <div style={{ fontSize: 18, fontWeight: 500, letterSpacing: "-0.3px" }}>Daniel Body Plan</div>
-          <div style={{ fontSize: 11, color: THEME.gold, fontFamily: "var(--font-mono, monospace)", opacity: 0.7 }}>체지방 {user.targetFat || 15}% · {user.name}</div>
+          <div style={{ fontSize: 11, color: THEME.gold, fontFamily: "var(--font-mono, monospace)", opacity: 0.7 }}>체지방 {user.targetFat || 15}% · {mode === "maintain" ? "유지 모드" : "감량 모드"} · {user.name}</div>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <button onClick={() => { setShowCalendar(v => { if (!v) setCalMonth(date.slice(0, 7)); return !v; }); }} style={{ background: showCalendar ? "rgba(212,175,55,0.1)" : THEME.card, border: `1px solid ${showCalendar ? "rgba(212,175,55,0.3)" : THEME.borderLight}`, borderRadius: 8, color: showCalendar ? "#d4af37" : THEME.text, padding: "6px 10px", fontSize: 11, fontFamily: "monospace", cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
@@ -2189,12 +2199,15 @@ function MainApp({ user, onLogout }) {
                 const isToday = ds === todayStr;
                 const isSelected = ds === date;
                 const a = dd ? aggregateDay(dd) : null;
-                const pP = a ? Math.min(a.p / TARGETS.p, 1) : 0;
-                const pC = a ? Math.min(a.c / TARGETS.c, 1) : 0;
-                const pF = a ? Math.min(a.f / TARGETS.f, 1) : 0;
+                // 그 날의 모드로 목표/되먹기를 골라 판정(과거 감량일은 감량 기준 그대로 유지)
+                const dMode = dd?.mode || "cut";
+                const dT = targetsByMode[dMode];
+                const pP = a ? Math.min(a.p / dT.p, 1) : 0;
+                const pC = a ? Math.min(a.c / dT.c, 1) : 0;
+                const pF = a ? Math.min(a.f / dT.f, 1) : 0;
                 // 오늘은 미완성이므로 적자/초과 판정 dot을 보이지 않음 (false positive 방지)
                 // 영양소 ring은 진행률 의미로 자연스러우므로 그대로 표시
-                const calOk = a && !isToday ? Math.round(a.k) <= TARGETS.k + Math.round(a.ex * 0.5) : null;
+                const calOk = a && !isToday ? isCalOk(a.k, a.ex, dT.k, dMode) : null;
                 const hasData = !!a && a.k > 0;
                 const dow = (offset + i) % 7;
                 return (
@@ -2218,7 +2231,7 @@ function MainApp({ user, onLogout }) {
               <span style={{ fontSize: 8, color: "#d4af37", display: "flex", alignItems: "center", gap: 2 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: "#d4af37", display: "inline-block" }} />탄수</span>
               <span style={{ fontSize: 8, color: "#4a8fc9", display: "flex", alignItems: "center", gap: 2 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: "#4a8fc9", display: "inline-block" }} />단백질</span>
               <span style={{ fontSize: 8, color: "#707070" }}>|</span>
-              <span style={{ fontSize: 8, color: "#5a9e6f", display: "flex", alignItems: "center", gap: 2 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: "#5a9e6f", display: "inline-block" }} />적자</span>
+              <span style={{ fontSize: 8, color: "#5a9e6f", display: "flex", alignItems: "center", gap: 2 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: "#5a9e6f", display: "inline-block" }} />{mode === "maintain" ? "유지" : "적자"}</span>
               <span style={{ fontSize: 8, color: "#e05252", display: "flex", alignItems: "center", gap: 2 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: "#e05252", display: "inline-block" }} />초과</span>
             </div>
           </div>
@@ -2247,8 +2260,13 @@ function MainApp({ user, onLogout }) {
             </div>
           )}
           <div className="dbp-fade dbp-card" style={cs}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
-              <span style={{ fontSize: 13, color: THEME.sub }}>오늘의 요약</span>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 13, color: THEME.sub }}>오늘의 요약</span>
+                {mode === "maintain"
+                  ? <span style={{ fontSize: 10, fontWeight: 600, color: "#5a9e6f", background: "rgba(90,158,111,0.12)", border: "1px solid rgba(90,158,111,0.3)", borderRadius: 20, padding: "2px 9px" }}>유지</span>
+                  : <span style={{ fontSize: 10, fontWeight: 600, color: "#d4af37", background: "rgba(212,175,55,0.12)", border: "1px solid rgba(212,175,55,0.3)", borderRadius: 20, padding: "2px 9px" }}>감량</span>}
+              </div>
               <span style={{ fontSize: 12, fontFamily: "monospace", color: totals.k < effectiveTargetK * 0.75 ? "#e05252" : totals.k < effectiveTargetK * 0.9 ? "#d4af37" : totals.k <= effectiveTargetK ? "#5a9e6f" : "#d4af37" }}>섭취 {Math.round(totals.k)} kcal</span>
             </div>
             <div style={{ display: "flex", gap: 12, justifyContent: "center", marginBottom: 16 }}>
