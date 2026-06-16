@@ -2821,10 +2821,48 @@ function MainApp({ user, onLogout }) {
       </Modal>
       <Modal open={showManage} onClose={() => setShowManage(false)} title="설정 / 데이터">
         <div style={{ display: "flex", gap: 0, marginBottom: 14, borderRadius: 8, overflow: "hidden" }}>
-          <button onClick={() => setManageTab("freq")} style={{ flex: 1, padding: 9, fontSize: 12, fontWeight: 500, background: manageTab === "freq" ? "#d4af37" : "#2a2a2a", color: manageTab === "freq" ? "#141414" : "#8a8a8a", border: "none", cursor: "pointer", borderRadius: "8px 0 0 8px" }}>자주 사용</button>
+          <button onClick={() => setManageTab("goal")} style={{ flex: 1, padding: 9, fontSize: 12, fontWeight: 500, background: manageTab === "goal" ? "#d4af37" : "#2a2a2a", color: manageTab === "goal" ? "#141414" : "#8a8a8a", border: "none", cursor: "pointer", borderRadius: "8px 0 0 8px" }}>목표</button>
+          <button onClick={() => setManageTab("freq")} style={{ flex: 1, padding: 9, fontSize: 12, fontWeight: 500, background: manageTab === "freq" ? "#d4af37" : "#2a2a2a", color: manageTab === "freq" ? "#141414" : "#8a8a8a", border: "none", cursor: "pointer" }}>자주 사용</button>
           <button onClick={() => setManageTab("food")} style={{ flex: 1, padding: 9, fontSize: 12, fontWeight: 500, background: manageTab === "food" ? "#d4af37" : "#2a2a2a", color: manageTab === "food" ? "#141414" : "#8a8a8a", border: "none", cursor: "pointer" }}>내 DB</button>
           <button onClick={() => setManageTab("data")} style={{ flex: 1, padding: 9, fontSize: 12, fontWeight: 500, background: manageTab === "data" ? "#d4af37" : "#2a2a2a", color: manageTab === "data" ? "#141414" : "#8a8a8a", border: "none", cursor: "pointer", borderRadius: "0 8px 8px 0" }}>데이터</button>
         </div>
+
+        {/* 탭 0: 목표 모드 (감량/유지) */}
+        {manageTab === "goal" && (() => {
+          const TC = targetsByMode.cut, TM = targetsByMode.maintain;
+          const opt = (key, on, label, t, sub, note) => (
+            <div onClick={() => saveGoals({ ...goals, mode: key })}
+              style={{ display: "flex", gap: 12, alignItems: "flex-start", cursor: "pointer", padding: 14, marginBottom: 10,
+                borderRadius: 14, background: on ? "rgba(90,158,111,0.07)" : "#1e1e1e",
+                border: on ? "1.5px solid #5a9e6f" : "1px solid rgba(255,255,255,0.06)" }}>
+              <div style={{ width: 18, height: 18, borderRadius: "50%", marginTop: 2, flexShrink: 0, border: `2px solid ${on ? "#5a9e6f" : "#4a4a4a"}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {on && <div style={{ width: 9, height: 9, borderRadius: "50%", background: "#5a9e6f" }} />}
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: 14, fontWeight: on ? 600 : 500, color: on ? "#5a9e6f" : "#f5f5f0" }}>{label}</span>
+                  <span style={{ fontSize: 13, fontFamily: "monospace", color: on ? "#5a9e6f" : "#8a8a8a" }}>목표 {t.k.toLocaleString()} kcal</span>
+                </div>
+                <div style={{ fontSize: 11, color: "#8a8a8a", marginTop: 6, lineHeight: 1.5 }}>{sub}<br/>P {t.p} · C {t.c} · F {t.f} (휴식일 기준)</div>
+                <div style={{ fontSize: 10, color: on ? "#5a9e6f" : "#d4af37", marginTop: 6 }}>{note}</div>
+              </div>
+            </div>
+          );
+          return (<>
+            <div style={{ fontSize: 11, color: "#707070", marginBottom: 10 }}>목표 모드 — 칼로리·매크로 계산 방식</div>
+            {opt("cut", mode === "cut", "감량 모드", TC, "기초적자 −175 · 운동 50% 되먹기", "평균 적자 ~400/일 · 주 약 0.37kg 감량")}
+            {opt("maintain", mode === "maintain", "유지 모드", TM, "적자 0 · 운동 100% 되먹기", "에너지 균형 · 체중·근육 유지 (체지방 목표 도달 후)")}
+            <div style={{ background: "#252525", borderRadius: 10, padding: 12, marginTop: 4 }}>
+              <div style={{ fontSize: 11, color: "#8a8a8a", lineHeight: 1.6 }}>
+                <b style={{ color: "#f5f5f0" }}>차이는 딱 두 가지</b><br/>
+                ① 휴식일 적자 <span style={{ fontFamily: "monospace", color: "#e05252" }}>−175</span> → <span style={{ fontFamily: "monospace", color: "#5a9e6f" }}>0</span><br/>
+                ② 운동 되먹기 <span style={{ fontFamily: "monospace", color: "#e05252" }}>×0.5</span> → <span style={{ fontFamily: "monospace", color: "#5a9e6f" }}>×1.0</span><br/>
+                단백질 2.2g/kg · 지방 0.6g/kg는 동일. 탄수가 자동으로 늘어납니다(+{TM.c - TC.c}g).
+              </div>
+              <div style={{ fontSize: 10, color: "#707070", marginTop: 8, lineHeight: 1.5 }}>전환은 오늘부터 적용됩니다. 과거 기록은 그 날의 모드 그대로 판정돼요.</div>
+            </div>
+          </>);
+        })()}
 
         {/* 탭 1: 자주 사용 */}
         {manageTab === "freq" && (<>
