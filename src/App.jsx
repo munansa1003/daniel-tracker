@@ -2207,7 +2207,7 @@ function MainApp({ user, onLogout }) {
                 const a = dd ? aggregateDay(dd) : null;
                 // 그 날의 모드로 목표/되먹기를 골라 판정(과거 감량일은 감량 기준 그대로 유지)
                 const dMode = dd?.mode || "cut";
-                const dT = targetsByMode[dMode];
+                const dT = targetsByMode[dMode] || targetsByMode.cut;
                 const pP = a ? Math.min(a.p / dT.p, 1) : 0;
                 const pC = a ? Math.min(a.c / dT.c, 1) : 0;
                 const pF = a ? Math.min(a.f / dT.f, 1) : 0;
@@ -2294,7 +2294,7 @@ function MainApp({ user, onLogout }) {
                 -{exTotal.toLocaleString()} kcal
               </span>
             </div>
-            <NetCalCard intake={totals.k} exercise={exTotal} targetK={effectiveTargetK} />
+            <NetCalCard intake={totals.k} exercise={exTotal} targetK={effectiveTargetK} mode={mode} />
           </div>
           <div style={cs}>
             <div style={{ fontSize: 13, color: "#707070", marginBottom: 10 }}>오늘 먹은 것 ({meals.length}건)</div>
