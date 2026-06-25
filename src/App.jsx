@@ -10,6 +10,9 @@ import { Modal } from "./components/Modal.jsx";
 import { ProgressBar } from "./components/ProgressBar.jsx";
 import { MiniDonut } from "./components/MiniDonut.jsx";
 import { NetCalCard } from "./components/NetCalCard.jsx";
+import { RemainingMacros } from "./components/RemainingMacros.jsx";
+import { MacroRatioBar } from "./components/MacroRatioBar.jsx";
+import { IntakeRhythm } from "./components/IntakeRhythm.jsx";
 import { AddFoodForm } from "./components/AddFoodForm.jsx";
 import { AddExForm } from "./components/AddExForm.jsx";
 import { EditMealForm } from "./components/EditMealForm.jsx";
@@ -2348,6 +2351,10 @@ function MainApp({ user, onLogout }) {
 
         {/* DIET */}
         {tab === "diet" && (<>
+          {/* 입력 화면 상단 통계 (맨 위 고정): 남은 매크로 → 구성비 → 시간대 리듬 */}
+          <RemainingMacros totals={totals} tP={TARGETS.p} tC={adjustedC} tF={TARGETS.f} tK={effectiveTargetK} exTotal={exTotal} />
+          <MacroRatioBar totals={totals} targets={TARGETS} />
+          <IntakeRhythm meals={meals} />
           {/* 시간 선택 (먼저) */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "8px 12px", background: "#1e1e1e", borderRadius: 8, border: "1px solid rgba(255,255,255,0.06)" }}>
             <span style={{ fontSize: 13, color: "#707070" }}>식사 시간</span>
