@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>식단·운동 탭 통계 컨셉 (A~F)</title>
+<style>
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css');
+* { font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; box-sizing: border-box; }
+body { margin: 0; background: #0d0d0d; color: #f5f5f0; }
+.phone { max-width: 480px; margin: 0 auto 8px; background: #141414; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.card { background: #1e1e1e; border: 1px solid rgba(255,255,255,0.06); border-radius: 16px; padding: 16px; margin: 12px 16px; box-shadow: 0 4px 24px rgba(0,0,0,0.4), 0 1px 6px rgba(0,0,0,0.2); position: relative; }
+.badge { position: absolute; top: 12px; right: 12px; font-size: 9px; font-weight: 700; color: #d4af37; background: rgba(212,175,55,0.12); border: 1px solid rgba(212,175,55,0.3); border-radius: 6px; padding: 2px 7px; }
+.tabhead { max-width: 480px; margin: 22px auto 2px; padding: 0 20px; font-size: 13px; color: #d4af37; font-weight: 600; letter-spacing: 0.3px; }
+.cap { font-size: 11px; color: #707070; margin: 0 16px 8px; line-height: 1.5; }
+.track { height: 16px; background: #252525; border-radius: 5px; overflow: hidden; display: flex; }
+.row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.bar { flex: 1; height: 12px; background: #232323; border-radius: 4px; overflow: hidden; position: relative; }
+.barfill { height: 100%; border-radius: 4px; }
+.tit { font-size: 13px; color: #707070; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+
+<div style="max-width:480px;margin:0 auto;padding:16px 20px 0;">
+  <div style="font-size:16px;font-weight:600;">식단·운동 탭 통계 컨셉 미리보기</div>
+  <div style="font-size:11px;color:#707070;margin-top:4px;">감량 모드 · 체중 75 · 오늘 점심까지 섭취 850kcal(P95 C70 F28) · 운동 420kcal 가정. 실제 숫자는 데이터 연동.</div>
+</div>
+
+<!-- ===================== 식단 탭 ===================== -->
+<div class="tabhead">🍱 식단 탭</div>
+
+<!-- A -->
+<div class="cap">A. 남은 매크로 &amp; Net — 기록 직후 "지금 뭘 얼마나 더 먹지" 즉답</div>
+<div class="phone"><div class="card">
+  <div class="badge">A</div>
+  <div class="tit">남은 목표 <span style="color:#5a9e6f;">🟢 적정 페이스</span></div>
+  <div style="display:flex;gap:8px;align-items:stretch;">
+    <div style="flex:1.3;background:rgba(74,143,201,0.08);border:1px solid rgba(74,143,201,0.25);border-radius:10px;padding:8px 6px;text-align:center;">
+      <div style="font-size:10px;color:#4a8fc9;">단백질 남음</div>
+      <div class="mono" style="font-size:19px;font-weight:600;color:#4a8fc9;">+70<span style="font-size:11px;">g</span></div>
+    </div>
+    <div style="flex:1;background:#252525;border-radius:10px;padding:8px 6px;text-align:center;">
+      <div style="font-size:10px;color:#707070;">탄수</div>
+      <div class="mono" style="font-size:16px;font-weight:500;color:#d4af37;">+103<span style="font-size:10px;">g</span></div>
+    </div>
+    <div style="flex:1;background:#252525;border-radius:10px;padding:8px 6px;text-align:center;">
+      <div style="font-size:10px;color:#707070;">지방</div>
+      <div class="mono" style="font-size:16px;font-weight:500;color:#e05252;">+17<span style="font-size:10px;">g</span></div>
+    </div>
+    <div style="flex:1.1;background:#252525;border-radius:10px;padding:8px 6px;text-align:center;">
+      <div style="font-size:10px;color:#707070;">칼로리</div>
+      <div class="mono" style="font-size:16px;font-weight:500;color:#5a9e6f;">+906</div>
+    </div>
+  </div>
+  <div style="font-size:10px;color:#707070;margin-top:8px;">운동 420kcal · 50% 되먹기 반영(+210) → 오늘 목표 1,756kcal · 탄수 173g</div>
+</div></div>
+
+<!-- B -->
+<div class="cap">B. 매크로 구성비 바 — "얼마나(g)"와 분리된 "구성이 어떤가(%)"</div>
+<div class="phone"><div class="card">
+  <div class="badge">B</div>
+  <div class="tit">오늘 매크로 구성 <span class="mono" style="color:#4a4a4a;font-size:11px;">(목표선 ▏대조)</span></div>
+  <div style="position:relative;">
+    <div class="track" style="height:22px;">
+      <div style="width:42%;background:#4a8fc9;display:flex;align-items:center;justify-content:center;font-size:10px;color:#0d1b2a;font-weight:600;">42%</div>
+      <div style="width:31%;background:#d4af37;display:flex;align-items:center;justify-content:center;font-size:10px;color:#3a2e00;font-weight:600;">31%</div>
+      <div style="width:27%;background:#e05252;display:flex;align-items:center;justify-content:center;font-size:10px;color:#3a0d0d;font-weight:600;">27%</div>
+    </div>
+    <!-- 목표 비율 마커 (P43 / C30 누적=73%) -->
+    <div style="position:absolute;top:-3px;bottom:-3px;left:43%;width:2px;background:#f5f5f0;opacity:0.5;"></div>
+    <div style="position:absolute;top:-3px;bottom:-3px;left:73%;width:2px;background:#f5f5f0;opacity:0.5;"></div>
+  </div>
+  <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:11px;" class="mono">
+    <span style="color:#4a8fc9;">단백질 42% <span style="color:#4a4a4a;">/목표43</span></span>
+    <span style="color:#d4af37;">탄수 31% <span style="color:#4a4a4a;">/30</span></span>
+    <span style="color:#e05252;">지방 27% <span style="color:#4a4a4a;">/26</span></span>
+  </div>
+</div></div>
+
+<!-- C -->
+<div class="cap">C. 시간대 섭취 리듬 — 칼로리 몰림·끼니별 단백질 분산 (파랑=단백질)</div>
+<div class="phone"><div class="card">
+  <div class="badge">C</div>
+  <div class="tit">오늘 시간대 분포</div>
+  <!-- 각 행: 이모지 / 바(전체 kcal + 파랑 단백질) / 라벨 -->
+  <div class="row"><span style="width:46px;font-size:11px;color:#8a8a8a;">🌅 아침</span>
+    <div class="bar"><div class="barfill" style="width:60%;background:#3a3320;"></div><div class="barfill" style="width:23%;background:#4a8fc9;position:absolute;top:0;left:0;"></div></div>
+    <span class="mono" style="font-size:11px;color:#707070;width:78px;text-align:right;">320 · P30</span></div>
+  <div class="row"><span style="width:46px;font-size:11px;color:#8a8a8a;">🌞 점심</span>
+    <div class="bar"><div class="barfill" style="width:100%;background:#3a3320;"></div><div class="barfill" style="width:49%;background:#4a8fc9;position:absolute;top:0;left:0;"></div></div>
+    <span class="mono" style="font-size:11px;color:#707070;width:78px;text-align:right;">530 · P65</span></div>
+  <div class="row"><span style="width:46px;font-size:11px;color:#4a4a4a;">🌆 저녁</span>
+    <div class="bar"></div>
+    <span class="mono" style="font-size:11px;color:#4a4a4a;width:78px;text-align:right;">—</span></div>
+  <div class="row"><span style="width:46px;font-size:11px;color:#4a4a4a;">🌃 야간</span>
+    <div class="bar"></div>
+    <span class="mono" style="font-size:11px;color:#4a4a4a;width:78px;text-align:right;">—</span></div>
+  <div style="font-size:10px;color:#707070;margin-top:8px;">파랑 = 단백질 환산 · 저녁/야간 여유 670kcal(단백질 +70g) 남음</div>
+</div></div>
+
+<!-- ===================== 운동 탭 ===================== -->
+<div class="tabhead">🏃 운동 탭</div>
+
+<!-- D -->
+<div class="cap">D. 운동 후 섭취 여유 Net — 운동 탭에 없던 식단 연결을 그 순간 제공</div>
+<div class="phone"><div class="card" style="background:rgba(90,158,111,0.07);border-color:rgba(90,158,111,0.22);">
+  <div class="badge" style="color:#5a9e6f;background:rgba(90,158,111,0.12);border-color:rgba(90,158,111,0.3);">D</div>
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <div>
+      <div style="font-size:11px;color:#707070;">오늘 Net (섭취−운동) 🟢 <span style="color:#5a9e6f;">적정</span></div>
+      <div class="mono" style="font-size:24px;font-weight:500;color:#5a9e6f;">430 <span style="font-size:12px;color:#707070;">kcal</span></div>
+    </div>
+    <div style="text-align:right;font-size:11px;color:#707070;line-height:1.6;">
+      <div>섭취 850</div>
+      <div style="color:#4a8fc9;">− 운동 420</div>
+    </div>
+  </div>
+  <div style="height:1px;background:rgba(255,255,255,0.06);margin:12px 0;"></div>
+  <div style="font-size:12px;color:#8a8a8a;">운동으로 <span style="color:#5a9e6f;font-weight:600;">+210kcal 여유</span> · 오늘 목표까지 <span class="mono">+906</span> 더 먹어도 적정</div>
+</div></div>
+
+<!-- E -->
+<div class="cap">E. 강도 믹스 바 (MET) — "가벼운 것만 했나, 고강도 있었나"</div>
+<div class="phone"><div class="card">
+  <div class="badge">E</div>
+  <div class="tit">오늘 운동 강도 <span class="mono" style="color:#4a4a4a;font-size:11px;">총 65분 · 420kcal</span></div>
+  <div class="track" style="height:20px;">
+    <div style="width:17%;background:#6fa8d4;display:flex;align-items:center;justify-content:center;font-size:9px;color:#0d1b2a;">17%</div>
+    <div style="width:83%;background:#4a8fc9;display:flex;align-items:center;justify-content:center;font-size:10px;color:#0d1b2a;font-weight:600;">83%</div>
+  </div>
+  <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:11px;" class="mono">
+    <span style="color:#6fa8d4;">가벼움&lt;5 · 15분·70</span>
+    <span style="color:#4a8fc9;">중간 5–7 · 50분·350</span>
+    <span style="color:#4a4a4a;">높음 8+ · 0</span>
+  </div>
+</div></div>
+
+<!-- F -->
+<div class="cap">F. 운동 시간대 습관 (최근 4주) — 내 루틴 시간대 인지 · 빈 시간대 발견</div>
+<div class="phone"><div class="card">
+  <div class="badge">F</div>
+  <div class="tit">운동 시간대 분포 <span class="mono" style="color:#4a4a4a;font-size:11px;">최근 4주 · 14회</span></div>
+  <div class="row"><span style="width:46px;font-size:11px;color:#8a8a8a;">🌅 아침</span>
+    <div class="bar"><div class="barfill" style="width:22%;background:#4a8fc9;"></div></div>
+    <span class="mono" style="font-size:11px;color:#707070;width:36px;text-align:right;">2회</span></div>
+  <div class="row"><span style="width:46px;font-size:11px;color:#8a8a8a;">🌞 점심</span>
+    <div class="bar"><div class="barfill" style="width:11%;background:#4a8fc9;"></div></div>
+    <span class="mono" style="font-size:11px;color:#707070;width:36px;text-align:right;">1회</span></div>
+  <div class="row"><span style="width:46px;font-size:11px;color:#f5f5f0;font-weight:600;">🌆 저녁</span>
+    <div class="bar"><div class="barfill" style="width:100%;background:#5a9e6f;"></div></div>
+    <span class="mono" style="font-size:11px;color:#5a9e6f;width:36px;text-align:right;font-weight:600;">9회</span></div>
+  <div class="row"><span style="width:46px;font-size:11px;color:#8a8a8a;">🌃 야간</span>
+    <div class="bar"><div class="barfill" style="width:22%;background:#4a8fc9;"></div></div>
+    <span class="mono" style="font-size:11px;color:#707070;width:36px;text-align:right;">2회</span></div>
+  <div style="font-size:10px;color:#5a9e6f;margin-top:8px;">주로 <b>저녁</b>에 운동 (64%) · 아침대 비어있음</div>
+</div></div>
+
+<div style="max-width:480px;margin:0 auto;padding:8px 20px 28px;font-size:10px;color:#4a4a4a;line-height:1.6;">
+※ 모든 위젯은 인라인 스타일·인라인 SVG만 사용(외부 JS 없음). 실제 구현 시 데이터 연동되며 다크테마 그대로 적용됩니다.
+</div>
+
+</body>
+</html>
