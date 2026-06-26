@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { RemainingMacros } from "../components/RemainingMacros.jsx";
 import { NextMealTip } from "../components/NextMealTip.jsx";
 import { MacroRatioBar } from "../components/MacroRatioBar.jsx";
 import { IntakeRhythm } from "../components/IntakeRhythm.jsx";
@@ -8,37 +7,6 @@ import { IntakeRhythm } from "../components/IntakeRhythm.jsx";
 // 시나리오: 감량·체중75 → 휴식일 목표 P165 C120 F45 K1546.
 // 운동 420kcal(50% 되먹기) → effectiveTargetK 1756 · adjustedC 173.
 // 점심까지 섭취 P95 C70 F28 K850.
-
-describe("RemainingMacros (A) — 남은 매크로 & Net", () => {
-  const T = { totals: { p: 95, c: 70, f: 28, k: 850 }, tP: 165, tC: 173, tF: 45, tK: 1756, exTotal: 420 };
-
-  it("남은 = 목표 − 섭취: 단백질 +70 · 탄수 +103 · 지방 +17 · 칼로리 +906", () => {
-    const h = renderToStaticMarkup(<RemainingMacros {...T} />);
-    expect(h).toContain("+70");   // 165-95
-    expect(h).toContain("+103");  // 173-70
-    expect(h).toContain("+17");   // 45-28
-    expect(h).toContain("+906");  // 1756-850
-    expect(h).toContain("남음");
-  });
-
-  it("운동 되먹기 주석: 운동량·오늘 목표·탄수 표시", () => {
-    const h = renderToStaticMarkup(<RemainingMacros {...T} />);
-    expect(h).toContain("운동 420");
-    expect(h).toContain("1,756");
-    expect(h).toContain("탄수 173g");
-  });
-
-  it("초과 시 음수 + '초과' 라벨", () => {
-    const h = renderToStaticMarkup(<RemainingMacros {...T} totals={{ p: 200, c: 70, f: 28, k: 850 }} />);
-    expect(h).toContain("-35");   // 165-200
-    expect(h).toContain("초과");
-  });
-
-  it("운동 0이면 되먹기 주석 숨김", () => {
-    const h = renderToStaticMarkup(<RemainingMacros {...T} exTotal={0} />);
-    expect(h).not.toContain("되먹기");
-  });
-});
 
 describe("MacroRatioBar (B) — 매크로 구성비", () => {
   const targets = { p: 165, c: 120, f: 45, k: 1546 };

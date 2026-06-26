@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { WorkoutStamp } from "../components/WorkoutStamp.jsx";
+import { ExerciseRhythm } from "../components/ExerciseRhythm.jsx";
 
 // 연속일 시나리오: 6/26(오늘)·25·24 연속(3), 23 결손, 22 단독.
 // 과거 6/10~14 5연속 → 최장 5.
@@ -47,5 +48,23 @@ describe("WorkoutStamp (L) — 오늘 운동 도장 & 스트릭", () => {
     expect(h).toContain("60분");
     expect(h).toContain("평균 MET 8.0");
     expect(h).toContain("🔥 1일");
+  });
+});
+
+describe("ExerciseRhythm — 운동 시간대 분포", () => {
+  it("시간대별 소모·분 합산: 점심 -420 · 45분", () => {
+    const h = renderToStaticMarkup(<ExerciseRhythm exercises={[{ hour: 13, kcal: 420, duration: 45 }]} />);
+    expect(h).toContain("-420 · 45분");
+    expect(h).toContain("점심");
+  });
+
+  it("같은 시간대 합산: 아침 200+100=−300 · 30+20=50분", () => {
+    const ex = [{ hour: 8, kcal: 200, duration: 30 }, { hour: 9, kcal: 100, duration: 20 }];
+    const h = renderToStaticMarkup(<ExerciseRhythm exercises={ex} />);
+    expect(h).toContain("-300 · 50분");
+  });
+
+  it("기록 없으면 숨김(null)", () => {
+    expect(renderToStaticMarkup(<ExerciseRhythm exercises={[]} />)).toBe("");
   });
 });
