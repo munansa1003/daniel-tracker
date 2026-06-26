@@ -54,6 +54,8 @@ describe("App 렌더 스모크", () => {
       expect(div.textContent.length, `"${label}" 탭 렌더`).toBeGreaterThan(0);
       // 식단 탭 상단 통계 위젯(RemainingMacros)이 실제 렌더되는지 확인
       if (label === "식단") expect(div.textContent, "식단 탭 '남은 목표' 위젯").toContain("남은 목표");
+      // 운동 탭 상단 통계 위젯(WorkoutStamp)이 실제 렌더되는지 확인
+      if (label === "운동") expect(div.textContent, "운동 탭 '최장' 스트릭 위젯").toContain("최장");
     }
 
     // 헤더 날짜 버튼 → 달력 펼침: 달력 렌더 경로(B1 칩 포함)가 크래시 없이 동작하고
