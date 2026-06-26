@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>식단·운동 기간 통계 — 차트 5차</title>
+<style>
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css');
+* { font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; box-sizing: border-box; }
+body { margin: 0; background: #0d0d0d; color: #f5f5f0; }
+.wrap { max-width: 480px; margin: 0 auto; padding: 8px 0 40px; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.card { background: #1e1e1e; border: 1px solid rgba(255,255,255,0.06); border-radius: 16px; padding: 16px; margin: 0 16px 10px; box-shadow: 0 4px 24px rgba(0,0,0,0.4); }
+.grp { margin: 24px 16px 6px; font-size: 13px; font-weight: 700; }
+.grp.d { color:#5a9e6f; } .grp.e { color:#4a8fc9; }
+.sec { margin: 18px 16px 4px; font-size: 13px; color: #d4af37; font-weight: 600; }
+.secd { margin: 0 16px 10px; font-size: 11px; color: #707070; line-height: 1.5; }
+.tabchip { display:flex; background:#252525; border-radius:9px; padding:3px; margin-bottom:14px; }
+.tabchip div { flex:1; text-align:center; padding:6px 0; font-size:11px; color:#8a8a8a; border-radius:6px; }
+.tabchip div.on { background:#d4af37; color:#141414; font-weight:600; }
+.tt { font-size:13px; color:#707070; margin-bottom:12px; display:flex; justify-content:space-between; }
+.tt b { color:#f5f5f0; font-weight:500; }
+.cap { font-size:10px; color:#707070; margin-top:8px; }
+.kicker { text-align:center; font-size:12px; color:#8a8a8a; padding:6px 16px 2px; }
+.waffle { display:grid; grid-template-columns:repeat(6,1fr); gap:5px; }
+.waffle i { aspect-ratio:1; border-radius:3px; }
+.dumb { position:relative; height:22px; margin:8px 0; }
+.dumb .ln { position:absolute; top:10px; height:2px; background:#3a3a3a; }
+.dumb .o { position:absolute; top:5px; width:12px; height:12px; border-radius:50%; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="kicker">📊 차트 5차 — 와플·반원 게이지·마일스톤·덤벨 비교</div>
+
+<!-- ============================ 식단 ============================ -->
+<div class="grp d">🍱 식단 전용 (2)</div>
+
+<!-- D13 와플 차트 -->
+<div class="sec">D13 · 한 달 와플 차트</div>
+<div class="secd">한 칸 = 하루. 적정(초록)·초과(빨강)·미기록(회색)으로 한 달을 통째 격자에. "달력 없이도 한 달 컨디션이 한 장".</div>
+<div class="card">
+  <div class="tt"><span><b>한 달 적정/초과</b></span><span class="mono" style="color:#4a4a4a;">30칸=30일</span></div>
+  <div class="tabchip"><div>1주</div><div class="on">1달</div><div>3개월</div><div>전체</div></div>
+  <div class="waffle">
+    <i style="background:#5a9e6f;"></i><i style="background:#5a9e6f;"></i><i style="background:#e05252;"></i><i style="background:#5a9e6f;"></i><i style="background:#5a9e6f;"></i><i style="background:#2a2a2a;"></i>
+    <i style="background:#5a9e6f;"></i><i style="background:#5a9e6f;"></i><i style="background:#5a9e6f;"></i><i style="background:#e05252;"></i><i style="background:#5a9e6f;"></i><i style="background:#5a9e6f;"></i>
+    <i style="background:#2a2a2a;"></i><i style="background:#5a9e6f;"></i><i style="background:#5a9e6f;"></i><i style="background:#5a9e6f;"></i><i style="background:#e05252;"></i><i style="background:#5a9e6f;"></i>
+    <i style="background:#5a9e6f;"></i><i style="background:#2a2a2a;"></i><i style="background:#5a9e6f;"></i><i style="background:#e05252;"></i><i style="background:#5a9e6f;"></i><i style="background:#5a9e6f;"></i>
+    <i style="background:#5a9e6f;"></i><i style="background:#e05252;"></i><i style="background:#2a2a2a;"></i><i style="background:#5a9e6f;"></i><i style="background:#5a9e6f;"></i><i style="background:#e05252;"></i>
+  </div>
+  <div class="mono" style="display:flex; gap:12px; font-size:10px; margin-top:10px;"><span style="color:#5a9e6f;">■적정 18</span><span style="color:#e05252;">■초과 6</span><span style="color:#707070;">■미기록 6</span></div>
+</div>
+
+<!-- D14 반원 게이지 -->
+<div class="sec">D14 · 적정일 반원 게이지</div>
+<div class="secd">속도계처럼 큰 반원 하나로 핵심 한 지표(적정일%)를 강조. 숫자 하나를 가장 크고 시원하게 보고 싶을 때.</div>
+<div class="card">
+  <div class="tt"><span><b>이번 달 적정일</b></span><span class="mono" style="color:#4a4a4a;">18/24일</span></div>
+  <div class="tabchip"><div>1주</div><div class="on">1달</div><div>3개월</div><div>전체</div></div>
+  <div style="display:flex; justify-content:center;">
+  <svg width="200" height="120" viewBox="0 0 120 72">
+    <path d="M10,62 A50,50 0 0 1 110,62" fill="none" stroke="#2a2a2a" stroke-width="10" stroke-linecap="round"/>
+    <path d="M10,62 A50,50 0 0 1 95.4,26.6" fill="none" stroke="#5a9e6f" stroke-width="10" stroke-linecap="round"/>
+    <text x="60" y="50" text-anchor="middle" font-size="22" font-weight="700" fill="#5a9e6f" class="mono">75%</text>
+    <text x="60" y="64" text-anchor="middle" font-size="8" fill="#707070">적정일 비율</text>
+  </svg>
+  </div>
+  <div class="cap" style="text-align:center;">목표 80% 까지 1.2일 더 · 지난달 71% ▲</div>
+</div>
+
+<!-- ============================ 운동 ============================ -->
+<div class="grp e">🏃 운동 전용 (2)</div>
+
+<!-- E13 마일스톤 스테퍼 -->
+<div class="sec">E13 · 누적 소모 마일스톤 트랙</div>
+<div class="secd">지하철 노선도처럼 마일스톤(5k·10k·15k)을 잇고 현재 위치를 표시. 다음 역까지 얼마 남았는지가 한눈에.</div>
+<div class="card">
+  <div class="tt"><span><b>누적 소모 여정</b></span><span class="mono" style="color:#4a8fc9;">8,400kcal</span></div>
+  <div class="tabchip"><div>1주</div><div>1달</div><div class="on">3개월</div><div>전체</div></div>
+  <svg width="100%" viewBox="0 0 300 56" style="display:block;">
+    <line x1="15" y1="28" x2="285" y2="28" stroke="#2a2a2a" stroke-width="4" stroke-linecap="round"/>
+    <line x1="15" y1="28" x2="166" y2="28" stroke="#4a8fc9" stroke-width="4" stroke-linecap="round"/>
+    <g><circle cx="105" cy="28" r="6" fill="#1e1e1e" stroke="#4a8fc9" stroke-width="3"/><text x="105" y="14" text-anchor="middle" font-size="8" fill="#707070" class="mono">5k ✓</text></g>
+    <g><circle cx="195" cy="28" r="6" fill="#1e1e1e" stroke="#3a3a3a" stroke-width="3"/><text x="195" y="14" text-anchor="middle" font-size="8" fill="#707070" class="mono">10k</text></g>
+    <g><circle cx="285" cy="28" r="6" fill="#1e1e1e" stroke="#3a3a3a" stroke-width="3"/><text x="280" y="14" text-anchor="middle" font-size="8" fill="#707070" class="mono">15k</text></g>
+    <g><circle cx="166" cy="28" r="5" fill="#d4af37"/><text x="166" y="48" text-anchor="middle" font-size="8" fill="#d4af37" class="mono">현재 8.4k</text></g>
+  </svg>
+  <div class="cap" style="text-align:center;">다음 10,000까지 −1,600kcal (약 4회)</div>
+</div>
+
+<!-- E14 덤벨 비교 -->
+<div class="sec">E14 · 이번 vs 지난 덤벨 비교</div>
+<div class="secd">지난 기간(회색)과 이번 기간(파랑)을 점-선으로 이어 '얼마나 좋아졌나'를 한 줄에. 증감 화살표보다 변화 폭이 직관적.</div>
+<div class="card">
+  <div class="tt"><span><b>지난달 → 이번달</b></span><span class="mono" style="color:#4a4a4a;">● 지난 ● 이번</span></div>
+  <div class="tabchip"><div>1주</div><div class="on">1달</div><div>3개월</div><div>전체</div></div>
+  <div style="font-size:11px; color:#8a8a8a; margin-bottom:2px;">주당 빈도</div>
+  <div class="dumb"><div class="ln" style="left:55%; width:18%;"></div><div class="o" style="left:55%; background:#4a4a4a;"></div><div class="o" style="left:73%; background:#4a8fc9;"></div><span class="mono" style="position:absolute; right:0; top:3px; font-size:10px; color:#4a8fc9;">3.8→4.4</span></div>
+  <div style="font-size:11px; color:#8a8a8a; margin-bottom:2px;">일평균 소모</div>
+  <div class="dumb"><div class="ln" style="left:50%; width:14%;"></div><div class="o" style="left:50%; background:#4a4a4a;"></div><div class="o" style="left:64%; background:#4a8fc9;"></div><span class="mono" style="position:absolute; right:0; top:3px; font-size:10px; color:#4a8fc9;">400→442</span></div>
+  <div style="font-size:11px; color:#8a8a8a; margin-bottom:2px;">평균 강도(MET)</div>
+  <div class="dumb"><div class="ln" style="left:58%; width:12%;"></div><div class="o" style="left:58%; background:#4a4a4a;"></div><div class="o" style="left:70%; background:#d4af37;"></div><span class="mono" style="position:absolute; right:0; top:3px; font-size:10px; color:#d4af37;">6.4→6.8</span></div>
+</div>
+
+<div style="margin:22px 16px 0; padding:14px; background:rgba(212,175,55,0.06); border:1px solid rgba(212,175,55,0.18); border-radius:14px; font-size:12px; color:#8a8a8a; line-height:1.7;">
+  <b style="color:#d4af37;">차트 5차</b> — 식단: <span style="color:#5a9e6f;">D13</span>와플 · <span style="color:#5a9e6f;">D14</span>반원게이지 / 운동: <span style="color:#4a8fc9;">E13</span>마일스톤 · <span style="color:#4a8fc9;">E14</span>덤벨비교<br>
+  <span style="color:#707070;">지금까지 식단 14 / 운동 14안. 이만하면 고를 게 충분합니다 — 하나 골라 실제로 띄워보는 걸 추천!</span>
+</div>
+
+</div>
+</body>
+</html>
