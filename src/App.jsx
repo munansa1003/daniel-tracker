@@ -15,6 +15,8 @@ import { MacroRatioBar } from "./components/MacroRatioBar.jsx";
 import { IntakeRhythm } from "./components/IntakeRhythm.jsx";
 import { WorkoutStamp } from "./components/WorkoutStamp.jsx";
 import { ExerciseRhythm } from "./components/ExerciseRhythm.jsx";
+import { CalorieBandChart } from "./components/CalorieBandChart.jsx";
+import { WeekdayRadar } from "./components/WeekdayRadar.jsx";
 import { AddFoodForm } from "./components/AddFoodForm.jsx";
 import { AddExForm } from "./components/AddExForm.jsx";
 import { EditMealForm } from "./components/EditMealForm.jsx";
@@ -2357,6 +2359,8 @@ function MainApp({ user, onLogout }) {
           <NextMealTip totals={totals} meals={meals} nowHour={nowHour()} tP={TARGETS.p} tC={adjustedC} tK={effectiveTargetK} />
           <MacroRatioBar totals={totals} targets={TARGETS} />
           <IntakeRhythm meals={meals} />
+          {/* 기간 통계(D1): 칼로리 vs 목표 밴드 라인 */}
+          <CalorieBandChart allDays={allDays} targetsByMode={targetsByMode} mode={mode} />
           {/* 시간 선택 (먼저) */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "8px 12px", background: "#1e1e1e", borderRadius: 8, border: "1px solid rgba(255,255,255,0.06)" }}>
             <span style={{ fontSize: 13, color: "#707070" }}>식사 시간</span>
@@ -2638,6 +2642,8 @@ function MainApp({ user, onLogout }) {
           {/* 입력 화면 상단 통계: 오늘 운동 도장 & 스트릭 → 시간대 분포 */}
           <WorkoutStamp date={date} exercises={exercises} exTotal={exTotal} allDays={allDays} todayStr={today()} />
           <ExerciseRhythm exercises={exercises} />
+          {/* 기간 통계(E9): 요일별 운동 밸런스 레이더 */}
+          <WeekdayRadar allDays={allDays} />
           {/* 시간 선택 (먼저) */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "8px 12px", background: "#1e1e1e", borderRadius: 8, border: "1px solid rgba(255,255,255,0.06)" }}>
             <span style={{ fontSize: 13, color: "#707070" }}>운동 시간</span>

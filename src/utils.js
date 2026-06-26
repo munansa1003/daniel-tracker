@@ -8,6 +8,17 @@ export const nowHour = () => new Date().getHours();
 // (홈 탭의 "오늘 진행률" 같은 의도된 partial 표시는 별도 처리)
 export const isCompletedDay = (dateStr) => dateStr < today();
 
+// 기간 토글(1주/1달/3개월/전체)의 시작일(YYYY-MM-DD) 계산. "all"이면 전체 포함하는 하한.
+// todayStr 주입형이라 순수·테스트 가능. 필터는 start <= ds < todayStr(오늘 제외)로 쓴다.
+export function periodStart(period, todayStr) {
+  if (period === "all") return "0000-00-00";
+  const d = new Date(todayStr + "T12:00:00");
+  if (period === "1w") d.setDate(d.getDate() - 7);
+  else if (period === "1m") d.setMonth(d.getMonth() - 1);
+  else if (period === "3m") d.setMonth(d.getMonth() - 3);
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+
 // 체중 기반 목표 단탄지 계산 (Mifflin-St Jeor)
 // 비운동 기초유지 ≈ BMR×1.05 (정확기록 데이터로 역산 보정; 공식 활동계수 1.55는 유지칼로리를 과대평가했음).
 // 휴식일 섭취 목표 K = 기초유지 − 기초적자(175). 운동일엔 운동 소모의 50%를 carbBonus로 되먹어

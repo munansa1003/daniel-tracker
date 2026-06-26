@@ -52,10 +52,16 @@ describe("App 렌더 스모크", () => {
       expect(btn, `하단 네비 "${label}" 버튼`).toBeTruthy();
       await act(async () => { btn.click(); });
       expect(div.textContent.length, `"${label}" 탭 렌더`).toBeGreaterThan(0);
-      // 식단 탭 상단 통계 위젯(NextMealTip)이 실제 렌더되는지 확인
-      if (label === "식단") expect(div.textContent, "식단 탭 '다음 끼니' 위젯").toContain("다음 끼니");
-      // 운동 탭 상단 통계 위젯(WorkoutStamp)이 실제 렌더되는지 확인
-      if (label === "운동") expect(div.textContent, "운동 탭 '최장' 스트릭 위젯").toContain("최장");
+      // 식단 탭 통계 위젯(NextMealTip + CalorieBandChart D1)이 실제 렌더되는지 확인
+      if (label === "식단") {
+        expect(div.textContent, "식단 탭 '다음 끼니' 위젯").toContain("다음 끼니");
+        expect(div.textContent, "식단 탭 'D1 칼로리 밴드' 위젯").toContain("섭취 vs 목표");
+      }
+      // 운동 탭 통계 위젯(WorkoutStamp + WeekdayRadar E9)이 실제 렌더되는지 확인
+      if (label === "운동") {
+        expect(div.textContent, "운동 탭 '최장' 스트릭 위젯").toContain("최장");
+        expect(div.textContent, "운동 탭 'E9 요일 레이더' 위젯").toContain("요일별 운동");
+      }
     }
 
     // 헤더 날짜 버튼 → 달력 펼침: 달력 렌더 경로(B1 칩 포함)가 크래시 없이 동작하고

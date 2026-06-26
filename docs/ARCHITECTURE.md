@@ -87,7 +87,7 @@ BMR = Mifflin-St Jeor (10W + 6.25H − 5A + 5)
 | 파일 | 심볼 | 비고 |
 |------|------|------|
 | theme.jsx | THEME, GlobalStyles, PROFILE_COLORS | THEME **40+곳에서 사용**. GlobalStyles는 전역 CSS(`dbp-*`, keyframes) 주입 — App 최상단 렌더 필수 |
-| utils.js | today, nowHour, isCompletedDay, calcTargets, **exFeedback, isCalOk, MODE_DEFICIT, MODE_FEEDBACK**, sortByHour, TIME_PERIODS, periodOf, groupMealsByTime, groupExercisesByTime, aggregateDay, calcMovingAvg, getWeekKey, getMonthKey, getYearKey | 전부 순수 함수. calcTargets(w,h,a,**mode**)·판정 헬퍼는 §3 참조 |
+| utils.js | today, nowHour, isCompletedDay, **periodStart**, calcTargets, **exFeedback, isCalOk, MODE_DEFICIT, MODE_FEEDBACK**, sortByHour, TIME_PERIODS, periodOf, groupMealsByTime, groupExercisesByTime, aggregateDay, calcMovingAvg, getWeekKey, getMonthKey, getYearKey | 전부 순수 함수. calcTargets(w,h,a,**mode**)·판정 헬퍼는 §3 참조. periodStart(period,todayStr)=기간 토글 시작일 |
 | hooks/useLongPress.js | useLongPress | BodyTab·MainApp 사용 |
 | components/LongPressActionBar.jsx | LongPressActionBar | |
 | components/Modal.jsx | Modal | 14곳 사용 |
@@ -99,6 +99,8 @@ BMR = Mifflin-St Jeor (10W + 6.25H − 5A + 5)
 | components/IntakeRhythm.jsx | IntakeRhythm | 식단 탭 상단 위젯(C): 5시간대 칼로리 막대 + 단백질 오버레이. TIME_PERIODS/periodOf 사용, 기록 0이면 null |
 | components/WorkoutStamp.jsx | WorkoutStamp | 운동 탭 상단 위젯(L): 오늘 운동 도장(분·평균MET·소모) + 연속일/최장 + 최근7칸. 미기록 시 끊김 경고. allDays로 스트릭 계산 |
 | components/ExerciseRhythm.jsx | ExerciseRhythm | 운동 탭 상단 위젯: 5시간대 소모 kcal 막대 + 분 라벨(IntakeRhythm 운동판). 기록 0이면 null |
+| components/CalorieBandChart.jsx | CalorieBandChart, buildCalorieSeries | 식단 탭 기간 통계(D1): 1주/1달/3개월/전체 토글 + 일별 섭취 라인·목표밴드·초과 빨간점. buildCalorieSeries 순수함수(그 날 모드로 isCalOk 판정). period-charts.test.jsx |
+| components/WeekdayRadar.jsx | WeekdayRadar, buildWeekdayTotals | 운동 탭 기간 통계(E9): 기간 토글 + 요일별 소모 kcal 7각형 레이더. buildWeekdayTotals 순수함수. period-charts.test.jsx |
 | components/AddFoodForm.jsx | AddFoodForm | COLORS(data.js) 사용 |
 | components/AddExForm.jsx | AddExForm | **weight prop 필요** |
 | components/EditMealForm.jsx | EditMealForm | periodOf 사용 |
