@@ -93,7 +93,10 @@ BMR = Mifflin-St Jeor (10W + 6.25H − 5A + 5)
 | components/Modal.jsx | Modal | 14곳 사용 |
 | components/ProgressBar.jsx | ProgressBar | |
 | components/MiniDonut.jsx | MiniDonut | recharts PieChart/Pie/Cell/ResponsiveContainer 사용 |
-| components/NetCalCard.jsx | NetCalCard | 보정섭취+막대+신호등 (PR #8). netcalcard.test.jsx가 경계값 보호 |
+| components/NetCalCard.jsx | NetCalCard | 보정섭취+막대+신호등 (PR #8). mode prop으로 되먹기 계수 일치. netcalcard.test.jsx가 경계값 보호 |
+| components/RemainingMacros.jsx | RemainingMacros | 식단 탭 상단 위젯(A): 남은 P/C/F·kcal 델타(되먹기 반영 목표 tC=adjustedC, tK=effectiveTargetK). diet-stats.test.jsx |
+| components/MacroRatioBar.jsx | MacroRatioBar | 식단 탭 상단 위젯(B): 섭취 P/C/F 칼로리 기여 비율 스택바 + 목표 비율선. 섭취 0이면 null |
+| components/IntakeRhythm.jsx | IntakeRhythm | 식단 탭 상단 위젯(C): 5시간대 칼로리 막대 + 단백질 오버레이. TIME_PERIODS/periodOf 사용, 기록 0이면 null |
 | components/AddFoodForm.jsx | AddFoodForm | COLORS(data.js) 사용 |
 | components/AddExForm.jsx | AddExForm | **weight prop 필요** |
 | components/EditMealForm.jsx | EditMealForm | periodOf 사용 |
