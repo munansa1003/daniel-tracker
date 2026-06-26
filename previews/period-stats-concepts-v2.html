@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>식단·운동 기간 통계 위젯 — 6개 컨셉</title>
+<style>
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css');
+* { font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; box-sizing: border-box; }
+body { margin: 0; background: #0d0d0d; color: #f5f5f0; }
+.wrap { max-width: 480px; margin: 0 auto; padding: 8px 0 40px; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.card { background: #1e1e1e; border: 1px solid rgba(255,255,255,0.06); border-radius: 16px; padding: 16px; margin: 0 16px 10px; box-shadow: 0 4px 24px rgba(0,0,0,0.4); }
+.sec { margin: 26px 16px 4px; font-size: 14px; color: #d4af37; font-weight: 600; }
+.secd { margin: 0 16px 10px; font-size: 11px; color: #707070; line-height: 1.5; }
+.tabchip { display:flex; background:#252525; border-radius:9px; padding:3px; margin-bottom:14px; }
+.tabchip div { flex:1; text-align:center; padding:6px 0; font-size:11px; color:#8a8a8a; border-radius:6px; }
+.tabchip div.on { background:#d4af37; color:#141414; font-weight:600; }
+.tt { font-size:13px; color:#707070; margin-bottom:12px; display:flex; justify-content:space-between; }
+.tt b { color:#f5f5f0; font-weight:500; }
+.cell { background:#252525; border-radius:10px; padding:9px 6px; text-align:center; }
+.cell .l { font-size:10px; color:#707070; }
+.cell .v { font-size:17px; font-weight:600; }
+.cell .s { font-size:9px; }
+.kicker { text-align:center; font-size:12px; color:#8a8a8a; padding:6px 16px 2px; }
+.new { color:#5a9e6f; }
+.hbar { height:9px; background:#2a2a2a; border-radius:5px; overflow:hidden; position:relative; }
+.row7 { display:flex; gap:5px; align-items:flex-end; height:56px; }
+.row7 .c { flex:1; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; height:100%; }
+.row7 .lab { font-size:9px; color:#707070; margin-top:4px; }
+.hl { display:flex; justify-content:space-between; align-items:center; padding:7px 0; border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="kicker">📊 식단·운동 "기간 통계" 위젯 — 6개 컨셉 (1주/1달/3개월/전체 토글) · 컨셉 1~3 기존 + <span class="new">4~6 신규</span></div>
+
+<!-- ===== 1 요약 스탯 카드 ===== -->
+<div class="sec">컨셉 1 · 요약 스탯 카드</div>
+<div class="secd">핵심 숫자 그리드 + 지난 동기간 대비 ▲▼.</div>
+<div class="card">
+  <div class="tt"><span><b>식단 요약</b></span><span class="mono" style="color:#4a4a4a;">24일 기록</span></div>
+  <div class="tabchip"><div>1주</div><div class="on">1달</div><div>3개월</div><div>전체</div></div>
+  <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px;">
+    <div class="cell"><div class="l">일평균 섭취</div><div class="v mono" style="color:#5a9e6f;">1,540</div><div class="s mono" style="color:#5a9e6f;">▼70</div></div>
+    <div class="cell"><div class="l">평균 단백질</div><div class="v mono" style="color:#4a8fc9;">158<span style="font-size:10px;">g</span></div><div class="s mono" style="color:#4a8fc9;">▲6</div></div>
+    <div class="cell"><div class="l">적정일</div><div class="v mono" style="color:#5a9e6f;">75%</div><div class="s mono" style="color:#707070;">18/24</div></div>
+  </div>
+</div>
+<div class="card">
+  <div class="tt"><span><b>운동 요약</b></span></div>
+  <div class="tabchip"><div>1주</div><div class="on">1달</div><div>3개월</div><div>전체</div></div>
+  <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px;">
+    <div class="cell"><div class="l">주당 빈도</div><div class="v mono" style="color:#5a9e6f;">4.4<span style="font-size:10px;">회</span></div><div class="s mono" style="color:#5a9e6f;">▲0.6</div></div>
+    <div class="cell"><div class="l">총 소모</div><div class="v mono" style="color:#4a8fc9;">8,400</div><div class="s mono" style="color:#4a4a4a;">kcal</div></div>
+    <div class="cell"><div class="l">평균 MET</div><div class="v mono" style="color:#d4af37;">6.8</div><div class="s mono" style="color:#5a9e6f;">▲0.4</div></div>
+  </div>
+</div>
+
+<!-- ===== 2 추세 스파크라인 ===== -->
+<div class="sec">컨셉 2 · 추세 스파크라인</div>
+<div class="secd">일별 추이 한 줄 그래프 + 평균/목표선.</div>
+<div class="card">
+  <div class="tt"><span><b>섭취 추이</b></span><span class="mono" style="color:#4a4a4a;">일평균 1,540</span></div>
+  <div class="tabchip"><div>1주</div><div class="on">1달</div><div>3개월</div><div>전체</div></div>
+  <svg width="100%" viewBox="0 0 300 56" preserveAspectRatio="none" style="display:block;">
+    <line x1="0" y1="28" x2="300" y2="28" stroke="#5a9e6f" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
+    <polyline fill="none" stroke="#5a9e6f" stroke-width="2" stroke-linejoin="round" points="6,36 21,29 36,40 51,24 66,32 81,27 96,43 111,21 126,34 141,38 156,23 171,30 186,45 201,26 216,32 231,18 246,37 261,28 276,24 294,33"/>
+  </svg>
+  <div class="mono" style="display:flex; justify-content:space-between; font-size:10px; margin-top:6px;"><span style="color:#5a9e6f;">— 평균 1,540</span><span style="color:#707070;">목표 1,546</span></div>
+</div>
+<div class="card">
+  <div class="tt"><span><b>소모 추이</b></span><span class="mono" style="color:#4a4a4a;">주 4.4회</span></div>
+  <div class="tabchip"><div>1주</div><div class="on">1달</div><div>3개월</div><div>전체</div></div>
+  <svg width="100%" viewBox="0 0 300 56" preserveAspectRatio="none" style="display:block;"><g fill="#4a8fc9"><rect x="4" y="20" width="9" height="36" rx="1"/><rect x="32" y="32" width="9" height="24" rx="1"/><rect x="46" y="12" width="9" height="44" rx="1"/><rect x="74" y="24" width="9" height="32" rx="1"/><rect x="88" y="18" width="9" height="38" rx="1"/><rect x="116" y="15" width="9" height="41" rx="1"/><rect x="130" y="30" width="9" height="26" rx="1"/><rect x="158" y="22" width="9" height="34" rx="1"/><rect x="172" y="9" width="9" height="47" rx="1"/><rect x="186" y="34" width="9" height="22" rx="1"/><rect x="214" y="16" width="9" height="40" rx="1"/><rect x="228" y="28" width="9" height="28" rx="1"/><rect x="242" y="7" width="9" height="49" rx="1"/><rect x="270" y="24" width="9" height="32" rx="1"/><rect x="284" y="18" width="9" height="38" rx="1"/></g></svg>
+  <div class="mono" style="display:flex; justify-content:space-between; font-size:10px; margin-top:6px;"><span style="color:#4a8fc9;">막대 = 일별 소모</span><span style="color:#707070;">운동 19 / 휴식 11일</span></div>
+</div>
+
+<!-- ===== 3 달성률 링 ===== -->
+<div class="sec">컨셉 3 · 달성률 링</div>
+<div class="secd">기간 목표 달성 비율을 큰 링으로(동기부여형).</div>
+<div class="card">
+  <div class="tt"><span><b>식단 달성률</b></span></div>
+  <div class="tabchip"><div>1주</div><div class="on">1달</div><div>3개월</div><div>전체</div></div>
+  <div style="display:flex; justify-content:space-around; padding:4px 0;">
+    <div style="text-align:center;"><svg width="80" height="80" viewBox="0 0 84 84"><circle cx="42" cy="42" r="34" fill="none" stroke="rgba(90,158,111,0.18)" stroke-width="7"/><circle cx="42" cy="42" r="34" fill="none" stroke="#5a9e6f" stroke-width="7" stroke-linecap="round" stroke-dasharray="213.6" stroke-dashoffset="53.4" transform="rotate(-90 42 42)"/><text x="42" y="40" text-anchor="middle" font-size="18" font-weight="600" fill="#5a9e6f" class="mono">75%</text><text x="42" y="54" text-anchor="middle" font-size="9" fill="#707070">적정일</text></svg></div>
+    <div style="text-align:center;"><svg width="80" height="80" viewBox="0 0 84 84"><circle cx="42" cy="42" r="34" fill="none" stroke="rgba(74,143,201,0.18)" stroke-width="7"/><circle cx="42" cy="42" r="34" fill="none" stroke="#4a8fc9" stroke-width="7" stroke-linecap="round" stroke-dasharray="213.6" stroke-dashoffset="70.5" transform="rotate(-90 42 42)"/><text x="42" y="40" text-anchor="middle" font-size="18" font-weight="600" fill="#4a8fc9" class="mono">67%</text><text x="42" y="54" text-anchor="middle" font-size="9" fill="#707070">단백질</text></svg></div>
+  </div>
+</div>
+<div class="card">
+  <div class="tt"><span><b>운동 달성률</b></span></div>
+  <div class="tabchip"><div>1주</div><div class="on">1달</div><div>3개월</div><div>전체</div></div>
+  <div style="display:flex; justify-content:space-around; padding:4px 0;">
+    <div style="text-align:center;"><svg width="80" height="80" viewBox="0 0 84 84"><circle cx="42" cy="42" r="34" fill="none" stroke="rgba(90,158,111,0.18)" stroke-width="7"/><circle cx="42" cy="42" r="34" fill="none" stroke="#5a9e6f" stroke-width="7" stroke-linecap="round" stroke-dasharray="213.6" stroke-dashoffset="0" transform="rotate(-90 42 42)"/><text x="42" y="40" text-anchor="middle" font-size="17" font-weight="600" fill="#5a9e6f" class="mono">110%</text><text x="42" y="54" text-anchor="middle" font-size="9" fill="#707070">주4회</text></svg></div>
+    <div style="text-align:center;"><svg width="80" height="80" viewBox="0 0 84 84"><circle cx="42" cy="42" r="34" fill="none" stroke="rgba(74,143,201,0.18)" stroke-width="7"/><circle cx="42" cy="42" r="34" fill="none" stroke="#4a8fc9" stroke-width="7" stroke-linecap="round" stroke-dasharray="213.6" stroke-dashoffset="78.3" transform="rotate(-90 42 42)"/><text x="42" y="40" text-anchor="middle" font-size="18" font-weight="600" fill="#4a8fc9" class="mono">63%</text><text x="42" y="54" text-anchor="middle" font-size="9" fill="#707070">운동일</text></svg></div>
+  </div>
+</div>
+
+<!-- ===== 4 요일 패턴 (신규) ===== -->
+<div class="sec">컨셉 4 · 요일 패턴 <span class="new">🆕</span></div>
+<div class="secd">기간을 요일별(월~일)로 쪼갬. "주말에 과식 / 주말엔 운동 안 함" 같은 습관을 콕 집어줌. 통계탭·기존 위젯에 없는 축.</div>
+<div class="card">
+  <div class="tt"><span><b>요일별 평균 섭취</b></span><span class="mono" style="color:#4a4a4a;">kcal</span></div>
+  <div class="tabchip"><div>1주</div><div class="on">1달</div><div>3개월</div><div>전체</div></div>
+  <div class="row7">
+    <div class="c"><div style="width:60%; height:73%; background:#5a9e6f; border-radius:3px;"></div><div class="lab">월</div></div>
+    <div class="c"><div style="width:60%; height:75%; background:#5a9e6f; border-radius:3px;"></div><div class="lab">화</div></div>
+    <div class="c"><div style="width:60%; height:72%; background:#5a9e6f; border-radius:3px;"></div><div class="lab">수</div></div>
+    <div class="c"><div style="width:60%; height:75%; background:#5a9e6f; border-radius:3px;"></div><div class="lab">목</div></div>
+    <div class="c"><div style="width:60%; height:78%; background:#d4af37; border-radius:3px;"></div><div class="lab">금</div></div>
+    <div class="c"><div style="width:60%; height:97%; background:#e05252; border-radius:3px;"></div><div class="lab" style="color:#e05252;">토</div></div>
+    <div class="c"><div style="width:60%; height:94%; background:#e05252; border-radius:3px;"></div><div class="lab" style="color:#e05252;">일</div></div>
+  </div>
+  <div class="mono" style="font-size:10px; color:#707070; margin-top:8px;">주말 평균 1,785 · 평일 1,520 → <span style="color:#e05252;">주말 +265kcal</span></div>
+</div>
+<div class="card">
+  <div class="tt"><span><b>요일별 운동 빈도</b></span><span class="mono" style="color:#4a4a4a;">운동일 수</span></div>
+  <div class="tabchip"><div>1주</div><div class="on">1달</div><div>3개월</div><div>전체</div></div>
+  <div class="row7">
+    <div class="c"><div style="width:60%; height:95%; background:#4a8fc9; border-radius:3px;"></div><div class="lab">월</div></div>
+    <div class="c"><div style="width:60%; height:95%; background:#4a8fc9; border-radius:3px;"></div><div class="lab">화</div></div>
+    <div class="c"><div style="width:60%; height:70%; background:#4a8fc9; border-radius:3px;"></div><div class="lab">수</div></div>
+    <div class="c"><div style="width:60%; height:95%; background:#4a8fc9; border-radius:3px;"></div><div class="lab">목</div></div>
+    <div class="c"><div style="width:60%; height:70%; background:#4a8fc9; border-radius:3px;"></div><div class="lab">금</div></div>
+    <div class="c"><div style="width:60%; height:25%; background:#2f4a5e; border-radius:3px;"></div><div class="lab" style="color:#e05252;">토</div></div>
+    <div class="c"><div style="width:60%; height:8%; background:#2f4a5e; border-radius:3px;"></div><div class="lab" style="color:#e05252;">일</div></div>
+  </div>
+  <div class="mono" style="font-size:10px; color:#707070; margin-top:8px;">주말 운동률 13% → <span style="color:#e05252;">주말 보강 필요</span></div>
+</div>
+
+<!-- ===== 5 목표 대비 게이지 (신규) ===== -->
+<div class="sec">컨셉 5 · 목표 대비 게이지 <span class="new">🆕</span></div>
+<div class="secd">기간 '평균값'을 목표 대비 가로 진행바로(▏=목표). 달성률 링이 '며칠%'라면 이건 '평균이 목표에 얼마나 닿았나'.</div>
+<div class="card">
+  <div class="tt"><span><b>식단 목표 대비</b></span></div>
+  <div class="tabchip"><div>1주</div><div class="on">1달</div><div>3개월</div><div>전체</div></div>
+  <div style="margin-bottom:11px;">
+    <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;"><span style="color:#4a8fc9;">단백질 평균</span><span class="mono" style="color:#707070;">158 / 165g</span></div>
+    <div class="hbar"><div style="width:96%; height:100%; background:#4a8fc9;"></div></div>
+  </div>
+  <div style="margin-bottom:11px;">
+    <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;"><span style="color:#5a9e6f;">칼로리 절제(목표 이내)</span><span class="mono" style="color:#5a9e6f;">1,540 / 1,546 ✓</span></div>
+    <div class="hbar"><div style="width:100%; height:100%; background:#5a9e6f;"></div></div>
+  </div>
+  <div>
+    <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;"><span style="color:#d4af37;">지방 평균</span><span class="mono" style="color:#707070;">44 / 45g</span></div>
+    <div class="hbar"><div style="width:98%; height:100%; background:#d4af37;"></div></div>
+  </div>
+</div>
+<div class="card">
+  <div class="tt"><span><b>운동 목표 대비</b></span></div>
+  <div class="tabchip"><div>1주</div><div class="on">1달</div><div>3개월</div><div>전체</div></div>
+  <div style="margin-bottom:11px;">
+    <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;"><span style="color:#5a9e6f;">주당 빈도</span><span class="mono" style="color:#5a9e6f;">4.4 / 4회 (110%)</span></div>
+    <div class="hbar"><div style="width:100%; height:100%; background:#5a9e6f;"></div></div>
+  </div>
+  <div style="margin-bottom:11px;">
+    <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;"><span style="color:#4a8fc9;">총 운동 시간</span><span class="mono" style="color:#5a9e6f;">855 / 600분 (143%)</span></div>
+    <div class="hbar"><div style="width:100%; height:100%; background:#4a8fc9;"></div></div>
+  </div>
+  <div>
+    <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;"><span style="color:#d4af37;">평균 강도(MET)</span><span class="mono" style="color:#707070;">6.8 / 7.0</span></div>
+    <div class="hbar"><div style="width:97%; height:100%; background:#d4af37;"></div></div>
+  </div>
+</div>
+
+<!-- ===== 6 기간 하이라이트 (신규) ===== -->
+<div class="sec">컨셉 6 · 기간 하이라이트 <span class="new">🆕</span></div>
+<div class="secd">기록률 + 베스트/워스트 데이 + 최장 연속. "이번 달 명장면/주의장면"을 콕 집는 내러티브형.</div>
+<div class="card">
+  <div class="tt"><span><b>식단 하이라이트</b></span></div>
+  <div class="tabchip"><div>1주</div><div class="on">1달</div><div>3개월</div><div>전체</div></div>
+  <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;"><span style="color:#707070;">기록률</span><span class="mono" style="color:#f5f5f0;">80% (24/30일)</span></div>
+  <div class="hbar" style="margin-bottom:12px;"><div style="width:80%; height:100%; background:#5a9e6f;"></div></div>
+  <div class="hl"><span>🥇 단백질 최고일</span><span class="mono" style="color:#4a8fc9;">06.14 · 192g</span></div>
+  <div class="hl"><span>⚠️ 최다 초과일</span><span class="mono" style="color:#e05252;">06.22 · +420kcal</span></div>
+  <div class="hl" style="border:none;"><span>🔁 연속 적정 최장</span><span class="mono" style="color:#5a9e6f;">6일</span></div>
+</div>
+<div class="card">
+  <div class="tt"><span><b>운동 하이라이트</b></span></div>
+  <div class="tabchip"><div>1주</div><div class="on">1달</div><div>3개월</div><div>전체</div></div>
+  <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;"><span style="color:#707070;">운동률</span><span class="mono" style="color:#f5f5f0;">63% (19/30일)</span></div>
+  <div class="hbar" style="margin-bottom:12px;"><div style="width:63%; height:100%; background:#4a8fc9;"></div></div>
+  <div class="hl"><span>🏆 최고 소모일(PR)</span><span class="mono" style="color:#5a9e6f;">06.12 · 1,240kcal</span></div>
+  <div class="hl"><span>🔥 최장 연속</span><span class="mono" style="color:#d4af37;">8일</span></div>
+  <div class="hl" style="border:none;"><span>⏱️ 최장 운동일</span><span class="mono" style="color:#4a8fc9;">06.12 · 95분</span></div>
+</div>
+
+<div style="margin:22px 16px 0; padding:14px; background:rgba(212,175,55,0.06); border:1px solid rgba(212,175,55,0.18); border-radius:14px; font-size:12px; color:#8a8a8a; line-height:1.7;">
+  <b style="color:#d4af37;">한 줄 요약</b><br>
+  1 숫자형(정보최다) · 2 추세형(방향) · 3 달성률(동기) · <span class="new">4 요일패턴(습관)</span> · <span class="new">5 목표대비(평균 닿음)</span> · <span class="new">6 하이라이트(명장면)</span><br>
+  <span style="color:#707070;">전부 1주/1달/3개월/전체 토글 · 기존 데이터로 구현 가능 · 통계탭(체성분)과 비중복. 식단/운동 서로 다른 컨셉 선택·조합 가능.</span>
+</div>
+
+</div>
+</body>
+</html>
