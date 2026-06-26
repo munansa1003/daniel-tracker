@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { RemainingMacros } from "../components/RemainingMacros.jsx";
+import { NextMealTip } from "../components/NextMealTip.jsx";
 import { MacroRatioBar } from "../components/MacroRatioBar.jsx";
 import { IntakeRhythm } from "../components/IntakeRhythm.jsx";
 
@@ -58,6 +59,31 @@ describe("MacroRatioBar (B) — 매크로 구성비", () => {
   it("섭취 0이면 숨김(null)", () => {
     const h = renderToStaticMarkup(<MacroRatioBar totals={{ p: 0, c: 0, f: 0, k: 0 }} targets={targets} />);
     expect(h).toBe("");
+  });
+});
+
+describe("NextMealTip (H) — 다음 끼니 한 입", () => {
+  // 목표 P165·adjustedC173·effectiveTargetK1756. 아침(8)·점심(13) 기록, 현재 14시.
+  const T = { totals: { p: 68, c: 95, f: 28, k: 900 }, meals: [{ hour: 8 }, { hour: 13 }], nowHour: 14, tP: 165, tC: 173, tK: 1756 };
+
+  it("남은(P97·C78·856kcal) ÷ 남은 끼니 2(저녁·야간) → P49·C39·428", () => {
+    const h = renderToStaticMarkup(<NextMealTip {...T} />);
+    expect(h).toContain("P49");
+    expect(h).toContain("C39");
+    expect(h).toContain("428");
+    expect(h).toContain("남은 끼니 2");
+  });
+
+  it("목표 다 채우면(섭취 ≥ 목표K) 권장 대신 완료 메시지", () => {
+    const h = renderToStaticMarkup(<NextMealTip {...T} totals={{ p: 170, c: 180, f: 50, k: 1800 }} />);
+    expect(h).toContain("다 채");
+    expect(h).not.toContain("P49");
+  });
+
+  it("이미 충족된 매크로는 음수 대신 0 (P 초과 상태)", () => {
+    // 단백질만 초과(200>165), 칼로리는 남음 → 다음 끼니 P0
+    const h = renderToStaticMarkup(<NextMealTip {...T} totals={{ p: 200, c: 95, f: 28, k: 900 }} />);
+    expect(h).toContain("P0");
   });
 });
 

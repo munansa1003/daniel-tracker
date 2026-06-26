@@ -97,6 +97,8 @@ BMR = Mifflin-St Jeor (10W + 6.25H − 5A + 5)
 | components/RemainingMacros.jsx | RemainingMacros | 식단 탭 상단 위젯(A): 남은 P/C/F·kcal 델타(되먹기 반영 목표 tC=adjustedC, tK=effectiveTargetK). diet-stats.test.jsx |
 | components/MacroRatioBar.jsx | MacroRatioBar | 식단 탭 상단 위젯(B): 섭취 P/C/F 칼로리 기여 비율 스택바 + 목표 비율선. 섭취 0이면 null |
 | components/IntakeRhythm.jsx | IntakeRhythm | 식단 탭 상단 위젯(C): 5시간대 칼로리 막대 + 단백질 오버레이. TIME_PERIODS/periodOf 사용, 기록 0이면 null |
+| components/NextMealTip.jsx | NextMealTip | 식단 탭 상단 위젯(H): 남은 매크로 ÷ 남은 끼니 → 다음 한 끼 권장(P·C·kcal). nowHour 주입(테스트 용이), 목표 충족 시 완료 메시지 |
+| components/WorkoutStamp.jsx | WorkoutStamp | 운동 탭 상단 위젯(L): 오늘 운동 도장(분·평균MET·소모) + 연속일/최장 + 최근7칸. 미기록 시 끊김 경고. allDays로 스트릭 계산 |
 | components/AddFoodForm.jsx | AddFoodForm | COLORS(data.js) 사용 |
 | components/AddExForm.jsx | AddExForm | **weight prop 필요** |
 | components/EditMealForm.jsx | EditMealForm | periodOf 사용 |
