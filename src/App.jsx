@@ -17,6 +17,7 @@ import { WorkoutStamp } from "./components/WorkoutStamp.jsx";
 import { ExerciseRhythm } from "./components/ExerciseRhythm.jsx";
 import { CalorieBandChart } from "./components/CalorieBandChart.jsx";
 import { WeekdayRadar } from "./components/WeekdayRadar.jsx";
+import { DateCopySheet, recentCopyDays, copyDupCount } from "./components/DateCopySheet.jsx";
 import { AddFoodForm } from "./components/AddFoodForm.jsx";
 import { AddExForm } from "./components/AddExForm.jsx";
 import { EditMealForm } from "./components/EditMealForm.jsx";
@@ -1692,6 +1693,9 @@ function MainApp({ user, onLogout }) {
   const [showCalendar, setShowCalendar] = useState(false);
   const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"); });
   const [yesterdayData, setYesterdayData] = useState({ meals: [], exercises: [] });
+  const [dateCopyType, setDateCopyType] = useState(null); // null | "diet" | "exercise"
+  const [dateCopySrc, setDateCopySrc] = useState(null);   // 복사 소스 날짜
+  const [copyUndo, setCopyUndo] = useState(null);         // { kind, prev, text } — 되돌리기 스낵바
   const [goals, setGoals] = useState({ weight: 72, fatPct: 15, muscle: 36 });
   const [sharedFoods, setSharedFoods] = useState([]);
   const [sharedExercises, setSharedExercises] = useState([]);
@@ -1877,6 +1881,49 @@ function MainApp({ user, onLogout }) {
     const ne = sortByHour([...exercises, ...newEx]);
     setExercises(ne); saveDay(date, meals, ne);
   };
+
+  // ── 날짜별 복사 (컨셉 3 끼니 시트 + 컨셉 4 되돌리기 스낵바) ──
+  // 시간 규칙은 기존 계승: 개별=현재 선택 시간(preserveTime=false) / 묶음·전체=원본 시간(true)
+  const copyToastText = (items, dup) => items.length === 1
+    ? `${items[0].n} 추가됨${dup > 0 ? " · 중복" : ""}`
+    : `${items.length}건 복사${dup > 0 ? ` (${dup}건 중복)` : ""}`;
+  const openDateCopy = (type) => {
+    const days = recentCopyDays(allDays, type, today());
+    setDateCopySrc(days[0] ? days[0].ds : getYesterday(date));
+    setDateCopyType(type);
+  };
+  const addMealsBatch = (items, preserveTime) => {
+    const fallback = parseInt(mealHour) || nowHour();
+    const add = items.map(({ _idx, ...m }) => ({ ...m, ts: Date.now(), hour: preserveTime ? (m.hour ?? fallback) : fallback }));
+    const dup = copyDupCount(meals, items, "diet");
+    const prev = meals;
+    const nm = sortByHour([...meals, ...add]);
+    setMeals(nm); saveDay(date, nm, exercises);
+    setCopyUndo({ kind: "diet", prev, text: copyToastText(items, dup) });
+  };
+  const addExBatch = (items, preserveTime) => {
+    const fallback = parseInt(exHour) || nowHour();
+    const add = items.map(({ _idx, ...e }) => ({ ...e, ts: Date.now(), hour: preserveTime ? (e.hour ?? fallback) : fallback }));
+    const dup = copyDupCount(exercises, items, "exercise");
+    const prev = exercises;
+    const ne = sortByHour([...exercises, ...add]);
+    setExercises(ne); saveDay(date, meals, ne);
+    setCopyUndo({ kind: "exercise", prev, text: copyToastText(items, dup) });
+  };
+  const copyDateItem = (it) => (dateCopyType === "diet" ? addMealsBatch([it], false) : addExBatch([it], false));
+  const copyDateGroup = (its) => (dateCopyType === "diet" ? addMealsBatch(its, true) : addExBatch(its, true));
+  const undoCopy = () => {
+    if (!copyUndo) return;
+    if (copyUndo.kind === "diet") { setMeals(copyUndo.prev); saveDay(date, copyUndo.prev, exercises); }
+    else { setExercises(copyUndo.prev); saveDay(date, meals, copyUndo.prev); }
+    setCopyUndo(null);
+  };
+  // 되돌리기 스낵바 6초 후 자동 사라짐
+  useEffect(() => {
+    if (!copyUndo) return;
+    const t = setTimeout(() => setCopyUndo(null), 6000);
+    return () => clearTimeout(t);
+  }, [copyUndo]);
 
   // 백업 (CSV 내보내기 + 날짜 기록)
   const doBackup = async () => {
@@ -2396,6 +2443,10 @@ function MainApp({ user, onLogout }) {
               </div>
             </div>
           )}
+          {/* 날짜별 가져오기 (컨셉 3) */}
+          {recentCopyDays(allDays, "diet", today()).length > 0 && (
+            <div onClick={() => openDateCopy("diet")} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "#1e1e1e", border: "1px dashed rgba(74,143,201,0.35)", borderRadius: 12, padding: "10px", marginBottom: 12, fontSize: 12, color: "#4a8fc9", cursor: "pointer" }}>📅 다른 날짜에서 가져오기</div>
+          )}
 
           {/* 검색 + 카메라 */}
           <input type="file" accept="image/*" capture="environment" id="photoInput" style={{ display: "none" }}
@@ -2678,6 +2729,10 @@ function MainApp({ user, onLogout }) {
                 <div style={{ color: "#5a9e6f", fontSize: 18 }}>↓</div>
               </div>
             </div>
+          )}
+          {/* 날짜별 가져오기 (컨셉 3) */}
+          {recentCopyDays(allDays, "exercise", today()).length > 0 && (
+            <div onClick={() => openDateCopy("exercise")} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "#1e1e1e", border: "1px dashed rgba(90,158,111,0.35)", borderRadius: 12, padding: "10px", marginBottom: 12, fontSize: 12, color: "#5a9e6f", cursor: "pointer" }}>📅 다른 날짜에서 가져오기</div>
           )}
 
           {/* 검색 */}
@@ -3034,6 +3089,30 @@ function MainApp({ user, onLogout }) {
       <Modal open={editExIdx !== null} onClose={() => setEditExIdx(null)} title="운동 수정">
         {editExIdx !== null && exercises[editExIdx] && <EditExForm exercise={exercises[editExIdx]} onSave={(updated) => editExercise(editExIdx, updated)} onCancel={() => setEditExIdx(null)} onDelete={() => { removeExercise(editExIdx); setEditExIdx(null); }} weight={TARGETS.weight} />}
       </Modal>
+
+      {/* 날짜별 복사 모달 (컨셉 3 끼니 시트) */}
+      <Modal open={dateCopyType !== null} onClose={() => setDateCopyType(null)} title={dateCopyType === "exercise" ? "날짜별 운동 가져오기" : "날짜별 식단 가져오기"}>
+        {dateCopyType !== null && (
+          <DateCopySheet
+            type={dateCopyType}
+            allDays={allDays}
+            todayStr={today()}
+            srcDate={dateCopySrc}
+            onPickDate={setDateCopySrc}
+            onCopyItem={copyDateItem}
+            onCopyGroup={copyDateGroup}
+            onCopyAll={copyDateGroup}
+          />
+        )}
+      </Modal>
+
+      {/* 되돌리기 스낵바 (컨셉 4) — 모달 위에도 보이도록 높은 z-index */}
+      {copyUndo && (
+        <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 78, zIndex: 10000, width: "calc(100% - 32px)", maxWidth: 448, background: "#1e2a20", border: "1px solid rgba(90,158,111,0.35)", borderRadius: 12, padding: "12px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", boxShadow: "0 8px 32px rgba(0,0,0,0.6)" }}>
+          <span style={{ fontSize: 13, color: "#5a9e6f" }}>✓ {copyUndo.text}</span>
+          <span onClick={undoCopy} style={{ fontSize: 13, color: "#f5f5f0", fontWeight: 600, textDecoration: "underline", cursor: "pointer" }}>되돌리기</span>
+        </div>
+      )}
     </div>
   );
 }
