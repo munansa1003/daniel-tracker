@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { aggregateDay, isCalOk, periodStart, today } from "../utils.js";
 
 const PERIODS = [["1w", "1주"], ["1m", "1달"], ["3m", "3개월"], ["all", "전체"]];
@@ -32,7 +32,8 @@ export function buildCalorieSeries(allDays, targetsByMode, mode, period, todaySt
 export function CalorieBandChart({ allDays, targetsByMode, mode }) {
   const [period, setPeriod] = useState("1m");
   const card = { background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 12, boxShadow: "0 4px 24px rgba(0,0,0,0.4), 0 1px 6px rgba(0,0,0,0.2)" };
-  const s = buildCalorieSeries(allDays, targetsByMode, mode, period, today());
+  // allDays/모드/기간이 안 바뀌면 매 렌더(검색 타이핑 등)마다 전체 순회 재계산하지 않도록 메모이제이션
+  const s = useMemo(() => buildCalorieSeries(allDays, targetsByMode, mode, period, today()), [allDays, targetsByMode, mode, period]);
 
   const pad = Math.max(60, (s.max - s.min) * 0.15);
   const lo = s.min - pad, hi = s.max + pad;
