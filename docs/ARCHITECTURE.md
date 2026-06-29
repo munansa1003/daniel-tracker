@@ -101,6 +101,7 @@ BMR = Mifflin-St Jeor (10W + 6.25H − 5A + 5)
 | components/ExerciseRhythm.jsx | ExerciseRhythm | 운동 탭 상단 위젯: 5시간대 소모 kcal 막대 + 분 라벨(IntakeRhythm 운동판). 기록 0이면 null |
 | components/CalorieBandChart.jsx | CalorieBandChart, buildCalorieSeries | 식단 탭 기간 통계(D1): 1주/1달/3개월/전체 토글 + 일별 섭취 라인·목표밴드·초과 빨간점. buildCalorieSeries 순수함수(그 날 모드로 isCalOk 판정). period-charts.test.jsx |
 | components/WeekdayRadar.jsx | WeekdayRadar, buildWeekdayTotals | 운동 탭 기간 통계(E9): 기간 토글 + 요일별 소모 kcal 7각형 레이더. buildWeekdayTotals 순수함수. period-charts.test.jsx |
+| components/DateCopySheet.jsx | DateCopySheet, recentCopyDays, copyDupCount | 날짜별 복사(컨셉3): 최근 기록일 칩 선택 + 끼니별(전체/끼니/개별) 미리보기 시트. MainApp가 모달로 렌더, addMealsBatch/addExBatch로 복사(개별=현재시간/묶음=원본시간) + copyUndo 스낵바(컨셉4). date-copy.test.jsx |
 | components/AddFoodForm.jsx | AddFoodForm | COLORS(data.js) 사용 |
 | components/AddExForm.jsx | AddExForm | **weight prop 필요** |
 | components/EditMealForm.jsx | EditMealForm | periodOf 사용 |

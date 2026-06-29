@@ -10,7 +10,7 @@ vi.mock("../store.js", () => {
   return {
     default: {
       getLocalAll: () => ({}),
-      getAllData: async () => ({}),
+      getAllData: async () => ({ "day:2025-02-03": { meals: [{ n: "스모크밥", k: 520, serving: 1, p: 30, c: 60, f: 10, hour: 13 }], exercises: [{ n: "스모크런", kcal: 300, duration: 30, m: 6, hour: 18 }] } }),
       get: async () => null,
       set: async () => {},
     },
@@ -74,6 +74,13 @@ describe("App 렌더 스모크", () => {
     expect(dowCells.length, "요일 헤더 행").toBeGreaterThan(0);
     const labels = [...dowCells[0].children].map(c => c.textContent);
     expect(labels).toEqual(["일","월","화","수","목","금","토"]); // 일요일 시작
+
+    // 날짜별 복사(컨셉 3): 식단 탭 → '다른 날짜에서 가져오기' → 모달 열림 확인 (모달 핸들러 배선 방어)
+    await act(async () => { [...div.querySelectorAll("button")].find(b => b.textContent === "식단")?.click(); });
+    const importBtn = [...div.querySelectorAll("div")].find(el => el.textContent === "📅 다른 날짜에서 가져오기");
+    expect(importBtn, "식단 '다른 날짜에서 가져오기' 버튼").toBeTruthy();
+    await act(async () => { importBtn.click(); });
+    expect(div.textContent, "날짜별 복사 모달 렌더").toContain("그날 전체 복사");
 
     await act(async () => { root.unmount(); });
   });
