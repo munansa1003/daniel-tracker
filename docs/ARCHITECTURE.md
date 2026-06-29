@@ -12,7 +12,7 @@
 | 항목 | 내용 |
 |------|------|
 | 프론트 | React 18 + Vite 5, recharts, 인라인 스타일 (CSS 파일 없음) |
-| PWA | vite-plugin-pwa (Workbox). 수동 sw.js/manifest 없음 — 빌드 시 자동 생성 |
+| PWA | vite-plugin-pwa (Workbox). 수동 sw.js/manifest 없음 — 빌드 시 자동 생성. vite.config의 `manualChunks`로 firebase·recharts·vendor 청크 분리(앱 코드만 바뀌면 큰 라이브러리는 SW 캐시 유지 → 업데이트 재다운 최소) |
 | 데이터 | Firebase Firestore(주 저장소) + localStorage(캐시/오프라인 폴백). `src/store.js`가 추상화 |
 | 백엔드 | Vercel 서버리스 `api/*` — Claude API로 음식/운동/체성분 AI 분석 |
 | 배포 | main에 머지 → Vercel 자동 배포 (https://daniel-tracker.vercel.app) |

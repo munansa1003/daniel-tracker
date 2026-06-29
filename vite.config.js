@@ -40,5 +40,19 @@ export default defineConfig({
         }]
       }
     })
-  ]
+  ],
+  build: {
+    rollupOptions: {
+      output: {
+        // 자주 배포(앱 코드 변경) 시 큰 라이브러리 청크는 해시가 안 바뀌어 SW 캐시 유지 →
+        // 업데이트 시 재다운로드 양 감소. firebase·recharts를 앱 코드와 분리.
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return;
+          if (id.includes('firebase') || id.includes('@firebase') || id.includes('@grpc') || id.includes('protobufjs')) return 'firebase';
+          if (id.includes('recharts') || id.includes('d3-') || id.includes('victory') || id.includes('react-smooth') || id.includes('decimal')) return 'recharts';
+          return 'vendor';
+        }
+      }
+    }
+  }
 })

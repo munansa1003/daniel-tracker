@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { aggregateDay, periodStart, today } from "../utils.js";
 
 const PERIODS = [["1w", "1주"], ["1m", "1달"], ["3m", "3개월"], ["all", "전체"]];
@@ -22,7 +22,8 @@ export function buildWeekdayTotals(allDays, period, todayStr) {
 export function WeekdayRadar({ allDays }) {
   const [period, setPeriod] = useState("1m");
   const card = { background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 12, boxShadow: "0 4px 24px rgba(0,0,0,0.4), 0 1px 6px rgba(0,0,0,0.2)" };
-  const totals = buildWeekdayTotals(allDays, period, today());
+  // allDays/기간 불변 시 매 렌더마다 전체 순회 재계산 방지
+  const totals = useMemo(() => buildWeekdayTotals(allDays, period, today()), [allDays, period]);
   const sum = totals.reduce((a, b) => a + b, 0);
   const max = Math.max(1, ...totals);
   const cx = 80, cy = 80, R = 56;

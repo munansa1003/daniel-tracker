@@ -1924,6 +1924,9 @@ function MainApp({ user, onLogout }) {
     const t = setTimeout(() => setCopyUndo(null), 6000);
     return () => clearTimeout(t);
   }, [copyUndo]);
+  // 날짜복사 진입버튼 노출 여부 — allDays 불변 시 매 렌더 전체 순회 방지
+  const hasDietCopySrc = useMemo(() => recentCopyDays(allDays, "diet", today()).length > 0, [allDays]);
+  const hasExCopySrc = useMemo(() => recentCopyDays(allDays, "exercise", today()).length > 0, [allDays]);
 
   // 백업 (CSV 내보내기 + 날짜 기록)
   const doBackup = async () => {
@@ -2444,7 +2447,7 @@ function MainApp({ user, onLogout }) {
             </div>
           )}
           {/* 날짜별 가져오기 (컨셉 3) */}
-          {recentCopyDays(allDays, "diet", today()).length > 0 && (
+          {hasDietCopySrc && (
             <div onClick={() => openDateCopy("diet")} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "#1e1e1e", border: "1px dashed rgba(74,143,201,0.35)", borderRadius: 12, padding: "10px", marginBottom: 12, fontSize: 12, color: "#4a8fc9", cursor: "pointer" }}>📅 다른 날짜에서 가져오기</div>
           )}
 
@@ -2731,7 +2734,7 @@ function MainApp({ user, onLogout }) {
             </div>
           )}
           {/* 날짜별 가져오기 (컨셉 3) */}
-          {recentCopyDays(allDays, "exercise", today()).length > 0 && (
+          {hasExCopySrc && (
             <div onClick={() => openDateCopy("exercise")} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "#1e1e1e", border: "1px dashed rgba(90,158,111,0.35)", borderRadius: 12, padding: "10px", marginBottom: 12, fontSize: 12, color: "#5a9e6f", cursor: "pointer" }}>📅 다른 날짜에서 가져오기</div>
           )}
 
