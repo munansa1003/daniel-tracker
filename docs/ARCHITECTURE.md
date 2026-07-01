@@ -18,7 +18,7 @@
 | 배포 | main에 머지 → Vercel 자동 배포 (https://daniel-tracker.vercel.app) |
 | 사용자 프로필 | 175cm · 1984년생(42세) · ~77kg · 목표: 근육 유지하며 완만~표준 감량 |
 
-**린트/TS 없음, 테스트는 Vitest** (`npm test`) — 빌드 성공이 변수 참조 오류를 잡아주지 못하므로(아래 §6 주의) 순수 함수 단위 테스트 + App 렌더 스모크 테스트가 안전망.
+**TS 없음, 최소 ESLint(`npm run lint`) + Vitest(`npm test`)** — 빌드 성공이 변수 참조 오류를 잡아주지 못하므로(아래 §6 주의) ESLint 3규칙(no-undef · react/jsx-no-undef · rules-of-hooks)이 import 누락을 정적으로, 순수 함수 단위 테스트 + App 렌더 스모크가 동작을 방어. 스타일 규칙은 의도적으로 없음.
 
 ## 2. 파일 구조
 
@@ -144,7 +144,7 @@ BodyTab → StatsTab 순. StatsTab은 중첩 컴포넌트 포함 통째 이동.
 
 ## 6. ⚠️ 지뢰 목록 (반드시 읽을 것)
 
-1. **빌드는 import 누락을 못 잡음** (TS/린트 없음). `THEME` import 빠뜨려도 빌드 ✓ → 런타임 흰 화면. `npm test`의 app.smoke.test.jsx(5개 탭 전환)가 1차 방어, 추출마다 **dev 서버에서 실제 클릭 확인**도 권장
+1. **빌드는 import 누락을 못 잡음** (TS 없음). `THEME` import 빠뜨려도 빌드 ✓ → 런타임 흰 화면. **1차 방어는 `npm run lint`**(no-undef가 `THEME`, jsx-no-undef가 `<Modal>` 누락을 검출 — 검증됨), 2차는 app.smoke.test.jsx(탭 전환). 추출마다 **lint+test 필수**, dev 서버 실제 클릭 확인도 권장
 2. **TARGETS 이름 3종**: `DEFAULT_TARGETS`(data.js import 별칭) / MainApp 지역 `TARGETS`(useMemo, 동적) / StatsTab의 `appTargets` prop. 잘못 연결하면 **에러 없이 숫자만 틀려짐**
 3. **recharts import 한 줄에 14개** — MiniDonut/BodyTab/StatsTab이 나눠 씀. 분리 시 어떤 차트가 어디 필요한지 정확히 갈라야 함
 4. **GlobalStyles의 `dbp-*` CSS 클래스** — 여러 컴포넌트가 className으로 사용. GlobalStyles가 항상 렌더돼야 애니메이션 동작
