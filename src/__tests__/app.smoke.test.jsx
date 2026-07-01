@@ -13,6 +13,7 @@ vi.mock("../store.js", () => {
       getAllData: async () => ({ "day:2025-02-03": { meals: [{ n: "스모크밥", k: 520, serving: 1, p: 30, c: 60, f: 10, hour: 13 }], exercises: [{ n: "스모크런", kcal: 300, duration: 30, m: 6, hour: 18 }] } }),
       get: async () => null,
       set: async () => {},
+      flushPendingSync: async () => 0,
     },
     getCurrentUserId: () => "daniel",
     setUserId: () => {},

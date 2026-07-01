@@ -1748,20 +1748,32 @@ function MainApp({ user, onLogout }) {
     }
     setLoaded(true);
 
-    // Phase 2: Firestore 백그라운드 동기화 (ONE getDocs — 네트워크 1회 왕복)
-    Promise.all([store.getAllData(), getSharedFoods(), getSharedExercises()]).then(([remote, sf, se]) => {
-      if (sf) setSharedFoods(sf);
-      if (se) setSharedExercises(se);
-      if (!remote || Object.keys(remote).length === 0) return;
-      if (remote["custom-foods"]) setCustomFoods(remote["custom-foods"]);
-      if (remote["custom-exercises"]) setCustomEx(remote["custom-exercises"]);
-      if (remote["bodylog"]) setBodyLog([...remote["bodylog"]].sort((a, b) => a.date.localeCompare(b.date)));
-      if (remote["lastBackup"]) setLastBackup(remote["lastBackup"]);
-      if (remote["goals"]) setGoals(remote["goals"]);
-      const remoteDays = {};
-      for (const k in remote) { if (k.startsWith("day:")) remoteDays[k.slice(4)] = remote[k]; }
-      if (Object.keys(remoteDays).length > 0) setAllDays(remoteDays);
-    }).catch(e => console.error("Sync error:", e));
+    // Phase 2: 오프라인 대기분을 먼저 밀어올린 뒤(순서 필수 — getAllData가 Firestore 옛값으로
+    // localStorage/state를 덮기 전에 최신 로컬 값을 서버에 반영), 전체 동기화 (ONE getDocs)
+    Promise.resolve()
+      .then(() => store.flushPendingSync?.())
+      .catch(() => {}) // flush 실패는 동기화를 막지 않음 — 큐에 남아 다음 기회에 재시도
+      .then(() => Promise.all([store.getAllData(), getSharedFoods(), getSharedExercises()]))
+      .then(([remote, sf, se]) => {
+        if (sf) setSharedFoods(sf);
+        if (se) setSharedExercises(se);
+        if (!remote || Object.keys(remote).length === 0) return;
+        if (remote["custom-foods"]) setCustomFoods(remote["custom-foods"]);
+        if (remote["custom-exercises"]) setCustomEx(remote["custom-exercises"]);
+        if (remote["bodylog"]) setBodyLog([...remote["bodylog"]].sort((a, b) => a.date.localeCompare(b.date)));
+        if (remote["lastBackup"]) setLastBackup(remote["lastBackup"]);
+        if (remote["goals"]) setGoals(remote["goals"]);
+        const remoteDays = {};
+        for (const k in remote) { if (k.startsWith("day:")) remoteDays[k.slice(4)] = remote[k]; }
+        if (Object.keys(remoteDays).length > 0) setAllDays(remoteDays);
+      }).catch(e => console.error("Sync error:", e));
+  }, []);
+
+  // 온라인 복귀 시 오프라인 대기분 재전송 (세션 중에는 localStorage가 항상 최신이라 순서 무관)
+  useEffect(() => {
+    const onOnline = () => { Promise.resolve().then(() => store.flushPendingSync?.()).catch(() => {}); };
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
   }, []);
 
   // 날짜 변경 시 allDays에서 해당 날 데이터 추출 (Firestore 호출 없음)
