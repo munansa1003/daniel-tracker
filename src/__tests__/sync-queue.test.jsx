@@ -62,6 +62,16 @@ describe("store.set × 대기열", () => {
     await store.set("goals", { weight: 72 });
     expect(getPending("t1")).toEqual([]);
   });
+
+  it("⭐ setDoc이 오프라인으로 '무한 대기'(hang)해도 로컬 기록+큐 등록은 즉시 — 앱 종료 대비", () => {
+    // Firestore SDK는 순수 오프라인에서 reject하지 않고 promise를 pending으로 둔다.
+    setDocMock.mockReturnValueOnce(new Promise(() => {})); // 영원히 안 끝나는 쓰기
+    store.set("day:2026-02-02", { v: 9 }); // await 없이 — hang 중 상태를 검사
+    // set()의 동기 구간(await 이전)에서 이미 로컬+큐가 기록되어 있어야 한다
+    expect(JSON.parse(localStorage.getItem("dt_t1_day:2026-02-02"))).toEqual({ v: 9 });
+    expect(getPending("t1")).toContain("day:2026-02-02");
+    // → 이 상태에서 앱이 죽어도 다음 시작의 flush(getAllData 이전)가 서버로 밀어올린다
+  });
 });
 
 describe("store.flushPendingSync", () => {
