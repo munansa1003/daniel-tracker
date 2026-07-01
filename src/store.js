@@ -158,15 +158,18 @@ const store = {
   async set(key, value) {
     const uid = getCurrentUserId();
     if (!uid) return false;
+    // 로컬 먼저 + 큐 선등록 (순서 중요): Firestore SDK는 순수 오프라인에서 setDoc을
+    // reject가 아니라 '무한 대기'시킨다. await 뒤에 두면 오프라인 중 앱 종료 시
+    // 로컬 기록·큐 등록이 모두 증발해 그 항목이 유실된다. 성공하면 바로 아래서
+    // 대기분을 해소하므로 순서 변경의 부작용은 없다(같은 값 기록, last-write-wins).
+    localStorage.setItem("dt_" + uid + "_" + key, JSON.stringify(value));
+    addPending(uid, key);
     try {
       await setDoc(doc(db, "users", uid, "data", key), { value, updatedAt: new Date().toISOString() });
-      localStorage.setItem("dt_" + uid + "_" + key, JSON.stringify(value));
-      removePending(uid, key); // 방금 최신값이 동기화됐으므로 이 키의 대기분은 해소
+      removePending(uid, key); // 서버 반영 확인 → 대기분 해소
       return true;
-    } catch (e) {
-      localStorage.setItem("dt_" + uid + "_" + key, JSON.stringify(value));
-      addPending(uid, key); // 오프라인/실패 — 키만 대기열에 (값은 flush 시점의 localStorage에서 읽음)
-      return false;
+    } catch {
+      return false; // 큐에 남아 다음 시작/online 이벤트에 재시도
     }
   },
 
