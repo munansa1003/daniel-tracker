@@ -19,7 +19,6 @@ const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
 
 // 개발 환경에선 디버그 토큰 활성화 (브라우저 콘솔에 토큰 출력 → Firebase 콘솔에 등록)
 if (import.meta.env.DEV) {
-  // eslint-disable-next-line no-restricted-globals
   self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
 }
 
