@@ -32,6 +32,9 @@ src/
 ├── components/      소형 컴포넌트 11개 (§4 참조)
 ├── __tests__/       utils.test.js, netcalcard.test.jsx, app.smoke.test.jsx
 ├── store.js         Firestore 우선 + localStorage 폴백 get/set. 키: day:YYYY-MM-DD, bodylog, goals 등
+├── syncQueue.js     오프라인 쓰기 대기열(키 이름만 보관). set 실패 시 등록 → flushPendingSync가
+│                    localStorage "현재 값"을 재전송. ⚠️ flush는 반드시 getAllData "이전"에(순서 바뀌면
+│                    Firestore 옛값이 로컬 최신을 덮음 — MainApp Phase 2와 online 이벤트에 배선됨)
 ├── firebase.js      Firebase 초기화 + App Check(reCAPTCHA v3, VITE_RECAPTCHA_SITE_KEY)
 ├── data.js          기본 음식/운동 DB, DEFAULT_TARGETS, COLORS
 └── main.jsx         진입점

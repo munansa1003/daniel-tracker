@@ -1,6 +1,7 @@
 // Firebase Firestore 기반 저장소 (다중 사용자 지원)
 import { db } from "./firebase.js";
 import { doc, getDoc, setDoc, deleteDoc, collection, getDocs } from "firebase/firestore";
+import { getPending, addPending, removePending } from "./syncQueue.js";
 
 let _userId = null;
 
@@ -160,11 +161,34 @@ const store = {
     try {
       await setDoc(doc(db, "users", uid, "data", key), { value, updatedAt: new Date().toISOString() });
       localStorage.setItem("dt_" + uid + "_" + key, JSON.stringify(value));
+      removePending(uid, key); // 방금 최신값이 동기화됐으므로 이 키의 대기분은 해소
       return true;
     } catch (e) {
       localStorage.setItem("dt_" + uid + "_" + key, JSON.stringify(value));
+      addPending(uid, key); // 오프라인/실패 — 키만 대기열에 (값은 flush 시점의 localStorage에서 읽음)
       return false;
     }
+  },
+
+  // 오프라인 대기분 재전송 — 반드시 getAllData "이전"에 호출할 것.
+  // (getAllData가 Firestore 값으로 localStorage를 덮으므로, 순서가 바뀌면 오프라인 수정이 옛값으로 회귀)
+  // 전송 값은 항상 localStorage의 현재 값 = 최신 진실. 실패한 키는 큐에 남아 다음 기회에 재시도.
+  async flushPendingSync() {
+    const uid = getCurrentUserId();
+    if (!uid) return 0;
+    let synced = 0;
+    try {
+      for (const key of getPending(uid)) {
+        const raw = localStorage.getItem("dt_" + uid + "_" + key);
+        if (raw === null) { removePending(uid, key); continue; } // 로컬 값이 사라졌으면 대기열만 정리
+        try {
+          await setDoc(doc(db, "users", uid, "data", key), { value: JSON.parse(raw), updatedAt: new Date().toISOString() });
+          removePending(uid, key);
+          synced++;
+        } catch { /* 여전히 오프라인 — 큐에 남겨 다음 시작/online 이벤트에 재시도 */ }
+      }
+    } catch (e) { console.error("flushPendingSync error:", e); }
+    return synced;
   },
 
   async delete(key) {
