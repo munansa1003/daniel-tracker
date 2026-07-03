@@ -32,6 +32,8 @@ src/
 ├── components/      소형 컴포넌트 11개 (§4 참조)
 ├── __tests__/       utils.test.js, netcalcard.test.jsx, app.smoke.test.jsx
 ├── store.js         Firestore 우선 + localStorage 폴백 get/set. 키: day:YYYY-MM-DD, bodylog, goals 등
+├── adaptiveTDEE.js  적응형 유지칼로리 역산(순수). estimateTDEE: 최근 4주 섭취+추세체중(회귀)으로 실제
+│                    소모 역산 → 보정치 delta(=measuredMaint − BMR×1.05). 데이터 게이트·±300 클램프
 ├── syncQueue.js     오프라인 쓰기 대기열(키 이름만 보관). set이 "로컬 기록+선등록 → setDoc → 성공 시 해소"
 │                    순서(⚠️ Firestore는 오프라인에서 reject가 아니라 무한 대기라, await 뒤에 두면 앱 종료 시 유실).
 │                    flushPendingSync가 localStorage "현재 값"을 재전송. ⚠️ flush는 반드시 getAllData "이전"에
@@ -70,6 +72,12 @@ BMR = Mifflin-St Jeor (10W + 6.25H − 5A + 5)
 - **저장**: 전역 현재 모드 = `goals.mode`(없으면 `cut` 폴백). 각 날 기록에 `mode` 스탬프(`saveDay`: 오늘=현재 모드, 과거 보정은 기존 스탬프 보존). **기존 데이터(필드 없음)=cut → 동작·숫자 무변화.**
 - **판정 적용처**: 홈=현재 모드 / **달력·통계 주간성적표·8주 등급 = 그 날의 모드**(과거 감량일은 감량 기준 그대로 유지, 통째 재칠 방지). 단백질·운동 판정은 모드 무관.
 - **감량값(175·0.5)은 변경 금지** — 유지값은 모드 분기로만 추가(역산 추정이라 실측 검증 권장).
+
+### ★ 적응형 유지칼로리 (실측 TDEE 자동 보정) — 제안형, 2026-07 도입
+- **개념**: `BMR×1.05` 고정 기준선 위에, 최근 4주 섭취+추세체중으로 역산한 실측 유지칼로리로 **기준선만** 미세보정. 캘리브레이션 절대값(175·2.2·0.6) 불변, 탄수는 나머지라 자동 흡수(단백질·지방은 체중 함수라 불변).
+- **구현**: `calcTargets(...,adjust)`가 `baseMaintenance = BMR×1.05 + adjust`. `adjust`는 `goals.tdeeHistory`([{from,adjust}])에서 `adjustForDate(date)`로 조회. 홈/오늘 = `adjustForDate(today)`, `adaptiveOn` OFF면 0.
+- **제안형·되돌리기**: 신뢰도 높음 + 현재 보정과 40kcal↑ 벌어질 때만 제안(설정 목표 탭 카드). [적용]=이력에 {from:today, delta} 추가. 되돌리기 2단계 — ① 토글 OFF=공식 복귀 ② "공식으로 되돌리기"=오늘부터 adjust 0(과거 이력·판정 보존).
+- **과거 판정 보존(⚠️ 필수)**: 통계/달력은 `dayTargetK(mode, ds) = targetsByMode[mode].k − appAdjust + adjustForDate(history, ds)`로 **그 날 유효 보정치** 기준 판정 → 보정 적용해도 과거 등급/dot 재칠 없음(§6 "그 날 모드" 원칙의 확장). 체성분 탭은 칼로리 목표 미사용이라 무관.
 - UI: 홈 헤더/요약 모드 배지(A안) + 설정 `목표` 탭 라디오(C안). StatsTab 코칭/달력 범례의 "적자·운동50%" 문구도 모드별 분기.
 
 ### 판정 규칙 (전 화면 통일 — PR #6, #8, #16)

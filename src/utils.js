@@ -40,15 +40,27 @@ export function isCalOk(intakeK, exKcal, targetK, mode = "cut") {
   return Math.round(intakeK) <= targetK + Math.round(exKcal * exFeedback(mode));
 }
 
-export function calcTargets(weight, height = 175, age = 35, mode = "cut") {
+// adjust: 적응형 유지칼로리 보정치(kcal). 기준선(BMR×1.05)만 이동시키고 캘리브레이션 절대값
+// (175·2.2·0.6)은 그대로 둔다. 기본 0이라 기존 호출부·테스트는 무영향. 탄수는 나머지라 자동 반영,
+// 단백질·지방은 체중 함수라 보정에 불변(§3 매크로 철학 유지).
+export function calcTargets(weight, height = 175, age = 35, mode = "cut", adjust = 0) {
   const bmr = 10 * weight + 6.25 * height - 5 * age + 5;
-  const baseMaintenance = bmr * 1.05;
+  const baseMaintenance = bmr * 1.05 + adjust;
   const deficit = MODE_DEFICIT[mode] ?? MODE_DEFICIT.cut;
   const k = Math.round(baseMaintenance - deficit);
   const p = Math.round(weight * 2.2);
   const f = Math.round(weight * 0.6);
   const c = Math.round((k - p * 4 - f * 9) / 4);
   return { p, c, f, k, weight: Math.round(weight * 10) / 10 };
+}
+
+// 적응형 보정 이력에서 특정 날짜에 유효했던 보정치를 찾는다(과거 판정 보존용).
+// history: [{ from:"YYYY-MM-DD", adjust:kcal }] 오름차순. 해당일 이전 마지막 적용치, 없으면 0.
+export function adjustForDate(history, dateStr) {
+  if (!Array.isArray(history) || history.length === 0) return 0;
+  let adj = 0;
+  for (const h of history) { if (h && h.from <= dateStr) adj = h.adjust || 0; }
+  return adj;
 }
 
 // 배열을 시간순으로 정렬
