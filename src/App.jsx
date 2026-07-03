@@ -2015,10 +2015,10 @@ function MainApp({ user, onLogout }) {
   const TARGETS = targetsByMode[mode];
 
   // 실측 유지칼로리 역산(최근 4주) — 설정 목표 탭 카드/제안에 사용
-  const tdeeEstimate = useMemo(() => estimateTDEE(bodyLog, allDays, today(), bmr, 28), [bodyLog, allDays, bmr]);
+  const tdeeEstimate = useMemo(() => estimateTDEE(bodyLog, allDays, today(), bmr, 28), [bodyLog, allDays, bmr, today()]);
 
   // 그 날 유효 보정치로 목표 K를 조정(과거 판정 보존): 현재 목표K − 현재보정 + 그날보정
-  const dayTargetK = (m, ds) => targetsByMode[m].k - appAdjust + adjustForDate(tdeeHistory, ds);
+  const dayTargetK = (m, ds) => (targetsByMode[m] || targetsByMode.cut).k - appAdjust + adjustForDate(tdeeHistory, ds);
 
   // 보정 제안: 켜짐 + 신뢰도 높음 + 현재 보정과 40kcal↑ 벌어질 때만
   const adaptiveProposal = useMemo(() => {
@@ -2032,7 +2032,8 @@ function MainApp({ user, onLogout }) {
   const setAdaptiveOn = (on) => saveGoals({ ...goals, adaptiveOn: on });
   const applyAdaptive = (delta) => {
     const t = today();
-    const hist = [...(goals.tdeeHistory || []).filter(h => h.from !== t), { from: t, adjust: delta }]
+    const prev = Array.isArray(goals.tdeeHistory) ? goals.tdeeHistory : [];
+    const hist = [...prev.filter(h => h && h.from !== t), { from: t, adjust: delta }]
       .sort((x, y) => (x.from < y.from ? -1 : 1));
     saveGoals({ ...goals, adaptiveOn: true, tdeeHistory: hist });
   };
