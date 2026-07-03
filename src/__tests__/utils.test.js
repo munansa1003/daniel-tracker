@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { calcTargets, periodOf, TIME_PERIODS, aggregateDay, getWeekKey, exFeedback, isCalOk, MODE_DEFICIT, MODE_FEEDBACK } from "../utils.js";
+import { calcTargets, periodOf, TIME_PERIODS, aggregateDay, getWeekKey, exFeedback, isCalOk, MODE_DEFICIT, MODE_FEEDBACK, adjustForDate } from "../utils.js";
 
 describe("calcTargets — 칼로리·매크로 목표 (캘리브레이션 값 보호)", () => {
   it("스모크: 체중 77.3 / 175cm / 42세 → K=1570, P=170, F=46, C=119", () => {
@@ -79,6 +79,41 @@ describe("exFeedback / isCalOk — 모드별 운동 되먹기 & 판정", () => {
     // 섭취 2000, 운동 800. 감량 목표 1570 / 유지 목표 1745 기준
     expect(isCalOk(2000, 800, 1570, "cut")).toBe(false);     // 1570 + 400 = 1970 < 2000
     expect(isCalOk(2000, 800, 1745, "maintain")).toBe(true); // 1745 + 800 = 2545 ≥ 2000
+  });
+});
+
+describe("calcTargets — 적응형 보정치(adjust)", () => {
+  it("adjust 기본 0: 생략과 동일 (기존 무영향)", () => {
+    expect(calcTargets(77.3, 175, 42, "cut")).toEqual(calcTargets(77.3, 175, 42, "cut", 0));
+  });
+  it("adjust −55: 칼로리 −55, 탄수만 흡수(−14g), 단백질·지방 불변", () => {
+    // 기준선 1744.84−55 → k=round(1689.84−175)=1515, C=round((1515−680−414)/4)=105
+    expect(calcTargets(77.3, 175, 42, "cut", -55)).toEqual({ p: 170, c: 105, f: 46, k: 1515, weight: 77.3 });
+  });
+  it("adjust +100: 칼로리 +100, 탄수만 증가, P·F 불변", () => {
+    const base = calcTargets(77.3, 175, 42, "cut");
+    const up = calcTargets(77.3, 175, 42, "cut", 100);
+    expect(up.p).toBe(base.p);
+    expect(up.f).toBe(base.f);
+    expect(up.k - base.k).toBe(100);
+    expect(up.c).toBeGreaterThan(base.c);
+  });
+  it("매크로 정합 유지: P×4+F×9+C×4 ≈ K (adjust 있어도)", () => {
+    const t = calcTargets(77.3, 175, 42, "cut", -55);
+    expect(Math.abs(t.p * 4 + t.f * 9 + t.c * 4 - t.k)).toBeLessThanOrEqual(2);
+  });
+});
+
+describe("adjustForDate — 이력에서 그 날 유효 보정치", () => {
+  const hist = [{ from: "2026-06-01", adjust: -55 }, { from: "2026-07-01", adjust: -80 }];
+  it("이력 이전 날짜 → 0", () => { expect(adjustForDate(hist, "2026-05-15")).toBe(0); });
+  it("첫 구간 → −55", () => { expect(adjustForDate(hist, "2026-06-15")).toBe(-55); });
+  it("경계(from 당일 포함) → 해당 구간", () => { expect(adjustForDate(hist, "2026-07-01")).toBe(-80); });
+  it("최신 구간 → −80", () => { expect(adjustForDate(hist, "2026-07-20")).toBe(-80); });
+  it("빈/무효 이력 → 0", () => {
+    expect(adjustForDate([], "2026-07-01")).toBe(0);
+    expect(adjustForDate(null, "2026-07-01")).toBe(0);
+    expect(adjustForDate(undefined, "2026-07-01")).toBe(0);
   });
 });
 

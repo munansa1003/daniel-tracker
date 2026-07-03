@@ -3,7 +3,8 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, 
 import store, { getCurrentUserId, setUserId, logout, getProfiles, getSharedFoods, addSharedFood, getSharedExercises, addSharedExercise } from "./store.js";
 import { DEFAULT_FOODS, DEFAULT_EX, TARGETS as DEFAULT_TARGETS, COLORS } from "./data.js";
 import { THEME, GlobalStyles } from "./theme.jsx";
-import { today, nowHour, isCompletedDay, calcTargets, sortByHour, periodOf, groupMealsByTime, groupExercisesByTime, aggregateDay, exFeedback, isCalOk } from "./utils.js";
+import { today, nowHour, isCompletedDay, calcTargets, sortByHour, periodOf, groupMealsByTime, groupExercisesByTime, aggregateDay, exFeedback, isCalOk, adjustForDate } from "./utils.js";
+import { estimateTDEE } from "./adaptiveTDEE.js";
 import { useLongPress } from "./hooks/useLongPress.js";
 import { LongPressActionBar } from "./components/LongPressActionBar.jsx";
 import { Modal } from "./components/Modal.jsx";
@@ -18,6 +19,7 @@ import { ExerciseRhythm } from "./components/ExerciseRhythm.jsx";
 import { CalorieBandChart } from "./components/CalorieBandChart.jsx";
 import { WeekdayRadar } from "./components/WeekdayRadar.jsx";
 import { DateCopySheet, recentCopyDays, copyDupCount } from "./components/DateCopySheet.jsx";
+import { AdaptiveTdeeCard } from "./components/AdaptiveTdeeCard.jsx";
 import { AddFoodForm } from "./components/AddFoodForm.jsx";
 import { AddExForm } from "./components/AddExForm.jsx";
 import { EditMealForm } from "./components/EditMealForm.jsx";
@@ -517,13 +519,15 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
 }
 
 /* ───── 통계 탭 (A: 주간 성적표 + C: 나의 인사이트) ───── */
-function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, targetsByMode, mode = "cut" }) {
+function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, targetsByMode, mode = "cut", appAdjust = 0, tdeeHistory = [] }) {
   const [statsTab, setStatsTab] = useState("report");
   const [summaryPeriod, setSummaryPeriod] = useState("1m");
   const totalDays = Object.keys(allDays).length;
   const targets = appTargets || calcTargets(goals.weight || 75, 175, 35, mode);
   // 그 날의 모드로 목표 세트를 고르는 헬퍼(달력/주간 판정용). 세트가 없으면 현재 targets로 폴백.
   const dayTargets = (m) => (targetsByMode ? (targetsByMode[m] || targetsByMode.cut) : targets);
+  // 그 날 유효 적응형 보정치로 목표 K 조정(과거 판정 보존). 보정 없으면 dayTargets(m).k와 동일.
+  const dayTargetK = (m, ds) => dayTargets(m).k - appAdjust + adjustForDate(tdeeHistory, ds);
   const [weekOffset, setWeekOffset] = useState(0); // 0=이번주, -1=지난주, -2=2주전...
   const latest = bodyLog[bodyLog.length - 1];
   const first = bodyLog[0];
@@ -568,7 +572,7 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, targetsByM
         if (d >= from.date && d <= to.date && isCompletedDay(d)) {
           const a = aggregateDay(day);
           // 목표 비교는 그 날의 모드 목표를 평균(기간이 감량↔유지 전환을 걸쳐도 정확)
-          if (a.k > 0) { tK += a.k; tP += a.p; tTk += dayTargets(day.mode || "cut").k; n++; }
+          if (a.k > 0) { tK += a.k; tP += a.p; tTk += dayTargetK(day.mode || "cut", d); n++; }
           if (a.ex > 0) { tEx += a.ex; exDays++; }
         }
       });
@@ -607,7 +611,7 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, targetsByM
 
     status = advice ? `${head} — ${chgStr}. ${advice}` : `${head} — ${chgStr}.`;
     return { from, to, dW, dF, dM, spark, dateLabel: from.date.slice(5) + " → " + to.date.slice(5), cnt: periodEntries.length, status, sColor, gW, gF, gM, diet };
-  }, [bodyLog, summaryPeriod, allDays, targets, targetsByMode]);
+  }, [bodyLog, summaryPeriod, allDays, targets, targetsByMode, appAdjust, tdeeHistory]);
 
   // 주간 날짜 배열 (월~일) 구하기, offset만큼 과거로 이동
   const getWeekDates = useCallback((dateStr, offset = 0) => {
@@ -638,7 +642,7 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, targetsByM
         // 판정은 화면 표시값(반올림) 기준 — 표시가 목표와 같으면 달성으로 직관 일치
         // 칼로리 판정은 '그 날의 모드' 기준(과거 감량일은 감량 기준 유지). 단백질은 모드 무관.
         const dM = dd.mode || "cut";
-        const ph = Math.round(a.p) >= targets.p, dh = isCalOk(a.k, a.ex, dayTargets(dM).k, dM), eh = (dd.exercises || []).length > 0;
+        const ph = Math.round(a.p) >= targets.p, dh = isCalOk(a.k, a.ex, dayTargetK(dM, ds), dM), eh = (dd.exercises || []).length > 0;
         const lateEat = (dd.meals || []).some(m => (m.hour || 0) >= 22);
         // 오늘은 미완성이므로 평균/카운트에서 제외 (시각화에는 isToday 플래그로 별도 표시)
         if (!isToday) {
@@ -697,7 +701,7 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, targetsByM
     }
 
     return { tw, lw, tg: grade(tw), lg: grade(lw), isComplete, dayIdx, showMid, showFinal, coaching, weekLabel: thisWeekDates[0].slice(5) + " ~ " + thisWeekDates[6].slice(5) };
-  }, [allDays, targets, targetsByMode, mode, getWeekDates, weekOffset]);
+  }, [allDays, targets, targetsByMode, mode, getWeekDates, weekOffset, appAdjust, tdeeHistory]);
 
   // ═══ 최근 8주 등급 트렌드 (점 인디케이터용) ═══
   const weekHistory = useMemo(() => {
@@ -730,7 +734,7 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, targetsByM
         const dM = dd.mode || "cut";
         n++;
         if (Math.round(a.p) >= targets.p) pDays++;
-        if (isCalOk(a.k, a.ex, dayTargets(dM).k, dM)) dDays++;
+        if (isCalOk(a.k, a.ex, dayTargetK(dM, ds), dM)) dDays++;
         if ((dd.exercises || []).length > 0) eDays++;
       });
       const isCurrent = offset === 0;
@@ -738,7 +742,7 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, targetsByM
       const g = grade({ n, pDays, dDays, eDays });
       return { offset, grade: g, hasData: n > 0, isInProgress, dateRange: dates[0].slice(5) + "~" + dates[6].slice(5) };
     });
-  }, [allDays, targets, targetsByMode, mode, getWeekDates]);
+  }, [allDays, targets, targetsByMode, mode, getWeekDates, appAdjust, tdeeHistory]);
 
   // ═══ 패턴 분석 (Phase 3++) ═══
   const [analysisPeriodIdx, setAnalysisPeriodIdx] = useState(1); // 0:2주, 1:1개월, 2:3개월, 3:6개월
@@ -902,7 +906,7 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, targetsByM
         const entries = Object.entries(allDays).filter(([d]) => d >= prev.date && d <= curr.date && isCompletedDay(d));
         if (entries.length < 3) continue;
         let tP = 0, tK = 0, tTk = 0, eD = 0, latD = 0;
-        entries.forEach(([, data]) => { const a = aggregateDay(data); tP += a.p; tK += a.k; tTk += dayTargets(data.mode || "cut").k; if ((data.exercises || []).length > 0) eD++; if ((data.meals || []).some(m => (m.hour || 0) >= 22)) latD++; });
+        entries.forEach(([ds, data]) => { const a = aggregateDay(data); tP += a.p; tK += a.k; tTk += dayTargetK(data.mode || "cut", ds); if ((data.exercises || []).length > 0) eD++; if ((data.meals || []).some(m => (m.hour || 0) >= 22)) latD++; });
         const d = entries.length;
         const p = { avgP: Math.round(tP / d), avgK: Math.round(tK / d), avgTk: Math.round(tTk / d), weeklyEx: Math.round(eD / d * 7 * 10) / 10, lateRate: Math.round(latD / d * 100) };
         if (curr.fatPct < prev.fatPct) good.push(p); else if (curr.fatPct > prev.fatPct) bad.push(p);
@@ -984,7 +988,7 @@ function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, targetsByM
     if (!actions.length) actions.push("데이터를 더 쌓으면 맞춤 액션이 생성됩니다");
 
     return { golden, anomalies: anomalies.slice(0, 4), correlations, actions };
-  }, [allDays, bodyLog, targets, targetsByMode, weeklyReport]);
+  }, [allDays, bodyLog, targets, targetsByMode, weeklyReport, appAdjust, tdeeHistory]);
 
   // 스파크라인 SVG 생성
   const sparklinePath = (entries, key, w = 60, h = 22) => {
@@ -1985,24 +1989,55 @@ function MainApp({ user, onLogout }) {
   // 화이트리스트라 targetsByMode[mode]가 항상 유효 — 홈 TARGETS 무가드 접근도 안전.
   const mode = goals.mode === "maintain" ? "maintain" : "cut";
 
-  // 월 평균 체중 기반 동적 목표 계산 — 같은 체중으로 두 모드 목표를 모두 산출해두고
-  // (홈은 현재 모드, 달력/통계는 그 날의 모드로 골라 쓴다)
-  const targetsByMode = useMemo(() => {
-    const currentMonth = date.slice(0, 7); // "2026-04"
+  // 적응형 유지칼로리 — 이력 기반 보정치. 마스터 토글 OFF면 0(공식). 오늘의 목표에 쓰이는 현재 보정치.
+  const adaptiveOn = !!goals.adaptiveOn;
+  const tdeeHistory = useMemo(() => (adaptiveOn ? (goals.tdeeHistory || []) : []), [adaptiveOn, goals.tdeeHistory]);
+  const appAdjust = adjustForDate(tdeeHistory, today());
+
+  // 월 평균 체중 + BMR (목표·적응형 역산 공용)
+  const monthWeight = useMemo(() => {
+    const currentMonth = date.slice(0, 7);
     const monthEntries = bodyLog.filter(b => b.date.startsWith(currentMonth));
-    let avgWeight;
-    if (monthEntries.length > 0) {
-      avgWeight = monthEntries.reduce((s, b) => s + b.weight, 0) / monthEntries.length;
-    } else if (bodyLog.length > 0) {
-      // 해당 월 기록 없으면 가장 최근 기록 사용
-      avgWeight = bodyLog[bodyLog.length - 1].weight;
-    } else {
-      avgWeight = DEFAULT_TARGETS.weight; // 기본값 77.5
-    }
+    if (monthEntries.length > 0) return monthEntries.reduce((s, b) => s + b.weight, 0) / monthEntries.length;
+    if (bodyLog.length > 0) return bodyLog[bodyLog.length - 1].weight;
+    return DEFAULT_TARGETS.weight;
+  }, [bodyLog, date]);
+  const bmr = 10 * monthWeight + 6.25 * (user.height || 175) - 5 * (user.age || 35) + 5;
+
+  // 같은 체중으로 두 모드 목표를 모두 산출(홈은 현재 모드, 달력/통계는 그 날의 모드). 보정치 반영.
+  const targetsByMode = useMemo(() => {
     const h = user.height || 175, a = user.age || 35;
-    return { cut: calcTargets(avgWeight, h, a, "cut"), maintain: calcTargets(avgWeight, h, a, "maintain") };
-  }, [bodyLog, date, user]);
+    return {
+      cut: calcTargets(monthWeight, h, a, "cut", appAdjust),
+      maintain: calcTargets(monthWeight, h, a, "maintain", appAdjust),
+    };
+  }, [monthWeight, user, appAdjust]);
   const TARGETS = targetsByMode[mode];
+
+  // 실측 유지칼로리 역산(최근 4주) — 설정 목표 탭 카드/제안에 사용
+  const tdeeEstimate = useMemo(() => estimateTDEE(bodyLog, allDays, today(), bmr, 28), [bodyLog, allDays, bmr, today()]);
+
+  // 그 날 유효 보정치로 목표 K를 조정(과거 판정 보존): 현재 목표K − 현재보정 + 그날보정
+  const dayTargetK = (m, ds) => (targetsByMode[m] || targetsByMode.cut).k - appAdjust + adjustForDate(tdeeHistory, ds);
+
+  // 보정 제안: 켜짐 + 신뢰도 높음 + 현재 보정과 40kcal↑ 벌어질 때만
+  const adaptiveProposal = useMemo(() => {
+    if (!adaptiveOn || !tdeeEstimate.valid || !tdeeEstimate.confident) return null;
+    if (Math.abs(tdeeEstimate.delta - appAdjust) < 40) return null;
+    const h = user.height || 175, a = user.age || 35;
+    return { delta: tdeeEstimate.delta, current: targetsByMode[mode], proposed: calcTargets(monthWeight, h, a, mode, tdeeEstimate.delta) };
+  }, [adaptiveOn, tdeeEstimate, appAdjust, targetsByMode, mode, monthWeight, user]);
+
+  // 적응형 핸들러 (전부 비파괴적·되돌리기 가능)
+  const setAdaptiveOn = (on) => saveGoals({ ...goals, adaptiveOn: on });
+  const applyAdaptive = (delta) => {
+    const t = today();
+    const prev = Array.isArray(goals.tdeeHistory) ? goals.tdeeHistory : [];
+    const hist = [...prev.filter(h => h && h.from !== t), { from: t, adjust: delta }]
+      .sort((x, y) => (x.from < y.from ? -1 : 1));
+    saveGoals({ ...goals, adaptiveOn: true, tdeeHistory: hist });
+  };
+  const revertAdaptive = () => applyAdaptive(0); // 오늘부터 보정 0 (과거 이력·판정 보존)
 
   const totals = useMemo(() => {
     let p = 0, c = 0, f = 0, k = 0;
@@ -2284,7 +2319,7 @@ function MainApp({ user, onLogout }) {
                 const pF = a ? Math.min(a.f / dT.f, 1) : 0;
                 // 오늘은 미완성이므로 적자/초과 판정 dot을 보이지 않음 (false positive 방지)
                 // 영양소 ring은 진행률 의미로 자연스러우므로 그대로 표시
-                const calOk = a && !isToday ? isCalOk(a.k, a.ex, dT.k, dMode) : null;
+                const calOk = a && !isToday ? isCalOk(a.k, a.ex, dayTargetK(dMode, ds), dMode) : null;
                 const hasData = !!a && a.k > 0;
                 const dow = (offset + i) % 7;
                 return (
@@ -2892,7 +2927,7 @@ function MainApp({ user, onLogout }) {
         </>)}
 
         {tab === "body" && <BodyTab bodyLog={bodyLog} addBody={addBody} date={date} onEditBody={editBody} onDeleteBody={deleteBody} user={user} goals={goals} onSaveGoals={saveGoals} allDays={allDays} />}
-        {tab === "stats" && <StatsTab bodyLog={bodyLog} allDays={allDays} goals={goals} onSaveGoals={saveGoals} appTargets={TARGETS} targetsByMode={targetsByMode} mode={mode} />}
+        {tab === "stats" && <StatsTab bodyLog={bodyLog} allDays={allDays} goals={goals} onSaveGoals={saveGoals} appTargets={TARGETS} targetsByMode={targetsByMode} mode={mode} appAdjust={appAdjust} tdeeHistory={tdeeHistory} />}
       </div>
 
       {/* Bottom Nav */}
@@ -2951,6 +2986,8 @@ function MainApp({ user, onLogout }) {
               </div>
               <div style={{ fontSize: 10, color: "#707070", marginTop: 8, lineHeight: 1.5 }}>전환은 오늘부터 적용됩니다. 과거 기록은 그 날의 모드 그대로 판정돼요.</div>
             </div>
+            <div style={{ fontSize: 11, color: "#707070", margin: "16px 0 10px" }}>실측 자동 보정</div>
+            <AdaptiveTdeeCard estimate={tdeeEstimate} adaptiveOn={adaptiveOn} currentAdjust={appAdjust} proposal={adaptiveProposal} onToggle={setAdaptiveOn} onApply={applyAdaptive} onRevert={revertAdaptive} />
           </>);
         })()}
 
