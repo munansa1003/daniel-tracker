@@ -5,6 +5,7 @@ import { DEFAULT_FOODS, DEFAULT_EX, TARGETS as DEFAULT_TARGETS, COLORS } from ".
 import { THEME, GlobalStyles } from "./theme.jsx";
 import { today, nowHour, isCompletedDay, calcTargets, sortByHour, periodOf, groupMealsByTime, groupExercisesByTime, aggregateDay, exFeedback, isCalOk, adjustForDate } from "./utils.js";
 import { estimateTDEE } from "./adaptiveTDEE.js";
+import { pendingReminders } from "./reminders.js";
 import { useLongPress } from "./hooks/useLongPress.js";
 import { LongPressActionBar } from "./components/LongPressActionBar.jsx";
 import { Modal } from "./components/Modal.jsx";
@@ -20,6 +21,7 @@ import { CalorieBandChart } from "./components/CalorieBandChart.jsx";
 import { WeekdayRadar } from "./components/WeekdayRadar.jsx";
 import { DateCopySheet, recentCopyDays, copyDupCount } from "./components/DateCopySheet.jsx";
 import { AdaptiveTdeeCard } from "./components/AdaptiveTdeeCard.jsx";
+import { ReminderSettings } from "./components/ReminderSettings.jsx";
 import { AddFoodForm } from "./components/AddFoodForm.jsx";
 import { AddExForm } from "./components/AddExForm.jsx";
 import { EditMealForm } from "./components/EditMealForm.jsx";
@@ -1985,6 +1987,16 @@ function MainApp({ user, onLogout }) {
     } catch { return false; }
   }, []);
 
+  // 인앱 리마인더 — 앱을 열 때 상태에 맞춰 홈 배너로 알림. goals.reminders 토글로 켬/끔.
+  const saveReminders = (next) => saveGoals({ ...goals, reminders: next });
+  const pendingRmd = useMemo(() => {
+    const td = allDays[today()];
+    const recordedToday = !!(td && (((td.meals || []).length) || ((td.exercises || []).length)));
+    const lastWeighDate = bodyLog.length ? bodyLog[bodyLog.length - 1].date : null;
+    return pendingReminders({ reminders: goals.reminders, recordedToday, lastWeighDate, todayStr: today(), accountMature, backupDaysAgo });
+  }, [allDays, bodyLog, goals.reminders, accountMature, backupDaysAgo]);
+  const rmdOn = (k) => goals.reminders?.[k] !== false;
+
   // 현재 목표 모드 (cut=감량 / maintain=유지). 기존 사용자·손상값은 cut로 폴백(화이트리스트).
   // 화이트리스트라 targetsByMode[mode]가 항상 유효 — 홈 TARGETS 무가드 접근도 안전.
   const mode = goals.mode === "maintain" ? "maintain" : "cut";
@@ -2353,6 +2365,25 @@ function MainApp({ user, onLogout }) {
       <div style={{ padding: "16px 20px 80px" }}>
         {/* HOME */}
         {tab === "home" && (<>
+          {/* 리마인더 배너 — 앱 열 때 상태 기반 (기록/체중). 백업은 아래 전용 배너로 처리 */}
+          {pendingRmd.filter(r => r.key === "record").map(() => (
+            <div key="rmd-record" onClick={() => setTab("diet")} style={{ background: "rgba(212,175,55,0.1)", border: "1px solid rgba(212,175,55,0.25)", borderRadius: 16, padding: 12, marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
+              <div>
+                <div style={{ fontSize: 13, color: "#d4af37", fontWeight: 500 }}>오늘 기록을 안 했어요</div>
+                <div style={{ fontSize: 11, color: "#707070", marginTop: 2 }}>식단·운동을 적어주세요</div>
+              </div>
+              <div style={{ background: "#d4af37", borderRadius: 8, padding: "8px 14px", fontSize: 12, color: "#fff", fontWeight: 500 }}>기록</div>
+            </div>
+          ))}
+          {pendingRmd.filter(r => r.key === "weight").map(r => (
+            <div key="rmd-weight" onClick={() => setTab("body")} style={{ background: "rgba(74,143,201,0.1)", border: "1px solid rgba(74,143,201,0.25)", borderRadius: 16, padding: 12, marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
+              <div>
+                <div style={{ fontSize: 13, color: "#4a8fc9", fontWeight: 500 }}>체중을 재주세요</div>
+                <div style={{ fontSize: 11, color: "#707070", marginTop: 2 }}>{r.days >= 999 ? "측정 기록 없음" : `마지막 측정: ${r.days}일 전`} · 추세·적응형 정확도용</div>
+              </div>
+              <div style={{ background: "#4a8fc9", borderRadius: 8, padding: "8px 14px", fontSize: 12, color: "#fff", fontWeight: 500 }}>측정</div>
+            </div>
+          ))}
           {/* 백업 알림 */}
           {justBacked ? (
             <div style={{ background: "rgba(90,158,111,0.08)", border: "1px solid rgba(90,158,111,0.2)", borderRadius: 16, padding: 12, marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -2362,7 +2393,7 @@ function MainApp({ user, onLogout }) {
               </div>
               <div style={{ fontSize: 18, color: "#5a9e6f" }}>✓</div>
             </div>
-          ) : accountMature && backupDaysAgo >= 15 && (
+          ) : rmdOn("backup") && accountMature && backupDaysAgo >= 15 && (
             <div onClick={doBackup} style={{ background: "rgba(212,175,55,0.1)", border: "1px solid rgba(212,175,55,0.25)", borderRadius: 16, padding: 12, marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
               <div>
                 <div style={{ fontSize: 13, color: "#d4af37", fontWeight: 500 }}>백업을 해주세요</div>
@@ -2949,7 +2980,8 @@ function MainApp({ user, onLogout }) {
           <button onClick={() => setManageTab("goal")} style={{ flex: 1, padding: 9, fontSize: 12, fontWeight: 500, background: manageTab === "goal" ? "#d4af37" : "#2a2a2a", color: manageTab === "goal" ? "#141414" : "#8a8a8a", border: "none", cursor: "pointer", borderRadius: "8px 0 0 8px" }}>목표</button>
           <button onClick={() => setManageTab("freq")} style={{ flex: 1, padding: 9, fontSize: 12, fontWeight: 500, background: manageTab === "freq" ? "#d4af37" : "#2a2a2a", color: manageTab === "freq" ? "#141414" : "#8a8a8a", border: "none", cursor: "pointer" }}>자주 사용</button>
           <button onClick={() => setManageTab("food")} style={{ flex: 1, padding: 9, fontSize: 12, fontWeight: 500, background: manageTab === "food" ? "#d4af37" : "#2a2a2a", color: manageTab === "food" ? "#141414" : "#8a8a8a", border: "none", cursor: "pointer" }}>내 DB</button>
-          <button onClick={() => setManageTab("data")} style={{ flex: 1, padding: 9, fontSize: 12, fontWeight: 500, background: manageTab === "data" ? "#d4af37" : "#2a2a2a", color: manageTab === "data" ? "#141414" : "#8a8a8a", border: "none", cursor: "pointer", borderRadius: "0 8px 8px 0" }}>데이터</button>
+          <button onClick={() => setManageTab("data")} style={{ flex: 1, padding: 9, fontSize: 12, fontWeight: 500, background: manageTab === "data" ? "#d4af37" : "#2a2a2a", color: manageTab === "data" ? "#141414" : "#8a8a8a", border: "none", cursor: "pointer" }}>데이터</button>
+          <button onClick={() => setManageTab("reminders")} style={{ flex: 1, padding: 9, fontSize: 12, fontWeight: 500, background: manageTab === "reminders" ? "#d4af37" : "#2a2a2a", color: manageTab === "reminders" ? "#141414" : "#8a8a8a", border: "none", cursor: "pointer", borderRadius: "0 8px 8px 0" }}>알림</button>
         </div>
 
         {/* 탭 0: 목표 모드 (감량/유지) */}
@@ -3130,6 +3162,11 @@ function MainApp({ user, onLogout }) {
             </div>
           </div>
         </>)}
+
+        {/* 탭 4: 알림 */}
+        {manageTab === "reminders" && (
+          <ReminderSettings reminders={goals.reminders} onChange={saveReminders} />
+        )}
       </Modal>
 
       {/* Edit Meal Modal */}
