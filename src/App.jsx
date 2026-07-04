@@ -2530,9 +2530,9 @@ function MainApp({ user, onLogout }) {
 
           {/* 어제 식단 빠른 복사 */}
           {yesterdayData.meals.length > 0 && (
-            <div style={{ marginBottom: 12 }}>
+            <div style={{ marginBottom: 8 }}>
               <div style={{ fontSize: 13, color: "#707070", marginBottom: 8 }}>어제 먹은 것</div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 {[...new Map(yesterdayData.meals.map(m => [m.n + "_" + m.serving, m])).values()].map((m, i) => (
                   <div key={i} onClick={() => copyMealFromYesterday(m)}
                     style={{ background: "#252525", border: "1px solid rgba(74,143,201,0.2)", borderRadius: 20, padding: "6px 12px", fontSize: 12, display: "flex", alignItems: "center", gap: 4, cursor: "pointer", color: "#f5f5f0" }}>
@@ -2541,19 +2541,23 @@ function MainApp({ user, onLogout }) {
                   </div>
                 ))}
               </div>
-              <div onClick={copyAllMealsFromYesterday}
-                style={{ background: "rgba(74,143,201,0.08)", border: "1px solid rgba(74,143,201,0.2)", borderRadius: 16, padding: "10px 14px", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
-                <div>
-                  <div style={{ fontSize: 13, color: "#4a8fc9", fontWeight: 500 }}>어제 식단 전체 복사</div>
-                  <div style={{ fontSize: 11, color: "#707070", marginTop: 2 }}>{yesterdayData.meals.length}건 · {Math.round(yesterdayData.meals.reduce((s, m) => s + m.k * m.serving, 0)).toLocaleString()} kcal</div>
-                </div>
-                <div style={{ color: "#4a8fc9", fontSize: 18 }}>↓</div>
-              </div>
             </div>
           )}
-          {/* 날짜별 가져오기 (컨셉 3) */}
-          {hasDietCopySrc && (
-            <div onClick={() => openDateCopy("diet")} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "#1e1e1e", border: "1px dashed rgba(74,143,201,0.35)", borderRadius: 12, padding: "10px", marginBottom: 12, fontSize: 12, color: "#4a8fc9", cursor: "pointer" }}>📅 다른 날짜에서 가져오기</div>
+          {/* 이전 기록 가져오기 — 한 줄 (컨셉 D: 라벨 + 칩) */}
+          {(yesterdayData.meals.length > 0 || hasDietCopySrc) && (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
+              <span style={{ fontSize: 12.5, color: "#8a8a8a" }}>이전 기록 가져오기</span>
+              <div style={{ display: "flex", gap: 7 }}>
+                {yesterdayData.meals.length > 0 && (
+                  <span onClick={copyAllMealsFromYesterday} title="어제 식단 전체 복사"
+                    style={{ background: "#2a2a2a", border: "1px solid rgba(74,143,201,0.28)", borderRadius: 20, padding: "7px 14px", fontSize: 12, color: "#4a8fc9", display: "flex", alignItems: "center", gap: 5, cursor: "pointer", whiteSpace: "nowrap" }}>↓ 어제</span>
+                )}
+                {hasDietCopySrc && (
+                  <span onClick={() => openDateCopy("diet")}
+                    style={{ background: "#2a2a2a", border: "1px solid rgba(74,143,201,0.28)", borderRadius: 20, padding: "7px 14px", fontSize: 12, color: "#4a8fc9", display: "flex", alignItems: "center", gap: 5, cursor: "pointer", whiteSpace: "nowrap" }}>📅 날짜</span>
+                )}
+              </div>
+            </div>
           )}
 
           {/* 검색 + 카메라 */}
@@ -2817,9 +2821,9 @@ function MainApp({ user, onLogout }) {
 
           {/* 어제 운동 빠른 복사 */}
           {yesterdayData.exercises.length > 0 && (
-            <div style={{ marginBottom: 12 }}>
+            <div style={{ marginBottom: 8 }}>
               <div style={{ fontSize: 13, color: "#707070", marginBottom: 8 }}>어제 운동</div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 {yesterdayData.exercises.map((e, i) => (
                   <div key={i} onClick={() => copyExFromYesterday(e)}
                     style={{ background: "#252525", border: "1px solid rgba(90,158,111,0.2)", borderRadius: 20, padding: "6px 12px", fontSize: 12, display: "flex", alignItems: "center", gap: 4, cursor: "pointer", color: "#f5f5f0" }}>
@@ -2828,19 +2832,23 @@ function MainApp({ user, onLogout }) {
                   </div>
                 ))}
               </div>
-              <div onClick={copyAllExFromYesterday}
-                style={{ background: "rgba(90,158,111,0.08)", border: "1px solid rgba(90,158,111,0.2)", borderRadius: 16, padding: "10px 14px", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
-                <div>
-                  <div style={{ fontSize: 13, color: "#5a9e6f", fontWeight: 500 }}>어제 운동 전체 복사</div>
-                  <div style={{ fontSize: 11, color: "#707070", marginTop: 2 }}>{yesterdayData.exercises.length}건 · {Math.round(yesterdayData.exercises.reduce((s, e) => s + (e.kcal || 0), 0)).toLocaleString()} kcal</div>
-                </div>
-                <div style={{ color: "#5a9e6f", fontSize: 18 }}>↓</div>
-              </div>
             </div>
           )}
-          {/* 날짜별 가져오기 (컨셉 3) */}
-          {hasExCopySrc && (
-            <div onClick={() => openDateCopy("exercise")} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "#1e1e1e", border: "1px dashed rgba(90,158,111,0.35)", borderRadius: 12, padding: "10px", marginBottom: 12, fontSize: 12, color: "#5a9e6f", cursor: "pointer" }}>📅 다른 날짜에서 가져오기</div>
+          {/* 이전 기록 가져오기 — 한 줄 (컨셉 D: 라벨 + 칩) */}
+          {(yesterdayData.exercises.length > 0 || hasExCopySrc) && (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
+              <span style={{ fontSize: 12.5, color: "#8a8a8a" }}>이전 기록 가져오기</span>
+              <div style={{ display: "flex", gap: 7 }}>
+                {yesterdayData.exercises.length > 0 && (
+                  <span onClick={copyAllExFromYesterday} title="어제 운동 전체 복사"
+                    style={{ background: "#2a2a2a", border: "1px solid rgba(90,158,111,0.28)", borderRadius: 20, padding: "7px 14px", fontSize: 12, color: "#5a9e6f", display: "flex", alignItems: "center", gap: 5, cursor: "pointer", whiteSpace: "nowrap" }}>↓ 어제</span>
+                )}
+                {hasExCopySrc && (
+                  <span onClick={() => openDateCopy("exercise")}
+                    style={{ background: "#2a2a2a", border: "1px solid rgba(90,158,111,0.28)", borderRadius: 20, padding: "7px 14px", fontSize: 12, color: "#5a9e6f", display: "flex", alignItems: "center", gap: 5, cursor: "pointer", whiteSpace: "nowrap" }}>📅 날짜</span>
+                )}
+              </div>
+            </div>
           )}
 
           {/* 검색 */}
