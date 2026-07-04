@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { pendingReminders, daysBetween, REMINDER_DEFAULTS } from "../reminders.js";
+import { pendingReminders, daysBetween, reminderPush, REMINDER_DEFAULTS } from "../reminders.js";
 
 const base = { reminders: REMINDER_DEFAULTS, recordedToday: true, lastWeighDate: "2026-07-28", todayStr: "2026-07-29", accountMature: true, backupDaysAgo: 0 };
 
@@ -37,5 +37,26 @@ describe("pendingReminders", () => {
   it("여러 조건 동시 → 다건", () => {
     const r = pendingReminders({ ...base, recordedToday: false, lastWeighDate: "2026-07-10", backupDaysAgo: 20 });
     expect(r.map((x) => x.key)).toEqual(["record", "weight", "backup"]);
+  });
+});
+
+describe("reminderPush", () => {
+  it("빈 목록 → null", () => {
+    expect(reminderPush([])).toBe(null);
+    expect(reminderPush(null)).toBe(null);
+  });
+  it("우선순위: 여러 건이면 기록 > 체중 > 백업 중 하나만", () => {
+    const p = reminderPush([{ key: "backup", days: 20 }, { key: "weight", days: 9 }, { key: "record" }]);
+    expect(p.tab).toBe("diet");
+    expect(p.title).toContain("기록");
+  });
+  it("체중 배너는 경과일을 본문에 반영", () => {
+    expect(reminderPush([{ key: "weight", days: 9 }]).body).toContain("9일");
+    expect(reminderPush([{ key: "weight", days: 999 }]).body).toContain("아직 없어요");
+  });
+  it("백업 배너 tab=home", () => {
+    const p = reminderPush([{ key: "backup", days: 30 }]);
+    expect(p.tab).toBe("home");
+    expect(p.body).toContain("30일");
   });
 });

@@ -12,8 +12,9 @@ describe("ReminderSettings", () => {
     expect(h).toContain("백업 알림");
   });
 
-  it("앱 닫아도 오는 푸시는 다음 단계(FCM) 안내", () => {
-    const h = renderToStaticMarkup(<ReminderSettings reminders={undefined} onChange={noop} />);
-    expect(h).toContain("FCM");
+  it("예약 푸시 시각·iOS 설치 안내", () => {
+    const h = renderToStaticMarkup(<ReminderSettings reminders={undefined} onChange={noop} pushReady={true} onEnablePush={noop} onDisablePush={noop} />);
+    expect(h).toContain("밤 8시");
+    expect(h).toContain("설치");
   });
 });
