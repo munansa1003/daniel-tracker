@@ -2980,7 +2980,8 @@ function MainApp({ user, onLogout }) {
           <button onClick={() => setManageTab("goal")} style={{ flex: 1, padding: 9, fontSize: 12, fontWeight: 500, background: manageTab === "goal" ? "#d4af37" : "#2a2a2a", color: manageTab === "goal" ? "#141414" : "#8a8a8a", border: "none", cursor: "pointer", borderRadius: "8px 0 0 8px" }}>목표</button>
           <button onClick={() => setManageTab("freq")} style={{ flex: 1, padding: 9, fontSize: 12, fontWeight: 500, background: manageTab === "freq" ? "#d4af37" : "#2a2a2a", color: manageTab === "freq" ? "#141414" : "#8a8a8a", border: "none", cursor: "pointer" }}>자주 사용</button>
           <button onClick={() => setManageTab("food")} style={{ flex: 1, padding: 9, fontSize: 12, fontWeight: 500, background: manageTab === "food" ? "#d4af37" : "#2a2a2a", color: manageTab === "food" ? "#141414" : "#8a8a8a", border: "none", cursor: "pointer" }}>내 DB</button>
-          <button onClick={() => setManageTab("data")} style={{ flex: 1, padding: 9, fontSize: 12, fontWeight: 500, background: manageTab === "data" ? "#d4af37" : "#2a2a2a", color: manageTab === "data" ? "#141414" : "#8a8a8a", border: "none", cursor: "pointer", borderRadius: "0 8px 8px 0" }}>데이터</button>
+          <button onClick={() => setManageTab("data")} style={{ flex: 1, padding: 9, fontSize: 12, fontWeight: 500, background: manageTab === "data" ? "#d4af37" : "#2a2a2a", color: manageTab === "data" ? "#141414" : "#8a8a8a", border: "none", cursor: "pointer" }}>데이터</button>
+          <button onClick={() => setManageTab("reminders")} style={{ flex: 1, padding: 9, fontSize: 12, fontWeight: 500, background: manageTab === "reminders" ? "#d4af37" : "#2a2a2a", color: manageTab === "reminders" ? "#141414" : "#8a8a8a", border: "none", cursor: "pointer", borderRadius: "0 8px 8px 0" }}>알림</button>
         </div>
 
         {/* 탭 0: 목표 모드 (감량/유지) */}
@@ -3112,10 +3113,6 @@ function MainApp({ user, onLogout }) {
 
         {/* 탭 3: 데이터 */}
         {manageTab === "data" && (<>
-          <div style={{ fontSize: 11, color: "#707070", marginBottom: 8 }}>🔔 알림</div>
-          <div style={{ marginBottom: 18 }}>
-            <ReminderSettings reminders={goals.reminders} onChange={saveReminders} />
-          </div>
           <div style={{ fontSize: 11, color: "#707070", marginBottom: 8 }}>데이터 현황</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, marginBottom: 14 }}>
             {[
@@ -3165,6 +3162,11 @@ function MainApp({ user, onLogout }) {
             </div>
           </div>
         </>)}
+
+        {/* 탭 4: 알림 */}
+        {manageTab === "reminders" && (
+          <ReminderSettings reminders={goals.reminders} onChange={saveReminders} />
+        )}
       </Modal>
 
       {/* Edit Meal Modal */}
