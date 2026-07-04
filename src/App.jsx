@@ -6,6 +6,7 @@ import { THEME, GlobalStyles } from "./theme.jsx";
 import { today, nowHour, isCompletedDay, calcTargets, sortByHour, periodOf, groupMealsByTime, groupExercisesByTime, aggregateDay, exFeedback, isCalOk, adjustForDate } from "./utils.js";
 import { estimateTDEE } from "./adaptiveTDEE.js";
 import { pendingReminders } from "./reminders.js";
+import { pushConfigured, enablePush, disablePush, syncPushState } from "./push.js";
 import { useLongPress } from "./hooks/useLongPress.js";
 import { LongPressActionBar } from "./components/LongPressActionBar.jsx";
 import { Modal } from "./components/Modal.jsx";
@@ -1997,6 +1998,32 @@ function MainApp({ user, onLogout }) {
   }, [allDays, bodyLog, goals.reminders, accountMature, backupDaysAgo]);
   const rmdOn = (k) => goals.reminders?.[k] !== false;
 
+  // 백그라운드 푸시(매일 밤 8시 크론)용 상태 — 크론이 KV에서 읽어 조건 판단.
+  const pushReady = useMemo(() => pushConfigured(), []);
+  const pushState = useMemo(() => {
+    const recordedDates = Object.keys(allDays).filter(d => { const x = allDays[d]; return x && (((x.meals || []).length) || ((x.exercises || []).length)); }).sort();
+    let accountCreatedAt = null;
+    try { accountCreatedAt = localStorage.getItem("dt_" + getCurrentUserId() + "_createdAt") || null; } catch { /* 무시 */ }
+    return {
+      lastRecordDate: recordedDates.length ? recordedDates[recordedDates.length - 1] : null,
+      lastWeighDate: bodyLog.length ? bodyLog[bodyLog.length - 1].date : null,
+      lastBackup: lastBackup || null,
+      accountCreatedAt: accountCreatedAt ? accountCreatedAt.slice(0, 10) : null,
+    };
+  }, [allDays, bodyLog, lastBackup]);
+  const doEnablePush = () => enablePush({ state: pushState, reminders: goals.reminders });
+  const doDisablePush = () => disablePush();
+  // 구독돼 있으면 상태·토글 변화 시 KV 갱신(구독 없으면 no-op).
+  useEffect(() => { syncPushState({ state: pushState, reminders: goals.reminders }); }, [pushState, goals.reminders]);
+  // 푸시 클릭으로 앱이 포커스될 때 해당 탭으로 이동 (서비스워커 postMessage)
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const onMsg = (e) => { if (e.data && e.data.type === "nav" && e.data.tab) setTab(e.data.tab); };
+    navigator.serviceWorker.addEventListener("message", onMsg);
+    try { const t = new URLSearchParams(window.location.search).get("tab"); if (t && ["home", "diet", "exercise", "body", "stats"].includes(t)) setTab(t); } catch { /* 무시 */ }
+    return () => navigator.serviceWorker.removeEventListener("message", onMsg);
+  }, []);
+
   // 현재 목표 모드 (cut=감량 / maintain=유지). 기존 사용자·손상값은 cut로 폴백(화이트리스트).
   // 화이트리스트라 targetsByMode[mode]가 항상 유효 — 홈 TARGETS 무가드 접근도 안전.
   const mode = goals.mode === "maintain" ? "maintain" : "cut";
@@ -3165,7 +3192,7 @@ function MainApp({ user, onLogout }) {
 
         {/* 탭 4: 알림 */}
         {manageTab === "reminders" && (
-          <ReminderSettings reminders={goals.reminders} onChange={saveReminders} />
+          <ReminderSettings reminders={goals.reminders} onChange={saveReminders} pushReady={pushReady} onEnablePush={doEnablePush} onDisablePush={doDisablePush} />
         )}
       </Modal>
 

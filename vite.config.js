@@ -26,6 +26,8 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,png,svg,ico}'],
+        // 웹푸시 수신 핸들러(push/notificationclick)를 생성 SW에 합침
+        importScripts: ['/push-sw.js'],
         // 구버전 수동 SW에서 전환 시 즉시 활성화 + 오래된 precache 정리
         cleanupOutdatedCaches: true,
         clientsClaim: true,
