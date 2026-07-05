@@ -8,7 +8,7 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: 'auto',
-      includeAssets: ['icon-192.png', 'icon-512.png', 'offline.html'],
+      includeAssets: ['favicon.svg', 'icon-192.png', 'icon-512.png', 'offline.html'],
       manifest: {
         name: 'Daniel Body Plan',
         short_name: 'BodyPlan',
