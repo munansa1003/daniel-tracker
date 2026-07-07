@@ -2405,20 +2405,6 @@ function MainApp({ user, onLogout }) {
       <div style={{ padding: "16px 20px 80px" }}>
         {/* HOME */}
         {tab === "home" && (<>
-          {/* 진행중 컨디션(부상·질병) 배너 — 탭하면 관리 모달 */}
-          {activeHealth.map((ev) => {
-            const tm = typeMeta(ev.type);
-            return (
-              <div key={ev.id} onClick={() => setShowHealth(true)} style={{ background: tm.color + "1a", border: `1px solid ${tm.color}44`, borderRadius: 16, padding: 12, marginBottom: 12, display: "flex", alignItems: "center", gap: 11, cursor: "pointer" }}>
-                <span style={{ fontSize: 20 }}>{tm.ico}</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 500, color: tm.color }}>{ev.label || tm.name} · 진행중</div>
-                  <div style={{ fontSize: 11, color: "#707070", marginTop: 2 }}>{ev.start}부터{ev.exclude ? " · 계산 제외 중" : ""}{ev.note ? ` · ${ev.note}` : ""}</div>
-                </div>
-                <span style={{ fontSize: 11, color: "#707070" }}>관리 ›</span>
-              </div>
-            );
-          })}
           {/* 리마인더 배너 — 앱 열 때 상태 기반 (기록/체중). 백업은 아래 전용 배너로 처리 */}
           {pendingRmd.filter(r => r.key === "record").map(() => (
             <div key="rmd-record" onClick={() => setTab("diet")} style={{ background: "rgba(212,175,55,0.1)", border: "1px solid rgba(212,175,55,0.25)", borderRadius: 16, padding: 12, marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
@@ -2458,11 +2444,21 @@ function MainApp({ user, onLogout }) {
           )}
           <div className="dbp-fade dbp-card" style={cs}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <span style={{ fontSize: 13, color: THEME.sub }}>오늘의 요약</span>
                 {mode === "maintain"
                   ? <span style={{ fontSize: 10, fontWeight: 600, color: "#5a9e6f", background: "rgba(90,158,111,0.12)", border: "1px solid rgba(90,158,111,0.3)", borderRadius: 20, padding: "2px 9px" }}>유지</span>
                   : <span style={{ fontSize: 10, fontWeight: 600, color: "#d4af37", background: "rgba(212,175,55,0.12)", border: "1px solid rgba(212,175,55,0.3)", borderRadius: 20, padding: "2px 9px" }}>감량</span>}
+                {activeHealth.length > 0 && (() => {
+                  const tm = typeMeta(activeHealth[0].type);
+                  const multi = activeHealth.length > 1;
+                  const col = multi ? "#8a8a8a" : tm.color;
+                  return (
+                    <span onClick={(e) => { e.stopPropagation(); setShowHealth(true); }} style={{ fontSize: 10, fontWeight: 600, color: col, background: col + "22", border: `1px solid ${col}66`, borderRadius: 20, padding: "2px 9px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 3 }}>
+                      {multi ? `🩹 컨디션 ${activeHealth.length}` : `${tm.ico} ${activeHealth[0].label || tm.name}`}
+                    </span>
+                  );
+                })()}
               </div>
               <span style={{ fontSize: 12, fontFamily: "monospace", color: totals.k < effectiveTargetK * 0.75 ? "#e05252" : totals.k < effectiveTargetK * 0.9 ? "#d4af37" : totals.k <= effectiveTargetK ? "#5a9e6f" : "#d4af37" }}>섭취 {Math.round(totals.k)} kcal</span>
             </div>
