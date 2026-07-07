@@ -1,0 +1,159 @@
+<title>체성분 기록 버튼 — 컨셉 더보기</title>
+<style>
+  :root{
+    --page:#0c0e11; --chrome:#16191d; --line:rgba(255,255,255,.07);
+    --app:#141414; --card:#1e1e1e; --inner:#252525; --surface:#2a2a2a;
+    --text:#f5f5f0; --sub:#707070; --muted:#8a8a8a; --dim:#4a4a4a;
+    --blue:#4a8fc9; --green:#5a9e6f; --gold:#d4af37; --red:#e05252;
+    --sans:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Segoe UI",Roboto,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--page);color:var(--text);font-family:var(--sans);-webkit-font-smoothing:antialiased;line-height:1.5;}
+  .wrap{max-width:430px;margin:0 auto;padding:30px 14px 70px;}
+  h1{font-size:21px;font-weight:650;margin:0 0 6px;letter-spacing:-.01em;}
+  .lede{font-size:12.5px;color:var(--muted);margin:0 0 22px;}
+  .lede b{color:var(--blue);}
+
+  .concept{background:var(--chrome);border:1px solid var(--line);border-radius:16px;overflow:hidden;margin-bottom:16px;}
+  .concept.rec{border-color:rgba(74,143,201,.4);box-shadow:0 0 0 1px rgba(74,143,201,.12);}
+  .chd{display:flex;align-items:baseline;gap:9px;padding:15px 17px 3px;flex-wrap:wrap;}
+  .tag{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--app);background:var(--gold);border-radius:6px;padding:2px 8px;}
+  .concept.rec .tag{background:var(--blue);}
+  .cname{font-size:15px;font-weight:600;}
+  .cbadge{font-size:9px;font-weight:700;letter-spacing:.4px;color:var(--app);background:var(--blue);border-radius:5px;padding:2px 6px;}
+  .cdesc{font-size:11.5px;color:var(--muted);padding:0 17px 12px;}
+  .stage{background:var(--app);margin:0 17px 14px;border-radius:12px;padding:14px 13px;border:1px solid var(--line);position:relative;}
+  .stg2{font-size:10px;color:var(--dim);font-family:var(--mono);margin:10px 0 7px;}
+
+  /* A 최신 카드 통합 */
+  .bcard{background:var(--card);border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:14px;position:relative;}
+  .bcard .pencil{position:absolute;top:12px;right:12px;width:26px;height:26px;border-radius:7px;background:var(--surface);border:1px solid rgba(74,143,201,.3);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--blue);}
+  .bcard .dt{font-size:10px;color:var(--sub);}
+  .bcard .sc{font-size:26px;font-weight:500;color:var(--gold);margin-top:2px;}
+  .bcard .sc small{font-size:11px;color:var(--sub);font-weight:400;margin-left:3px;}
+  .bcard .bars{margin-top:12px;display:flex;flex-direction:column;gap:6px;}
+  .brow{display:flex;align-items:center;gap:8px;font-size:10px;color:var(--sub);}
+  .brow .bar{flex:1;height:5px;border-radius:3px;background:var(--inner);overflow:hidden;}
+  .brow .bar i{display:block;height:100%;background:var(--blue);border-radius:3px;}
+  .todostrip{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:rgba(74,143,201,.08);border-bottom:1px solid rgba(74,143,201,.15);border-radius:14px 14px 0 0;font-size:12.5px;color:var(--blue);font-weight:500;margin:-14px -14px 12px;}
+
+  /* B FAB */
+  .listwrap{position:relative;min-height:120px;}
+  .hrow{display:flex;justify-content:space-between;padding:8px 4px;border-bottom:1px solid rgba(255,255,255,.04);font-size:11px;}
+  .hrow .d{font-family:var(--mono);color:var(--dim);margin-right:6px;}
+  .hrow .sc{color:var(--gold);font-family:var(--mono);font-size:10px;}
+  .fab{position:absolute;right:6px;bottom:6px;width:46px;height:46px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-size:24px;box-shadow:0 6px 18px rgba(74,143,201,.4);}
+
+  /* C 미니 스탯 한 줄 */
+  .statrow{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--card);border:1px solid rgba(255,255,255,.06);border-radius:11px;}
+  .statrow .st{flex:1;text-align:center;}
+  .statrow .st .v{font-size:13px;font-family:var(--mono);font-weight:600;}
+  .statrow .st .l{font-size:8px;color:var(--sub);margin-top:1px;}
+  .statrow .ed{width:30px;height:30px;border-radius:8px;background:var(--surface);border:1px solid rgba(74,143,201,.3);color:var(--blue);display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;}
+  .addrow{display:flex;align-items:center;gap:8px;padding:11px 12px;background:rgba(74,143,201,.08);border:1px solid rgba(74,143,201,.25);border-radius:11px;color:var(--blue);font-size:12.5px;font-weight:500;}
+  .addrow .p{width:22px;height:22px;border-radius:6px;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;}
+
+  /* D 텍스트 링크 */
+  .link{font-size:12.5px;color:var(--blue);font-weight:500;}
+  .link u{text-underline-offset:3px;}
+
+  .why{display:flex;gap:14px;padding:0 17px 15px;flex-wrap:wrap;}
+  .why div{font-size:11px;color:var(--muted);flex:1;min-width:130px;line-height:1.5;}
+  .why .h{font-size:9px;letter-spacing:.4px;text-transform:uppercase;color:var(--sub);margin-bottom:3px;}
+  .why .g b{color:var(--green);}.why .b b{color:var(--gold);}
+
+  .foot{margin-top:24px;padding:16px 18px;background:rgba(74,143,201,.05);border:1px solid rgba(74,143,201,.16);border-radius:14px;font-size:12.5px;color:var(--muted);line-height:1.7;}
+  .foot b{color:var(--blue);}
+</style>
+
+<div class="wrap">
+  <h1>버튼 컨셉 더보기</h1>
+  <p class="lede">이번엔 버튼을 <b>기존 요소에 녹이거나</b> 아예 <b>없애는</b> 방향까지 담았어요.</p>
+
+  <!-- A 카드 통합 -->
+  <div class="concept rec">
+    <div class="chd"><span class="tag">A안</span><span class="cname">최신 카드에 녹이기 (별도 버튼 없음)</span><span class="cbadge">추천</span></div>
+    <div class="cdesc">지금도 있는 '최신 기록 카드'에 연필(✎)만. 오늘 기록이 없으면 카드 위에 얇은 줄로 유도. 버튼이 사라짐.</div>
+    <div class="stage">
+      <div class="stg2">기록 있을 때 — 카드 우상단 ✎</div>
+      <div class="bcard" style="margin-bottom:12px;">
+        <div class="pencil">✎</div>
+        <div class="dt">2026-07-07</div>
+        <div class="sc">88<small>점 +2</small></div>
+        <div class="bars"><div class="brow">체중<div class="bar"><i style="width:70%"></i></div></div><div class="brow">근육<div class="bar"><i style="width:64%"></i></div></div></div>
+      </div>
+      <div class="stg2">오늘 기록 없을 때 — 카드 위 얇은 줄</div>
+      <div class="bcard">
+        <div class="todostrip"><span>＋ 오늘 체성분 기록</span><span>›</span></div>
+        <div class="dt">최근: 2026-07-06</div>
+        <div class="sc">87<small>점</small></div>
+      </div>
+    </div>
+    <div class="why">
+      <div class="g"><div class="h">장점</div>전용 버튼이 <b>사라짐</b>. 이미 보는 카드에서 바로. 가장 깔끔.</div>
+      <div class="b"><div class="h">트레이드오프</div>연필이 작아 처음엔 살짝 찾아야.</div>
+    </div>
+  </div>
+
+  <!-- B FAB -->
+  <div class="concept">
+    <div class="chd"><span class="tag">B안</span><span class="cname">우하단 플로팅 ＋ (FAB)</span></div>
+    <div class="cdesc">화면 오른쪽 아래 떠 있는 ＋. 목록·카드 공간을 아예 안 씀.</div>
+    <div class="stage">
+      <div class="listwrap">
+        <div class="hrow"><div><span class="d">07-06</span>78.1 · 39.0 · 21.8%</div><span class="sc">87</span></div>
+        <div class="hrow"><div><span class="d">07-05</span>77.9 · 39.2 · 21.5%</div><span class="sc">88</span></div>
+        <div class="hrow"><div><span class="d">07-04</span>78.0 · 39.1 · 21.6%</div><span class="sc">86</span></div>
+        <div class="fab">＋</div>
+      </div>
+    </div>
+    <div class="why">
+      <div class="g"><div class="h">장점</div>공간 <b>0</b>. 어디서든 한 손에 닿는 위치.</div>
+      <div class="b"><div class="h">트레이드오프</div>기록/수정 구분이 아이콘만으론 약함.</div>
+    </div>
+  </div>
+
+  <!-- C 미니 스탯 -->
+  <div class="concept">
+    <div class="chd"><span class="tag">C안</span><span class="cname">오늘 값 한 줄 + 연필</span></div>
+    <div class="cdesc">오늘 값을 미니 스탯으로 보여주고 끝에 ✎. 없으면 '＋ 오늘' 한 줄.</div>
+    <div class="stage">
+      <div class="stg2">기록 있을 때</div>
+      <div class="statrow" style="margin-bottom:12px;">
+        <div class="st"><div class="v">77.9</div><div class="l">체중</div></div>
+        <div class="st"><div class="v">39.2</div><div class="l">근육</div></div>
+        <div class="st"><div class="v">21.5</div><div class="l">지방</div></div>
+        <div class="st"><div class="v" style="color:var(--gold)">88</div><div class="l">점수</div></div>
+        <div class="ed">✎</div>
+      </div>
+      <div class="stg2">기록 없을 때</div>
+      <div class="addrow"><div class="p">＋</div>오늘 체성분 기록</div>
+    </div>
+    <div class="why">
+      <div class="g"><div class="h">장점</div>오늘 값이 <b>바로 보이고</b> 옆에서 수정. 정보+동작 일체.</div>
+      <div class="b"><div class="h">트레이드오프</div>아래 최신 카드와 정보가 조금 겹침.</div>
+    </div>
+  </div>
+
+  <!-- D 텍스트 링크 -->
+  <div class="concept">
+    <div class="chd"><span class="tag">D안</span><span class="cname">초경량 텍스트 링크</span></div>
+    <div class="cdesc">버튼 없이 작은 텍스트 링크 하나.</div>
+    <div class="stage">
+      <div class="stg2">기록 없을 때</div>
+      <div style="margin-bottom:12px;"><span class="link"><u>＋ 오늘 체성분 기록</u></span></div>
+      <div class="stg2">기록 있을 때</div>
+      <div><span class="link" style="color:var(--sub)"><u>2026-07-07 기록 수정</u></span></div>
+    </div>
+    <div class="why">
+      <div class="g"><div class="h">장점</div>세로 공간 <b>최소</b>. 초미니멀.</div>
+      <div class="b"><div class="h">트레이드오프</div>버튼감이 약해 눈에 덜 띔.</div>
+    </div>
+  </div>
+
+  <div class="foot">
+    제 추천은 <b>A안(최신 카드에 녹이기)</b> — 전용 버튼을 없애고, 이미 보고 있는 카드의 <b>연필(✎)</b>로 수정 / 오늘 없으면 <b>얇은 줄</b>로 유도. 벌어짐·길쭉함 둘 다 사라져요. 공간 0이면 <b>B(FAB)</b>, 값까지 보이면 <b>C</b>.<br>
+    <span style="color:var(--sub)">→ 지금까지 본 것 포함 아무거나 골라주세요(이전 통짜바·칩 포함). 정하면 구현·머지합니다.</span>
+  </div>
+</div>
