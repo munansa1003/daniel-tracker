@@ -1,0 +1,152 @@
+<title>체성분 기록 수정 — 심플 컨셉</title>
+<style>
+  :root{
+    --page:#0c0e11; --chrome:#16191d; --line:rgba(255,255,255,.07);
+    --app:#141414; --card:#1e1e1e; --inner:#252525; --surface:#2a2a2a;
+    --text:#f5f5f0; --sub:#707070; --muted:#8a8a8a; --dim:#4a4a4a;
+    --blue:#4a8fc9; --green:#5a9e6f; --gold:#d4af37; --red:#e05252;
+    --sans:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Segoe UI",Roboto,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--page);color:var(--text);font-family:var(--sans);-webkit-font-smoothing:antialiased;line-height:1.5;}
+  .wrap{max-width:430px;margin:0 auto;padding:30px 14px 70px;}
+  h1{font-size:21px;font-weight:650;margin:0 0 6px;letter-spacing:-.01em;}
+  .lede{font-size:12.5px;color:var(--muted);margin:0 0 22px;}
+  .lede b{color:var(--blue);}
+
+  .concept{background:var(--chrome);border:1px solid var(--line);border-radius:16px;overflow:hidden;margin-bottom:16px;}
+  .concept.rec{border-color:rgba(74,143,201,.4);box-shadow:0 0 0 1px rgba(74,143,201,.12);}
+  .chd{display:flex;align-items:baseline;gap:9px;padding:15px 17px 3px;flex-wrap:wrap;}
+  .tag{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--app);background:var(--gold);border-radius:6px;padding:2px 8px;}
+  .concept.rec .tag{background:var(--blue);}
+  .tag.now{background:#555;color:#f5f5f0;}
+  .cname{font-size:15px;font-weight:600;}
+  .cbadge{font-size:9px;font-weight:700;letter-spacing:.4px;color:var(--app);background:var(--blue);border-radius:5px;padding:2px 6px;}
+  .csz{font-size:11px;color:var(--sub);margin-left:auto;font-family:var(--mono);}
+  .cdesc{font-size:11.5px;color:var(--muted);padding:0 17px 12px;}
+  .stage{background:var(--app);margin:0 17px 14px;border-radius:12px;padding:13px 12px;border:1px solid var(--line);position:relative;}
+
+  /* 히스토리 행 */
+  .hrow{display:flex;justify-content:space-between;align-items:center;padding:8px 4px;border-bottom:1px solid rgba(255,255,255,.04);font-size:11px;}
+  .hrow .d{font-family:var(--mono);color:var(--dim);margin-right:6px;}
+  .hrow .sc{color:var(--gold);font-family:var(--mono);font-size:10px;}
+  .hrow.sel{background:rgba(74,143,201,.06);border-radius:6px;border-bottom:none;}
+
+  /* 현재 인라인 편집(2x2) */
+  .edit2{background:var(--inner);border:1px solid rgba(74,143,201,.3);border-radius:8px;padding:10px;margin:4px 0;}
+  .edit2 .t{font-size:11px;color:var(--blue);font-family:var(--mono);margin-bottom:6px;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:6px;}
+  .inp{background:var(--surface);border:1px solid rgba(255,255,255,.08);border-radius:6px;color:var(--text);font-size:12px;padding:8px 10px;}
+  .btns{display:flex;gap:4px;}
+  .btn{flex:1;padding:6px;border-radius:6px;font-size:11px;text-align:center;font-weight:500;}
+  .btn.c{background:var(--surface);color:var(--muted);}
+  .btn.s{background:var(--blue);color:#fff;}
+
+  /* A 모달 */
+  .dim{position:absolute;inset:0;background:rgba(0,0,0,.5);border-radius:12px;}
+  .modal{position:absolute;left:12px;right:12px;top:22px;background:#1b1b1b;border:1px solid rgba(255,255,255,.1);border-radius:14px;padding:14px;box-shadow:0 12px 40px rgba(0,0,0,.6);}
+  .modal .mt{font-size:12px;color:var(--sub);margin-bottom:10px;}
+  .row2{display:flex;gap:6px;}
+
+  /* B 한 줄 인라인 */
+  .edit1{display:flex;align-items:center;gap:5px;background:var(--inner);border:1px solid rgba(74,143,201,.3);border-radius:8px;padding:7px 8px;margin:4px 0;flex-wrap:nowrap;}
+  .mini{width:100%;min-width:0;background:var(--surface);border:1px solid rgba(255,255,255,.08);border-radius:5px;color:var(--text);font-size:11px;padding:6px 5px;text-align:center;font-family:var(--mono);}
+  .mlab{font-size:8px;color:var(--sub);text-align:center;margin-bottom:2px;}
+  .icob{width:28px;height:30px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;}
+  .icob.s{background:var(--blue);color:#fff;} .icob.c{background:var(--surface);color:var(--muted);}
+
+  /* C 값 탭 */
+  .valedit{display:inline-flex;align-items:center;background:var(--surface);border:1px solid var(--blue);border-radius:5px;padding:2px 6px;font-family:var(--mono);}
+  .valedit input{width:44px;background:transparent;border:none;color:var(--blue);font-size:11px;font-family:var(--mono);outline:none;}
+
+  .why{display:flex;gap:14px;padding:0 17px 15px;flex-wrap:wrap;}
+  .why div{font-size:11px;color:var(--muted);flex:1;min-width:130px;line-height:1.5;}
+  .why .h{font-size:9px;letter-spacing:.4px;text-transform:uppercase;color:var(--sub);margin-bottom:3px;}
+  .why .g b{color:var(--green);}.why .b b{color:var(--gold);}
+
+  .foot{margin-top:24px;padding:16px 18px;background:rgba(74,143,201,.05);border:1px solid rgba(74,143,201,.16);border-radius:14px;font-size:12.5px;color:var(--muted);line-height:1.7;}
+  .foot b{color:var(--blue);}
+</style>
+
+<div class="wrap">
+  <h1>체성분 기록 수정, 심플하게</h1>
+  <p class="lede">지금은 기록을 탭하면 <b>2×2 입력칸이 펼쳐져</b> 목록이 길어져요. 짧게 만드는 3가지 안입니다.</p>
+
+  <!-- 현재 -->
+  <div class="concept">
+    <div class="chd"><span class="tag now">NOW</span><span class="cname">현재 — 인라인 2×2 펼침</span><span class="csz">~5줄</span></div>
+    <div class="cdesc">행을 탭하면 그 자리에 입력 그리드+버튼이 펼쳐져 목록이 밀림.</div>
+    <div class="stage">
+      <div class="hrow"><div><span class="d">07-06</span>78.1kg · 39.0kg · 21.8%</div><span class="sc">87</span></div>
+      <div class="edit2">
+        <div class="t">07-05 수정</div>
+        <div class="grid2"><div class="inp">77.9</div><div class="inp">39.2</div><div class="inp">21.5</div><div class="inp">88</div></div>
+        <div class="btns"><div class="btn c">취소</div><div class="btn s">저장</div></div>
+      </div>
+      <div class="hrow"><div><span class="d">07-04</span>78.0kg · 39.1kg · 21.6%</div><span class="sc">86</span></div>
+    </div>
+  </div>
+
+  <!-- A -->
+  <div class="concept rec">
+    <div class="chd"><span class="tag">A안</span><span class="cname">수정은 팝업(모달)으로</span><span class="cbadge">추천</span><span class="csz">목록 그대로</span></div>
+    <div class="cdesc">목록은 항상 한 줄 유지. 탭하면 위에 작은 팝업으로 수정(기존 기록 폼 그대로).</div>
+    <div class="stage" style="min-height:150px;">
+      <div class="hrow"><div><span class="d">07-06</span>78.1kg · 39.0kg · 21.8%</div><span class="sc">87</span></div>
+      <div class="hrow"><div><span class="d">07-05</span>77.9kg · 39.2kg · 21.5%</div><span class="sc">88</span></div>
+      <div class="hrow" style="border:none;"><div><span class="d">07-04</span>78.0kg · 39.1kg · 21.6%</div><span class="sc">86</span></div>
+      <div class="dim"></div>
+      <div class="modal">
+        <div class="mt">07-05 기록 수정</div>
+        <div class="grid2" style="margin-bottom:8px;"><div class="inp">체중 77.9</div><div class="inp">근육 39.2</div><div class="inp">지방 21.5</div><div class="inp">점수 88</div></div>
+        <div class="row2"><div class="btn c" style="flex:1;padding:9px;">취소</div><div class="btn s" style="flex:2;padding:9px;">저장</div></div>
+      </div>
+    </div>
+    <div class="why">
+      <div class="g"><div class="h">장점</div>목록이 <b>절대 안 길어짐</b>. 기록 추가 폼과 똑같아 익숙함.</div>
+      <div class="b"><div class="h">트레이드오프</div>팝업이 한 번 뜸(익숙한 패턴).</div>
+    </div>
+  </div>
+
+  <!-- B -->
+  <div class="concept">
+    <div class="chd"><span class="tag">B안</span><span class="cname">한 줄 인라인 수정</span><span class="csz">~2줄</span></div>
+    <div class="cdesc">펼치되 4칸을 한 줄로 압축, 오른쪽에 ✓/✕만.</div>
+    <div class="stage">
+      <div class="hrow"><div><span class="d">07-06</span>78.1kg · 39.0kg · 21.8%</div><span class="sc">87</span></div>
+      <div class="edit1">
+        <div style="flex:1;"><div class="mlab">체중</div><input class="mini" value="77.9"></div>
+        <div style="flex:1;"><div class="mlab">근육</div><input class="mini" value="39.2"></div>
+        <div style="flex:1;"><div class="mlab">지방</div><input class="mini" value="21.5"></div>
+        <div style="flex:1;"><div class="mlab">점수</div><input class="mini" value="88"></div>
+        <div style="display:flex;flex-direction:column;gap:3px;"><div class="icob s">✓</div><div class="icob c">✕</div></div>
+      </div>
+      <div class="hrow"><div><span class="d">07-04</span>78.0kg · 39.1kg · 21.6%</div><span class="sc">86</span></div>
+    </div>
+    <div class="why">
+      <div class="g"><div class="h">장점</div>펼쳐도 <b>딱 한 줄</b>. 그 자리에서 바로 수정.</div>
+      <div class="b"><div class="h">트레이드오프</div>좁은 폰에선 4칸이 다소 빡빡.</div>
+    </div>
+  </div>
+
+  <!-- C -->
+  <div class="concept">
+    <div class="chd"><span class="tag">C안</span><span class="cname">값만 탭해서 수정</span><span class="csz">0줄</span></div>
+    <div class="cdesc">바꿀 값(예: 체중)만 탭하면 그 숫자만 인풋으로. 나머지는 그대로.</div>
+    <div class="stage">
+      <div class="hrow"><div><span class="d">07-06</span>78.1kg · 39.0kg · 21.8%</div><span class="sc">87</span></div>
+      <div class="hrow sel"><div><span class="d">07-05</span><span class="valedit"><input value="77.9"></span>kg · 39.2kg · 21.5%</div><span class="sc">88</span></div>
+      <div class="hrow"><div><span class="d">07-04</span>78.0kg · 39.1kg · 21.6%</div><span class="sc">86</span></div>
+    </div>
+    <div class="why">
+      <div class="g"><div class="h">장점</div>세로 공간 <b>0</b>. 한 값만 고칠 때 초간단.</div>
+      <div class="b"><div class="h">트레이드오프</div>여러 값 한 번에 고치긴 번거로움.</div>
+    </div>
+  </div>
+
+  <div class="foot">
+    제 추천은 <b>A안(팝업 수정)</b> — 목록은 항상 깔끔한 한 줄로 두고, 수정은 <b>기록 추가와 똑같은 폼</b>으로 하니 일관되고 목록이 안 길어져요. 그 자리 수정이 좋으면 <b>B(한 줄 인라인)</b>, 값 하나만 자주 고치면 <b>C</b>.<br>
+    <span style="color:var(--sub)">→ <b style="color:var(--text)">A · B · C</b> 중 골라주세요. 참고로 지금 "꾹 눌러서 수정/삭제"도 있는데, 정하면 <b>탭=수정 / 삭제 버튼</b>으로 상호작용도 정리할게요.</span>
+  </div>
+</div>
