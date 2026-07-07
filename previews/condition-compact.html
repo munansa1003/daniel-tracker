@@ -1,0 +1,157 @@
+<title>컨디션 배너 슬림화 — 컨셉</title>
+<style>
+  :root{
+    --page:#0c0e11; --chrome:#16191d; --line:rgba(255,255,255,.07);
+    --app:#141414; --card:#1e1e1e; --inner:#252525; --surface:#2a2a2a;
+    --text:#f5f5f0; --sub:#707070; --muted:#8a8a8a;
+    --blue:#4a8fc9; --green:#5a9e6f; --gold:#d4af37; --red:#e05252;
+    --injury:#e0894a; --illness:#cf6a6a;
+    --sans:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Segoe UI",Roboto,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--page);color:var(--text);font-family:var(--sans);-webkit-font-smoothing:antialiased;line-height:1.5;}
+  .wrap{max-width:440px;margin:0 auto;padding:30px 14px 70px;}
+  h1{font-size:21px;font-weight:650;margin:0 0 6px;letter-spacing:-.01em;}
+  .lede{font-size:13px;color:var(--muted);margin:0 0 22px;}
+  .lede b{color:var(--injury);}
+
+  .concept{background:var(--chrome);border:1px solid var(--line);border-radius:16px;overflow:hidden;margin-bottom:16px;}
+  .concept.rec{border-color:rgba(90,158,111,.4);box-shadow:0 0 0 1px rgba(90,158,111,.12);}
+  .chd{display:flex;align-items:baseline;gap:9px;padding:15px 17px 3px;flex-wrap:wrap;}
+  .tag{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--app);background:var(--blue);border-radius:6px;padding:2px 8px;}
+  .concept.rec .tag{background:var(--green);}
+  .tag.now{background:#555;color:#f5f5f0;}
+  .cname{font-size:15px;font-weight:600;}
+  .cbadge{font-size:9px;font-weight:700;letter-spacing:.4px;color:var(--app);background:var(--green);border-radius:5px;padding:2px 6px;}
+  .csz{font-size:11px;color:var(--sub);margin-left:auto;font-family:var(--mono);}
+  .cdesc{font-size:11.5px;color:var(--muted);padding:0 17px 12px;}
+  .stage{background:var(--app);margin:0 17px 15px;border-radius:12px;padding:13px 12px;border:1px solid var(--line);}
+
+  /* 현재 풀배너 */
+  .full{display:flex;align-items:center;gap:11px;border-radius:16px;padding:12px;margin-bottom:9px;}
+  .full:last-child{margin-bottom:0;}
+  .full .big{font-size:20px;}
+  .full .t{font-size:13px;font-weight:500;}
+  .full .s{font-size:11px;color:var(--sub);margin-top:2px;}
+  .full .go{font-size:11px;color:var(--sub);}
+  .inj{background:rgba(224,137,74,.1);border:1px solid rgba(224,137,74,.27);}.inj .t{color:var(--injury);}
+  .ill{background:rgba(207,106,106,.1);border:1px solid rgba(207,106,106,.27);}.ill .t{color:var(--illness);}
+
+  /* A 슬림 한 줄 */
+  .slim{display:flex;align-items:center;gap:8px;border-radius:11px;padding:7px 11px;}
+  .slim .ic{font-size:14px;}
+  .slim .t{font-size:12px;font-weight:500;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .slim .ex{font-size:9px;color:var(--illness);border:1px solid rgba(207,106,106,.4);border-radius:10px;padding:1px 6px;}
+  .slim .go{font-size:11px;color:var(--sub);}
+  .slim.inj{background:rgba(224,137,74,.1);border:1px solid rgba(224,137,74,.27);}
+  .slim.inj .t{color:var(--injury);}
+
+  /* summary card (B) */
+  .sumcard{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;}
+  .sumhead{display:flex;justify-content:space-between;align-items:center;}
+  .sumL{display:flex;align-items:center;gap:8px;}
+  .sumttl{font-size:13px;color:var(--sub);}
+  .pill{font-size:10px;font-weight:600;border-radius:20px;padding:2px 9px;}
+  .pill.cut{color:var(--gold);background:rgba(212,175,55,.12);border:1px solid rgba(212,175,55,.3);}
+  .pill.cond{color:var(--injury);background:rgba(224,137,74,.14);border:1px solid rgba(224,137,74,.4);display:inline-flex;align-items:center;gap:3px;}
+  .kcal{font-size:12px;font-family:var(--mono);color:var(--green);}
+  .donuts{display:flex;gap:12px;justify-content:center;margin-top:14px;}
+  .donut{text-align:center;}
+  .ring{width:44px;height:44px;border-radius:50%;border:4px solid var(--inner);border-top-color:var(--blue);border-right-color:var(--blue);margin:0 auto;}
+  .donut .l{font-size:10px;color:var(--sub);margin-top:4px;}
+
+  /* C 헤더 아이콘 */
+  .hdr{display:flex;align-items:center;justify-content:space-between;padding:4px 2px;}
+  .hdr .date{font-size:15px;font-weight:600;display:flex;align-items:center;gap:5px;}
+  .hdr .date .cur{font-size:9px;color:var(--gold);}
+  .hdr .right{display:flex;align-items:center;gap:10px;}
+  .hdr .cico{width:26px;height:26px;border-radius:7px;background:rgba(224,137,74,.14);border:1px solid rgba(224,137,74,.4);display:flex;align-items:center;justify-content:center;font-size:14px;position:relative;}
+  .hdr .cico .dot{position:absolute;top:-3px;right:-3px;min-width:13px;height:13px;border-radius:7px;background:var(--injury);color:#141414;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 3px;}
+  .hdr .dots{font-size:16px;color:var(--sub);}
+
+  .why{display:flex;gap:14px;padding:0 17px 15px;flex-wrap:wrap;}
+  .why div{font-size:11px;color:var(--muted);flex:1;min-width:130px;line-height:1.5;}
+  .why .h{font-size:9px;letter-spacing:.4px;text-transform:uppercase;color:var(--sub);margin-bottom:3px;}
+  .why .g b{color:var(--green);}.why .b b{color:var(--gold);}
+
+  .foot{margin-top:24px;padding:16px 18px;background:rgba(90,158,111,.05);border:1px solid rgba(90,158,111,.16);border-radius:14px;font-size:12.5px;color:var(--muted);line-height:1.7;}
+  .foot b{color:var(--green);}
+</style>
+
+<div class="wrap">
+  <h1>컨디션 배너, 더 작게</h1>
+  <p class="lede">지금은 이벤트마다 <b>2줄 풀배너</b>라 여러 건이면 홈 상단을 크게 먹어요. 슬림하게 만드는 3가지 안입니다.</p>
+
+  <!-- 현재 -->
+  <div class="concept">
+    <div class="chd"><span class="tag now">NOW</span><span class="cname">현재 — 2줄 풀배너 ×건수</span><span class="csz">~56px × 2</span></div>
+    <div class="cdesc">이벤트마다 아이콘+제목+메모+관리가 큰 카드로. 2건이면 112px+.</div>
+    <div class="stage">
+      <div class="full inj"><span class="big">🤕</span><div style="flex:1;min-width:0;"><div class="t">손목·다리 · 진행중</div><div class="s">2026-07-04부터 · 계산 제외 중 · 자전거 낙상</div></div><span class="go">관리 ›</span></div>
+      <div class="full ill"><span class="big">🤢</span><div style="flex:1;min-width:0;"><div class="t">장염 · 진행중</div><div class="s">2026-07-06부터 · 계산 제외 중</div></div><span class="go">관리 ›</span></div>
+    </div>
+  </div>
+
+  <!-- A -->
+  <div class="concept rec">
+    <div class="chd"><span class="tag">A안</span><span class="cname">슬림 한 줄 (다건 접힘)</span><span class="cbadge">추천</span><span class="csz">~34px</span></div>
+    <div class="cdesc">한 줄 얇은 칩. 여러 건이면 아이콘만 모아 "컨디션 2건"으로 접음.</div>
+    <div class="stage">
+      <div class="slim inj" style="margin-bottom:9px;"><span class="ic">🤕</span><span class="t">손목·다리 · 진행중</span><span class="ex">계산 제외</span><span class="go">관리 ›</span></div>
+      <div style="font-size:10px;color:var(--sub);font-family:var(--mono);margin:2px 0 7px;">└ 2건 이상이면 이렇게 접힘 ↓</div>
+      <div class="slim inj"><span class="ic">🤕🤢</span><span class="t">컨디션 2건 · 진행중</span><span class="go">관리 ›</span></div>
+    </div>
+    <div class="why">
+      <div class="g"><div class="h">장점</div>높이 <b>1/2~1/3</b>로. 부상 사실은 <b>한눈에</b> 유지. 다건도 한 줄.</div>
+      <div class="b"><div class="h">트레이드오프</div>메모 본문은 안 보임(모달에서).</div>
+    </div>
+  </div>
+
+  <!-- B -->
+  <div class="concept">
+    <div class="chd"><span class="tag">B안</span><span class="cname">'오늘의 요약' 카드에 배지</span><span class="csz">+0px</span></div>
+    <div class="cdesc">별도 배너 없이, 요약 카드 헤더의 감량/유지 옆에 작은 🤕 배지. 세로 공간 추가 0.</div>
+    <div class="stage">
+      <div class="sumcard">
+        <div class="sumhead">
+          <div class="sumL"><span class="sumttl">오늘의 요약</span><span class="pill cut">감량</span><span class="pill cond">🤕 부상</span></div>
+          <span class="kcal">섭취 1,540 kcal</span>
+        </div>
+        <div class="donuts">
+          <div class="donut"><div class="ring"></div><div class="l">단백질</div></div>
+          <div class="donut"><div class="ring"></div><div class="l">탄수</div></div>
+          <div class="donut"><div class="ring"></div><div class="l">지방</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="why">
+      <div class="g"><div class="h">장점</div>세로 공간 <b>추가 0</b>. 가장 깔끔·통합적.</div>
+      <div class="b"><div class="h">트레이드오프</div>작아서 <b>눈에 덜 띔</b>. 탭하면 모달.</div>
+    </div>
+  </div>
+
+  <!-- C -->
+  <div class="concept">
+    <div class="chd"><span class="tag">C안</span><span class="cname">날짜 헤더에 아이콘</span><span class="csz">+0px</span></div>
+    <div class="cdesc">맨 위 날짜 줄(⋮ 옆)에 작은 컨디션 아이콘 + 건수 뱃지. 어느 탭에서도 보임.</div>
+    <div class="stage">
+      <div class="hdr">
+        <span class="date">07.07 <span class="cur">▼</span></span>
+        <div class="right">
+          <div class="cico">🩹<span class="dot">2</span></div>
+          <span class="dots">⋮</span>
+        </div>
+      </div>
+    </div>
+    <div class="why">
+      <div class="g"><div class="h">장점</div>공간 <b>거의 0</b>. 모든 탭에서 상시 노출.</div>
+      <div class="b"><div class="h">트레이드오프</div>무슨 컨디션인지 <b>탭 전엔 모름</b>.</div>
+    </div>
+  </div>
+
+  <div class="foot">
+    제 추천은 <b>A안(슬림 한 줄 + 다건 접힘)</b> — 높이를 확 줄이면서 "지금 부상중"이라는 <b>맥락은 한눈에</b> 남습니다. 완전히 안 보이게 통합하려면 <b>B안</b>, 최소 노출이면 <b>C안</b>이에요.<br>
+    <span style="color:var(--sub)">→ <b style="color:var(--text)">A · B · C</b> 중 골라주세요(조합도 OK, 예: "A + 계산제외는 빼줘"). 정하면 구현·머지하겠습니다.</span>
+  </div>
+</div>
