@@ -57,7 +57,7 @@ export function HealthEvents({ events, onChange, todayStr }) {
         <input value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} placeholder="예: 손목·다리 / 장염" style={{ ...inputStyle, marginBottom: 14 }} />
 
         <div style={{ fontSize: 11, color: "#707070", marginBottom: 8 }}>언제부터?</div>
-        <input type="date" value={form.start} onChange={(e) => setForm({ ...form, start: e.target.value })} style={{ ...inputStyle, marginBottom: 10, maxWidth: "100%" }} />
+        <input type="date" value={form.start} onChange={(e) => setForm({ ...form, start: e.target.value })} style={{ ...inputStyle, width: "auto", minWidth: 150, marginBottom: 10 }} />
 
         {/* 회복 상태 — 진행중이면 회복 처리 버튼, 회복이면 되돌리기 */}
         {form.end ? (
@@ -68,7 +68,7 @@ export function HealthEvents({ events, onChange, todayStr }) {
         ) : editing !== "new" ? (
           <button onClick={() => setForm({ ...form, end: todayStr })} style={{ width: "100%", padding: 11, background: "rgba(90,158,111,0.12)", border: "1px solid rgba(90,158,111,0.4)", borderRadius: 10, color: "#5a9e6f", fontSize: 13, fontWeight: 600, cursor: "pointer", marginBottom: 16 }}>✓ 오늘 회복했어요</button>
         ) : (
-          <div style={{ fontSize: 10.5, color: "#707070", marginBottom: 16, lineHeight: 1.45 }}>진행중으로 기록돼요. 나으면 여기(수정) 또는 목록의 “✓ 회복”에서 처리할 수 있어요.</div>
+          <div style={{ fontSize: 10.5, color: "#707070", marginBottom: 16, lineHeight: 1.45 }}>저장하면 ‘진행중’으로 기록돼요. (나은 뒤엔 목록에서 ‘✓ 회복’ 버튼으로 마무리)</div>
         )}
 
         <div style={{ fontSize: 11, color: "#707070", marginBottom: 8 }}>메모 (선택)</div>
