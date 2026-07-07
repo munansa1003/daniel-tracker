@@ -54,21 +54,18 @@ export function HealthEvents({ events, onChange, todayStr }) {
         <div style={{ fontSize: 11, color: "#707070", marginBottom: 8 }}>제목 (부위·증상)</div>
         <input value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} placeholder="예: 손목·다리 / 장염" style={{ ...inputStyle, marginBottom: 14 }} />
 
-        <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 11, color: "#707070", marginBottom: 8 }}>시작일</div>
-            <input type="date" value={form.start} onChange={(e) => setForm({ ...form, start: e.target.value })} style={inputStyle} />
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 11, color: "#707070", marginBottom: 8 }}>종료일</div>
-            <input type="date" value={form.end || ""} disabled={form.ongoing} onChange={(e) => setForm({ ...form, end: e.target.value })}
-              style={{ ...inputStyle, opacity: form.ongoing ? 0.4 : 1 }} />
-          </div>
-        </div>
-        <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, cursor: "pointer", fontSize: 13, color: "#f5f5f0" }}>
+        <div style={{ fontSize: 11, color: "#707070", marginBottom: 8 }}>시작일</div>
+        <input type="date" value={form.start} onChange={(e) => setForm({ ...form, start: e.target.value })} style={{ ...inputStyle, marginBottom: 14, maxWidth: "100%" }} />
+
+        <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: form.ongoing ? 16 : 14, cursor: "pointer", fontSize: 13, color: "#f5f5f0" }}>
           <input type="checkbox" checked={form.ongoing} onChange={(e) => setForm({ ...form, ongoing: e.target.checked })} />
           아직 진행중 (회복 안 됨)
         </label>
+
+        {!form.ongoing && (<>
+          <div style={{ fontSize: 11, color: "#707070", marginBottom: 8 }}>종료일</div>
+          <input type="date" value={form.end || ""} onChange={(e) => setForm({ ...form, end: e.target.value })} style={{ ...inputStyle, marginBottom: 16, maxWidth: "100%" }} />
+        </>)}
 
         <div style={{ fontSize: 11, color: "#707070", marginBottom: 8 }}>메모 (선택)</div>
         <textarea value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} rows={2} placeholder="예: 자전거 낙상. 자전거·조깅 중단, 상체만 가능." style={{ ...inputStyle, marginBottom: 16, resize: "vertical" }} />
