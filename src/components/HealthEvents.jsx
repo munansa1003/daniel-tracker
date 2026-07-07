@@ -57,19 +57,22 @@ export function HealthEvents({ events, onChange, todayStr }) {
         <input value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} placeholder="예: 손목·다리 / 장염" style={{ ...inputStyle, marginBottom: 14 }} />
 
         <div style={{ fontSize: 11, color: "#707070", marginBottom: 8 }}>언제부터?</div>
-        <input type="date" value={form.start} onChange={(e) => setForm({ ...form, start: e.target.value })} style={{ ...inputStyle, width: "auto", minWidth: 150, marginBottom: 10 }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: form.end ? 10 : (editing === "new" ? 6 : 16) }}>
+          <input type="date" value={form.start} onChange={(e) => setForm({ ...form, start: e.target.value })} style={{ ...inputStyle, width: "auto", minWidth: 150 }} />
+          {editing !== "new" && !form.end && (
+            <button onClick={() => setForm({ ...form, end: todayStr })} style={{ padding: "9px 13px", background: "rgba(90,158,111,0.14)", border: "1px solid rgba(90,158,111,0.4)", borderRadius: 8, color: "#5a9e6f", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>✓ 오늘 회복</button>
+          )}
+        </div>
 
-        {/* 회복 상태 — 진행중이면 회복 처리 버튼, 회복이면 되돌리기 */}
+        {/* 회복 상태 — 회복이면 되돌리기, 신규면 안내 */}
         {form.end ? (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", background: "rgba(90,158,111,0.1)", border: "1px solid rgba(90,158,111,0.3)", borderRadius: 10, marginBottom: 16 }}>
             <span style={{ fontSize: 12.5, color: "#5a9e6f", fontWeight: 500 }}>🟢 {form.end}에 회복함</span>
             <span onClick={() => setForm({ ...form, end: null })} style={{ fontSize: 11, color: "#8a8a8a", textDecoration: "underline", cursor: "pointer" }}>다시 진행중으로</span>
           </div>
-        ) : editing !== "new" ? (
-          <button onClick={() => setForm({ ...form, end: todayStr })} style={{ width: "100%", padding: 11, background: "rgba(90,158,111,0.12)", border: "1px solid rgba(90,158,111,0.4)", borderRadius: 10, color: "#5a9e6f", fontSize: 13, fontWeight: 600, cursor: "pointer", marginBottom: 16 }}>✓ 오늘 회복했어요</button>
-        ) : (
-          <div style={{ fontSize: 10.5, color: "#707070", marginBottom: 16, lineHeight: 1.45 }}>저장하면 ‘진행중’으로 기록돼요. (나은 뒤엔 목록에서 ‘✓ 회복’ 버튼으로 마무리)</div>
-        )}
+        ) : editing === "new" ? (
+          <div style={{ fontSize: 10.5, color: "#707070", marginBottom: 16, lineHeight: 1.45 }}>저장하면 ‘진행중’으로 기록돼요. (나은 뒤엔 목록·수정에서 ‘✓ 회복’)</div>
+        ) : null}
 
         <div style={{ fontSize: 11, color: "#707070", marginBottom: 8 }}>메모 (선택)</div>
         <textarea value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} rows={2} placeholder="예: 자전거 낙상. 자전거·조깅 중단, 상체만 가능." style={{ ...inputStyle, marginBottom: 16, resize: "vertical" }} />
