@@ -21,4 +21,14 @@ describe("HealthEvents 렌더", () => {
     expect(h).toContain("진행중");   // 부상 활성
     expect(h).toContain("계산 제외"); // 장염 배지
   });
+
+  it("A안 — 진행중은 '✓ 회복', 회복된 건 '되돌리기'", () => {
+    const events = [
+      { id: 1, type: "injury", label: "손목", start: "2026-07-04", end: null, exclude: false },
+      { id: 2, type: "illness", label: "장염", start: "2026-06-20", end: "2026-06-23", exclude: false },
+    ];
+    const h = renderToStaticMarkup(<HealthEvents events={events} onChange={noop} todayStr="2026-07-05" />);
+    expect(h).toContain("회복");     // ongoing → ✓ 회복 버튼
+    expect(h).toContain("되돌리기");  // ended → 되돌리기
+  });
 });

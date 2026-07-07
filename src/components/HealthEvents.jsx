@@ -1,23 +1,24 @@
 import { useState } from "react";
-import { HEALTH_TYPES, typeMeta, activeEvents, eventDays } from "../healthEvents.js";
+import { HEALTH_TYPES, typeMeta, eventDays } from "../healthEvents.js";
 
 // 건강 이벤트(부상·질병·휴식) 관리 — 목록 + 추가/수정 폼.
 //  events: [{id,type,label,start,end|null,note,exclude}]  onChange(next)
+//  기간 입력은 '시작일'만(A안). 종료는 목록 카드의 '✓ 회복'으로 end=오늘 지정.
 export function HealthEvents({ events, onChange, todayStr }) {
   const list = events || [];
   const [editing, setEditing] = useState(null); // null | 'new' | id
 
-  const blank = () => ({ id: Date.now(), type: "injury", label: "", start: todayStr, end: null, ongoing: true, note: "", exclude: false });
+  const blank = () => ({ id: Date.now(), type: "injury", label: "", start: todayStr, end: null, note: "", exclude: false });
   const [form, setForm] = useState(blank());
 
   const openNew = () => { setForm(blank()); setEditing("new"); };
-  const openEdit = (ev) => { setForm({ ...ev, ongoing: !ev.end }); setEditing(ev.id); };
+  const openEdit = (ev) => { setForm({ ...ev }); setEditing(ev.id); };
   const cancel = () => setEditing(null);
 
   const save = () => {
     const clean = {
       id: form.id, type: form.type, label: (form.label || "").trim(),
-      start: form.start, end: form.ongoing ? null : (form.end || form.start),
+      start: form.start, end: form.end || null, // 종료는 폼에서 안 건드림(회복 버튼으로)
       note: (form.note || "").trim(), exclude: !!form.exclude,
     };
     if (clean.end && clean.end < clean.start) clean.end = clean.start;
@@ -26,11 +27,12 @@ export function HealthEvents({ events, onChange, todayStr }) {
     setEditing(null);
   };
   const remove = (id) => { onChange(list.filter((e) => e.id !== id)); setEditing(null); };
+  const recover = (ev, e) => { e.stopPropagation(); onChange(list.map((x) => (x.id === ev.id ? { ...x, end: todayStr } : x))); };
+  const reopen = (ev, e) => { e.stopPropagation(); onChange(list.map((x) => (x.id === ev.id ? { ...x, end: null } : x))); };
 
-  const active = activeEvents(list, todayStr);
-  const activeIds = new Set(active.map((e) => e.id));
-  const past = list.filter((e) => !activeIds.has(e.id)).sort((a, b) => (b.start || "").localeCompare(a.start || ""));
-  const ordered = [...active, ...past];
+  const ongoingList = list.filter((e) => !e.end).sort((a, b) => (b.start || "").localeCompare(a.start || ""));
+  const endedList = list.filter((e) => e.end).sort((a, b) => (b.start || "").localeCompare(a.start || ""));
+  const ordered = [...ongoingList, ...endedList];
 
   const inputStyle = { width: "100%", background: "#252525", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, color: "#f5f5f0", fontSize: 13, padding: "9px 10px", fontFamily: "inherit" };
 
@@ -54,18 +56,11 @@ export function HealthEvents({ events, onChange, todayStr }) {
         <div style={{ fontSize: 11, color: "#707070", marginBottom: 8 }}>제목 (부위·증상)</div>
         <input value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} placeholder="예: 손목·다리 / 장염" style={{ ...inputStyle, marginBottom: 14 }} />
 
-        <div style={{ fontSize: 11, color: "#707070", marginBottom: 8 }}>시작일</div>
-        <input type="date" value={form.start} onChange={(e) => setForm({ ...form, start: e.target.value })} style={{ ...inputStyle, marginBottom: 14, maxWidth: "100%" }} />
-
-        <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: form.ongoing ? 16 : 14, cursor: "pointer", fontSize: 13, color: "#f5f5f0" }}>
-          <input type="checkbox" checked={form.ongoing} onChange={(e) => setForm({ ...form, ongoing: e.target.checked })} />
-          아직 진행중 (회복 안 됨)
-        </label>
-
-        {!form.ongoing && (<>
-          <div style={{ fontSize: 11, color: "#707070", marginBottom: 8 }}>종료일</div>
-          <input type="date" value={form.end || ""} onChange={(e) => setForm({ ...form, end: e.target.value })} style={{ ...inputStyle, marginBottom: 16, maxWidth: "100%" }} />
-        </>)}
+        <div style={{ fontSize: 11, color: "#707070", marginBottom: 8 }}>언제부터?</div>
+        <input type="date" value={form.start} onChange={(e) => setForm({ ...form, start: e.target.value })} style={{ ...inputStyle, marginBottom: 6, maxWidth: "100%" }} />
+        <div style={{ fontSize: 10.5, color: "#707070", marginBottom: 16, lineHeight: 1.45 }}>
+          {form.end ? `${form.end}에 회복 처리됨` : "진행중으로 기록돼요. 나으면 목록에서 “✓ 회복”을 누르세요."}
+        </div>
 
         <div style={{ fontSize: 11, color: "#707070", marginBottom: 8 }}>메모 (선택)</div>
         <textarea value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} rows={2} placeholder="예: 자전거 낙상. 자전거·조깅 중단, 상체만 가능." style={{ ...inputStyle, marginBottom: 16, resize: "vertical" }} />
@@ -102,10 +97,10 @@ export function HealthEvents({ events, onChange, todayStr }) {
       ) : (
         ordered.map((ev) => {
           const tm = typeMeta(ev.type);
-          const on = activeIds.has(ev.id);
+          const on = !ev.end;
           const days = eventDays(ev, todayStr);
           return (
-            <div key={ev.id} onClick={() => openEdit(ev)} style={{ display: "flex", gap: 12, padding: 12, background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 12, marginBottom: 9, cursor: "pointer" }}>
+            <div key={ev.id} onClick={() => openEdit(ev)} style={{ display: "flex", gap: 12, padding: 12, background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 12, marginBottom: 9, cursor: "pointer", alignItems: "center" }}>
               <div style={{ width: 34, height: 34, borderRadius: 9, background: tm.color + "26", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, flexShrink: 0 }}>{tm.ico}</div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
@@ -115,9 +110,12 @@ export function HealthEvents({ events, onChange, todayStr }) {
                     : <span style={{ fontSize: 9.5, fontWeight: 600, borderRadius: 20, padding: "2px 8px", background: "rgba(90,158,111,0.15)", color: "#5a9e6f" }}>회복</span>}
                   {ev.exclude && <span style={{ fontSize: 9.5, fontWeight: 600, borderRadius: 20, padding: "2px 8px", background: "rgba(207,106,106,0.15)", color: "#cf6a6a" }}>계산 제외</span>}
                 </div>
-                <div style={{ fontSize: 11, color: "#707070", marginTop: 3 }}>{tm.name} · {ev.start}{ev.end ? ` ~ ${ev.end}` : " ~ 진행중"} · {days}일</div>
+                <div style={{ fontSize: 11, color: "#707070", marginTop: 3 }}>{tm.name} · {ev.start}{ev.end ? ` ~ ${ev.end}` : "부터"} · {days}일{on ? "째" : ""}</div>
                 {ev.note && <div style={{ fontSize: 11, color: "#8a8a8a", marginTop: 5, lineHeight: 1.45 }}>{ev.note}</div>}
               </div>
+              {on
+                ? <button onClick={(e) => recover(ev, e)} style={{ fontSize: 11, fontWeight: 600, color: "#5a9e6f", background: "rgba(90,158,111,0.14)", border: "1px solid rgba(90,158,111,0.4)", borderRadius: 8, padding: "7px 11px", whiteSpace: "nowrap", cursor: "pointer", flexShrink: 0 }}>✓ 회복</button>
+                : <span onClick={(e) => reopen(ev, e)} style={{ fontSize: 10.5, color: "#707070", whiteSpace: "nowrap", cursor: "pointer", flexShrink: 0, textDecoration: "underline" }}>되돌리기</span>}
             </div>
           );
         })
