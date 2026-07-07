@@ -1,0 +1,133 @@
+<title>컨디션 기간 입력 — 심플 컨셉</title>
+<style>
+  :root{
+    --page:#0c0e11; --chrome:#16191d; --line:rgba(255,255,255,.07);
+    --app:#141414; --card:#1e1e1e; --inner:#252525; --surface:#2a2a2a;
+    --text:#f5f5f0; --sub:#707070; --muted:#8a8a8a;
+    --blue:#4a8fc9; --green:#5a9e6f; --gold:#d4af37; --injury:#e0894a;
+    --sans:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Segoe UI",Roboto,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--page);color:var(--text);font-family:var(--sans);-webkit-font-smoothing:antialiased;line-height:1.5;}
+  .wrap{max-width:430px;margin:0 auto;padding:30px 14px 70px;}
+  h1{font-size:21px;font-weight:650;margin:0 0 6px;letter-spacing:-.01em;}
+  .lede{font-size:13px;color:var(--muted);margin:0 0 22px;}
+  .lede b{color:var(--injury);}
+
+  .concept{background:var(--chrome);border:1px solid var(--line);border-radius:16px;overflow:hidden;margin-bottom:16px;}
+  .concept.rec{border-color:rgba(90,158,111,.4);box-shadow:0 0 0 1px rgba(90,158,111,.12);}
+  .chd{display:flex;align-items:baseline;gap:9px;padding:15px 17px 3px;flex-wrap:wrap;}
+  .tag{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--app);background:var(--blue);border-radius:6px;padding:2px 8px;}
+  .concept.rec .tag{background:var(--green);}
+  .tag.now{background:#555;color:#f5f5f0;}
+  .cname{font-size:15px;font-weight:600;}
+  .cbadge{font-size:9px;font-weight:700;letter-spacing:.4px;color:var(--app);background:var(--green);border-radius:5px;padding:2px 6px;}
+  .cdesc{font-size:11.5px;color:var(--muted);padding:0 17px 12px;}
+  .stage{background:var(--app);margin:0 17px 14px;border-radius:12px;padding:14px 13px;border:1px solid var(--line);}
+  .lbl{font-size:11px;color:var(--sub);margin-bottom:8px;}
+
+  .fld{background:var(--inner);border:1px solid rgba(255,255,255,.08);border-radius:8px;color:var(--text);font-size:13px;padding:10px 11px;display:flex;align-items:center;justify-content:space-between;}
+  .fld .cal{color:var(--sub);font-size:13px;}
+  .fld.ph{color:var(--sub);}
+  .row{display:flex;align-items:center;gap:10px;}
+  .tilde{color:var(--sub);font-size:14px;}
+  .ck{display:flex;align-items:center;gap:8px;font-size:13px;}
+  .box{width:16px;height:16px;border-radius:4px;border:1.5px solid var(--green);background:var(--green);display:flex;align-items:center;justify-content:center;color:#141414;font-size:11px;flex-shrink:0;}
+  .box.off{background:transparent;border-color:#555;}
+  .chip{padding:7px 13px;border-radius:20px;font-size:12px;background:var(--surface);color:var(--muted);border:1px solid rgba(255,255,255,.08);white-space:nowrap;}
+  .chip.on{background:var(--injury);color:#141414;font-weight:600;border-color:var(--injury);}
+  .chips{display:flex;gap:7px;flex-wrap:wrap;}
+  .note2{font-size:10px;color:var(--sub);font-family:var(--mono);margin:8px 0 0;}
+
+  .why{display:flex;gap:14px;padding:0 17px 15px;flex-wrap:wrap;}
+  .why div{font-size:11px;color:var(--muted);flex:1;min-width:130px;line-height:1.5;}
+  .why .h{font-size:9px;letter-spacing:.4px;text-transform:uppercase;color:var(--sub);margin-bottom:3px;}
+  .why .g b{color:var(--green);}.why .b b{color:var(--gold);}
+
+  .foot{margin-top:24px;padding:16px 18px;background:rgba(90,158,111,.05);border:1px solid rgba(90,158,111,.16);border-radius:14px;font-size:12.5px;color:var(--muted);line-height:1.7;}
+  .foot b{color:var(--green);}
+</style>
+
+<div class="wrap">
+  <h1>기간 입력, 한 줄로 심플하게</h1>
+  <p class="lede">지금은 시작일·종료일이 <b>세로 두 줄+</b>이라 길어요. 한 줄로 간결하게 만드는 3가지 안입니다.</p>
+
+  <!-- 현재 -->
+  <div class="concept">
+    <div class="chd"><span class="tag now">NOW</span><span class="cname">현재 — 세로 스택</span></div>
+    <div class="cdesc">시작일(줄1) → 진행중 → 종료일(줄2). 세로로 김.</div>
+    <div class="stage">
+      <div class="lbl">시작일</div>
+      <div class="fld" style="margin-bottom:12px;">2026-07-04 <span class="cal">🗓</span></div>
+      <div class="ck" style="margin-bottom:12px;"><span class="box off"></span> 아직 진행중</div>
+      <div class="lbl">종료일</div>
+      <div class="fld">2026-07-06 <span class="cal">🗓</span></div>
+    </div>
+  </div>
+
+  <!-- A -->
+  <div class="concept rec">
+    <div class="chd"><span class="tag">A안</span><span class="cname">시작일 + 진행중 (한 줄)</span><span class="cbadge">추천</span></div>
+    <div class="cdesc">한 줄: 시작일 + '진행중' 토글. 회복 처리(토글 끄면) 시 종료일이 옆에 등장. 대부분 부상·질병은 이걸로 끝.</div>
+    <div class="stage">
+      <div class="lbl">기간</div>
+      <div class="row" style="margin-bottom:10px;">
+        <div class="fld" style="flex:1;">2026-07-04 <span class="cal">🗓</span></div>
+        <div class="ck"><span class="box">✓</span> 진행중</div>
+      </div>
+      <div class="note2">└ 진행중 끄면 ↓ (회복일 입력)</div>
+      <div class="row" style="margin-top:8px;">
+        <div class="fld" style="flex:1;">2026-07-04 <span class="cal">🗓</span></div>
+        <span class="tilde">~</span>
+        <div class="fld" style="flex:1;">2026-07-06 <span class="cal">🗓</span></div>
+      </div>
+    </div>
+    <div class="why">
+      <div class="g"><div class="h">장점</div>대부분 <b>한 줄</b>로 끝(진행중). 종료일은 필요할 때만 나란히.</div>
+      <div class="b"><div class="h">트레이드오프</div>회복 입력 시 칸이 좁아짐(문제없는 폭).</div>
+    </div>
+  </div>
+
+  <!-- B -->
+  <div class="concept">
+    <div class="chd"><span class="tag">B안</span><span class="cname">기간 한 줄 (시작 ~ 종료)</span></div>
+    <div class="cdesc">항상 한 줄에 시작~종료를 나란히. 진행중은 작은 체크로.</div>
+    <div class="stage">
+      <div class="lbl">기간</div>
+      <div class="row" style="margin-bottom:11px;">
+        <div class="fld" style="flex:1;">2026-07-04 <span class="cal">🗓</span></div>
+        <span class="tilde">~</span>
+        <div class="fld ph" style="flex:1;">진행중</div>
+      </div>
+      <div class="ck"><span class="box">✓</span> 아직 진행중</div>
+    </div>
+    <div class="why">
+      <div class="g"><div class="h">장점</div>항상 <b>한 줄</b>. 시작~종료가 한눈에.</div>
+      <div class="b"><div class="h">트레이드오프</div>좁은 폰에선 날짜칸이 다소 빡빡.</div>
+    </div>
+  </div>
+
+  <!-- C -->
+  <div class="concept">
+    <div class="chd"><span class="tag">C안</span><span class="cname">시작일 + 기간 프리셋 칩</span></div>
+    <div class="cdesc">종료일을 안 고르고 칩으로 빠르게. 장염 '3일' 한 번에.</div>
+    <div class="stage">
+      <div class="lbl">시작일</div>
+      <div class="fld" style="margin-bottom:12px;">2026-07-04 <span class="cal">🗓</span></div>
+      <div class="lbl">기간</div>
+      <div class="chips">
+        <span class="chip on">진행중</span><span class="chip">하루</span><span class="chip">3일</span><span class="chip">1주</span><span class="chip">직접</span>
+      </div>
+    </div>
+    <div class="why">
+      <div class="g"><div class="h">장점</div>흔한 케이스 <b>탭 한 번</b>. 날짜 안 고르고 끝.</div>
+      <div class="b"><div class="h">트레이드오프</div>애매한 기간은 '직접'으로 한 단계 더.</div>
+    </div>
+  </div>
+
+  <div class="foot">
+    제 추천은 <b>A안</b> — 부상·질병은 <b>시작+진행중</b>이 대부분이라 평소 한 줄로 끝나고, 회복했을 때만 종료일이 옆에 뜹니다. 항상 시작~종료를 보고 싶으면 <b>B안</b>, 빠른 입력이 좋으면 <b>C안</b>이에요.<br>
+    <span style="color:var(--sub)">→ <b style="color:var(--text)">A · B · C</b> 중 골라주세요(조합 OK). 정하면 구현·머지하겠습니다.</span>
+  </div>
+</div>
