@@ -1,0 +1,69 @@
+<title>컨디션 기간 — 심플 A안</title>
+<style>
+  :root{
+    --page:#0c0e11; --chrome:#16191d; --line:rgba(255,255,255,.07);
+    --app:#141414; --card:#1e1e1e; --inner:#252525; --surface:#2a2a2a;
+    --text:#f5f5f0; --sub:#707070; --muted:#8a8a8a;
+    --green:#5a9e6f; --injury:#e0894a;
+    --sans:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Segoe UI",Roboto,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--page);color:var(--text);font-family:var(--sans);-webkit-font-smoothing:antialiased;line-height:1.5;}
+  .wrap{max-width:400px;margin:0 auto;padding:30px 14px 70px;}
+  h1{font-size:20px;font-weight:650;margin:0 0 6px;letter-spacing:-.01em;}
+  .lede{font-size:12.5px;color:var(--muted);margin:0 0 22px;}
+  .lede b{color:var(--green);}
+  .state{font-size:11px;color:var(--sub);font-family:var(--mono);margin:22px 4px 9px;}
+  .card{background:var(--app);border:1px solid var(--line);border-radius:14px;padding:15px 14px;}
+
+  .lbl{font-size:11px;color:var(--sub);margin-bottom:8px;}
+  .fld{background:var(--inner);border:1px solid rgba(255,255,255,.08);border-radius:8px;color:var(--text);font-size:13.5px;padding:11px 12px;display:flex;align-items:center;justify-content:space-between;font-family:var(--mono);}
+  .fld .cal{font-size:14px;filter:grayscale(.3);}
+  .row{display:flex;align-items:center;gap:9px;}
+  .tilde{color:var(--sub);font-size:15px;}
+  .ck{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text);margin-top:11px;}
+  .box{width:16px;height:16px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;}
+  .box.on{background:var(--green);border:1.5px solid var(--green);color:#141414;}
+  .box.off{background:transparent;border:1.5px solid #666;}
+  .cap{font-size:10.5px;color:var(--sub);margin-top:10px;line-height:1.5;}
+
+  .foot{margin-top:26px;padding:16px 18px;background:rgba(90,158,111,.05);border:1px solid rgba(90,158,111,.16);border-radius:14px;font-size:12.5px;color:var(--muted);line-height:1.7;}
+  .foot b{color:var(--green);}
+  .compare{display:flex;gap:10px;margin-top:8px;}
+  .compare > div{flex:1;background:var(--chrome);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:11px;color:var(--muted);}
+  .compare .t{font-size:10px;color:var(--sub);font-family:var(--mono);margin-bottom:5px;}
+  del{color:#6a6a6a;}
+</style>
+
+<div class="wrap">
+  <h1>A안 · 더 심플하게</h1>
+  <p class="lede">날짜는 <b>항상 한 줄</b>. 진행중이면 시작일만, 회복하면 옆에 종료일이 붙어요. '진행중'은 아래 작은 체크 하나로.</p>
+
+  <div class="state">기본 (진행중 — 대부분의 경우)</div>
+  <div class="card">
+    <div class="lbl">기간</div>
+    <div class="fld">2026-07-04 <span class="cal">🗓</span></div>
+    <div class="ck"><span class="box on">✓</span> 진행중</div>
+  </div>
+
+  <div class="state">회복함 (진행중 체크 해제 → 종료일 등장)</div>
+  <div class="card">
+    <div class="lbl">기간</div>
+    <div class="row">
+      <div class="fld" style="flex:1;">2026-07-04 <span class="cal">🗓</span></div>
+      <span class="tilde">~</span>
+      <div class="fld" style="flex:1;">2026-07-06 <span class="cal">🗓</span></div>
+    </div>
+    <div class="ck"><span class="box off"></span> 진행중</div>
+  </div>
+
+  <div class="foot">
+    <b>현재 → 심플 A</b> 비교
+    <div class="compare">
+      <div><div class="t">현재 (3블록)</div>시작일<br>─────<br>☐ 진행중<br>─────<br>종료일</div>
+      <div><div class="t">심플 A (2블록)</div>기간 <span style="color:#8a8a8a">[한 줄]</span><br>─────<br>☑ 진행중</div>
+    </div>
+    <div style="margin-top:12px;color:var(--sub)">라벨·힌트 줄이고, 날짜를 한 줄로. → 이대로 <b style="color:var(--text)">구현</b>할까요? 더 줄일 부분 있으면 말씀해주세요.</div>
+  </div>
+</div>
