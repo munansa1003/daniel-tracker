@@ -1,0 +1,215 @@
+<title>컨디션·부상·질병 기록 — 컨셉 프리뷰</title>
+<style>
+  :root{
+    --page:#0c0e11; --chrome:#16191d; --line:rgba(255,255,255,.07);
+    --app:#141414; --card:#1e1e1e; --inner:#252525; --surface:#2a2a2a;
+    --text:#f5f5f0; --sub:#707070; --muted:#8a8a8a;
+    --blue:#4a8fc9; --green:#5a9e6f; --gold:#d4af37; --red:#e05252;
+    --injury:#e0894a; --sick:#cf6a6a; --rest:#6a8fc9;
+    --sans:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Segoe UI",Roboto,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--page);color:var(--text);font-family:var(--sans);-webkit-font-smoothing:antialiased;line-height:1.5;}
+  .wrap{max-width:640px;margin:0 auto;padding:32px 16px 72px;}
+  h1{font-size:22px;font-weight:650;letter-spacing:-.01em;margin:0 0 6px;text-wrap:balance;}
+  .lede{font-size:13.5px;color:var(--muted);margin:0 0 16px;}
+  .insight{font-size:12.5px;color:var(--muted);line-height:1.65;background:rgba(224,137,74,.06);border:1px solid rgba(224,137,74,.18);border-radius:12px;padding:13px 15px;margin-bottom:26px;}
+  .insight b{color:var(--injury);}
+
+  .concept{background:var(--chrome);border:1px solid var(--line);border-radius:16px;overflow:hidden;margin-bottom:18px;}
+  .concept.rec{border-color:rgba(90,158,111,.4);box-shadow:0 0 0 1px rgba(90,158,111,.12);}
+  .chd{display:flex;align-items:baseline;gap:10px;padding:16px 18px 4px;flex-wrap:wrap;}
+  .tag{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--app);background:var(--blue);border-radius:6px;padding:2px 8px;flex-shrink:0;}
+  .concept.rec .tag{background:var(--green);}
+  .cname{font-size:15.5px;font-weight:600;}
+  .cbadge{font-size:9.5px;font-weight:700;letter-spacing:.4px;color:var(--app);background:var(--green);border-radius:5px;padding:2px 7px;}
+  .cdesc{font-size:12px;color:var(--muted);padding:0 18px 12px;}
+
+  .stage{background:var(--app);margin:0 18px;border-radius:12px;padding:15px 14px;border:1px solid var(--line);}
+  .ctx{font-size:10.5px;color:var(--sub);margin-bottom:11px;font-family:var(--mono);}
+
+  /* event card */
+  .ev{display:flex;gap:12px;padding:12px;background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:9px;}
+  .ev:last-child{margin-bottom:0;}
+  .evico{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;}
+  .evbody{flex:1;min-width:0;}
+  .evtop{display:flex;align-items:center;gap:7px;flex-wrap:wrap;}
+  .evname{font-size:13.5px;font-weight:600;}
+  .pill{font-size:9.5px;font-weight:600;border-radius:20px;padding:2px 8px;}
+  .evmeta{font-size:11px;color:var(--sub);margin-top:3px;}
+  .evnote{font-size:11px;color:var(--muted);margin-top:5px;line-height:1.45;}
+
+  /* chips */
+  .chiprow{display:flex;gap:7px;flex-wrap:wrap;align-items:center;}
+  .lbl{font-size:12px;color:var(--muted);margin-right:2px;}
+  .chip{border-radius:20px;padding:7px 13px;font-size:12px;display:flex;align-items:center;gap:5px;border:1px solid var(--line);background:var(--surface);color:var(--muted);cursor:pointer;white-space:nowrap;}
+  .chip.on{color:var(--app);font-weight:600;}
+  .chip.injury.on{background:var(--injury);border-color:var(--injury);}
+  .chip.sick.on{background:var(--sick);border-color:var(--sick);}
+  .chip.rest.on{background:var(--rest);border-color:var(--rest);}
+
+  /* mini calendar */
+  .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
+  .cell{aspect-ratio:1;border-radius:7px;background:var(--card);border:1px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;color:var(--sub);position:relative;}
+  .cell .d{font-size:9px;}
+  .cell .mk{font-size:11px;line-height:1;}
+  .cell.inj{background:rgba(224,137,74,.14);border-color:rgba(224,137,74,.4);}
+  .cell.sic{background:rgba(207,106,106,.14);border-color:rgba(207,106,106,.4);}
+  .cell.res{background:rgba(106,143,201,.14);border-color:rgba(106,143,201,.4);}
+
+  .streaknote{margin-top:10px;font-size:11px;color:var(--green);display:flex;align-items:center;gap:6px;}
+
+  /* toggle */
+  .togrow{display:flex;align-items:center;justify-content:space-between;margin-top:11px;padding:10px 12px;background:var(--card);border:1px solid var(--line);border-radius:10px;}
+  .togrow .t{font-size:12.5px;font-weight:500;}
+  .togrow .s{font-size:10.5px;color:var(--sub);margin-top:2px;}
+  .tog{width:42px;height:24px;border-radius:12px;background:var(--green);position:relative;flex-shrink:0;}
+  .tog .k{position:absolute;top:3px;right:3px;width:18px;height:18px;border-radius:50%;background:#fff;}
+
+  .chartcap{font-size:10.5px;color:var(--sub);margin-top:8px;line-height:1.5;}
+  .chartcap b{color:var(--sick);}
+
+  /* memo */
+  .memo{display:flex;align-items:center;gap:9px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px 13px;}
+  .memo .ic{font-size:14px;}
+  .memo .txt{font-size:12.5px;color:var(--text);}
+  .memo .ph{color:var(--sub);}
+
+  .why{display:flex;gap:14px;padding:12px 18px 16px;flex-wrap:wrap;}
+  .why div{font-size:11.5px;color:var(--muted);flex:1;min-width:150px;line-height:1.5;}
+  .why .h{font-size:9.5px;letter-spacing:.5px;text-transform:uppercase;color:var(--sub);margin-bottom:3px;}
+  .why .g b{color:var(--green);} .why .b b{color:var(--gold);}
+
+  .foot{margin-top:26px;padding:18px 20px;background:rgba(90,158,111,.05);border:1px solid rgba(90,158,111,.16);border-radius:14px;font-size:13px;color:var(--muted);line-height:1.75;}
+  .foot b{color:var(--green);} .foot .k{font-family:var(--mono);color:var(--text);}
+</style>
+
+<div class="wrap">
+  <h1>부상·질병·컨디션 기록 — 4가지 컨셉</h1>
+  <p class="lede">"자전거 낙상으로 손목·다리 부상", "장염" 같은 걸 남기고, 필요하면 계산까지 보호하는 방안들입니다.</p>
+  <div class="insight">
+    💡 <b>왜 계산 얘기가 나오나</b> — 장염·식중독이면 <b>섭취 급감 + 탈수로 체중이 뚝</b> 떨어지고, 부상이면 <b>운동 0</b>이 됩니다. 지금 앱의 <b>적응형 유지칼로리·추세 체중</b>은 이걸 "진짜 감량/정상"으로 오해해 왜곡돼요. 그래서 3안은 "이 기간 계산 제외"를 함께 담습니다.
+  </div>
+
+  <!-- 1안 -->
+  <div class="concept">
+    <div class="chd"><span class="tag">1안</span><span class="cname">컨디션 로그 (독립 일지)</span></div>
+    <div class="cdesc">별도 "컨디션" 화면에 이벤트를 카드로 쌓기. 유형·부위·기간·메모. 과거 이력이 타임라인으로.</div>
+    <div class="stage">
+      <div class="ctx">설정 › 컨디션</div>
+      <div class="ev">
+        <div class="evico" style="background:rgba(224,137,74,.15);">🤕</div>
+        <div class="evbody">
+          <div class="evtop"><span class="evname">손목·다리 부상</span><span class="pill" style="background:rgba(224,137,74,.15);color:var(--injury);">진행중</span></div>
+          <div class="evmeta">자전거 낙상 · 7/4 ~ 진행중 (3일째)</div>
+          <div class="evnote">자전거·조깅 중단. 상체 웨이트만 가능.</div>
+        </div>
+      </div>
+      <div class="ev">
+        <div class="evico" style="background:rgba(207,106,106,.15);">🤢</div>
+        <div class="evbody">
+          <div class="evtop"><span class="evname">장염</span><span class="pill" style="background:rgba(90,158,111,.15);color:var(--green);">회복 완료</span></div>
+          <div class="evmeta">6/20 ~ 6/23 · 4일</div>
+          <div class="evnote">거의 못 먹음. 체중 -1.8kg(대부분 수분).</div>
+        </div>
+      </div>
+    </div>
+    <div class="why">
+      <div class="g"><div class="h">장점</div>단순하고 <b>이력이 한눈</b>에. 부위·증상 구조화.</div>
+      <div class="b"><div class="h">아쉬움</div>달력·계산과 <b>분리</b>돼 그날 맥락과 안 이어짐.</div>
+    </div>
+  </div>
+
+  <!-- 2안 -->
+  <div class="concept">
+    <div class="chd"><span class="tag">2안</span><span class="cname">그날 '컨디션 배지' (달력 통합)</span></div>
+    <div class="cdesc">각 날짜에 상태 태그를 찍어 달력에 아이콘 표시. 운동 못 한 날 사유가 남아 스트릭이 억울하게 안 깨짐.</div>
+    <div class="stage">
+      <div class="ctx">오늘 · 컨디션 태그</div>
+      <div class="chiprow" style="margin-bottom:14px;">
+        <span class="lbl">오늘:</span>
+        <span class="chip">정상</span>
+        <span class="chip injury on">🤕 부상</span>
+        <span class="chip sick">🤢 아픔</span>
+        <span class="chip rest">😴 휴식</span>
+      </div>
+      <div class="ctx">달력에 이렇게 표시</div>
+      <div class="cal">
+        <div class="cell"><span class="d">1</span></div>
+        <div class="cell"><span class="d">2</span><span class="mk">🟢</span></div>
+        <div class="cell res"><span class="d">3</span><span class="mk">😴</span></div>
+        <div class="cell inj"><span class="d">4</span><span class="mk">🤕</span></div>
+        <div class="cell inj"><span class="d">5</span><span class="mk">🤕</span></div>
+        <div class="cell inj"><span class="d">6</span><span class="mk">🤕</span></div>
+        <div class="cell sic"><span class="d">7</span><span class="mk">🤢</span></div>
+      </div>
+      <div class="streaknote">🔥 부상·아픔 날은 스트릭 '면제' — 연속 기록 안 깨짐</div>
+    </div>
+    <div class="why">
+      <div class="g"><div class="h">장점</div>맥락이 <b>그 날에</b> 붙고 달력에서 바로 보임. 스트릭 보호.</div>
+      <div class="b"><div class="h">아쉬움</div>긴 부상은 매일 태그 → <b>기간 지정</b>으로 보완 필요.</div>
+    </div>
+  </div>
+
+  <!-- 3안 -->
+  <div class="concept rec">
+    <div class="chd"><span class="tag">3안</span><span class="cname">통합 '건강 이벤트' + 계산 보정</span><span class="cbadge">추천</span></div>
+    <div class="cdesc">2안(배지+기간)에 더해, 그 기간을 적응형 TDEE·추세 계산에서 '예외'로. 가짜 체중 급감이 캘리브레이션을 안 망치게.</div>
+    <div class="stage">
+      <div class="ctx">건강 이벤트 · 기간 지정</div>
+      <div class="ev">
+        <div class="evico" style="background:rgba(207,106,106,.15);">🤢</div>
+        <div class="evbody">
+          <div class="evtop"><span class="evname">장염</span><span class="pill" style="background:rgba(207,106,106,.15);color:var(--sick);">6/20~6/23</span></div>
+          <div class="evmeta">4일 · 섭취 급감, 체중 -1.8kg</div>
+        </div>
+      </div>
+      <div class="togrow">
+        <div><div class="t">이 기간 계산에서 제외</div><div class="s">적응형 유지칼로리·추세 체중 왜곡 방지</div></div>
+        <div class="tog"><div class="k"></div></div>
+      </div>
+      <div class="ctx" style="margin-top:14px;">추세선이 '가짜 급감'을 무시</div>
+      <svg viewBox="0 0 300 96" width="100%" height="96" style="display:block;">
+        <line x1="0" y1="30" x2="300" y2="66" stroke="#5a9e6f" stroke-width="2" stroke-dasharray="0"/>
+        <!-- 정상 점 -->
+        <circle cx="20" cy="32" r="3.2" fill="#4a8fc9"/>
+        <circle cx="60" cy="36" r="3.2" fill="#4a8fc9"/>
+        <circle cx="100" cy="40" r="3.2" fill="#4a8fc9"/>
+        <!-- 장염 급감(제외=회색 속빔) -->
+        <circle cx="140" cy="70" r="3.2" fill="none" stroke="#5a5a5a" stroke-width="1.6"/>
+        <circle cx="170" cy="82" r="3.2" fill="none" stroke="#5a5a5a" stroke-width="1.6"/>
+        <circle cx="200" cy="72" r="3.2" fill="none" stroke="#5a5a5a" stroke-width="1.6"/>
+        <!-- 회복 후 정상 -->
+        <circle cx="240" cy="52" r="3.2" fill="#4a8fc9"/>
+        <circle cx="280" cy="55" r="3.2" fill="#4a8fc9"/>
+        <text x="170" y="94" text-anchor="middle" font-size="8" fill="#8a8a8a" font-family="monospace">장염 3일(제외)</text>
+      </svg>
+      <div class="chartcap">파란 점=정상 반영 · 회색 속빈 점=<b>장염 급감(계산 제외)</b> → 초록 추세선이 흔들리지 않음.</div>
+    </div>
+    <div class="why">
+      <div class="g"><div class="h">장점</div>기록 + <b>데이터 정확성</b> 동시. 7개월 캘리브레이션 보호.</div>
+      <div class="b"><div class="h">아쉬움</div>구현 범위 가장 큼 → <b>단계적</b> 도입 권장.</div>
+    </div>
+  </div>
+
+  <!-- 4안 -->
+  <div class="concept">
+    <div class="chd"><span class="tag">4안</span><span class="cname">증상 메모 한 줄</span></div>
+    <div class="cdesc">그날 하단에 자유 메모 한 줄. 초경량, 검색 가능, 계산과는 무관.</div>
+    <div class="stage">
+      <div class="ctx">오늘 화면 하단</div>
+      <div class="memo"><span class="ic">📝</span><span class="txt">속이 안 좋아 저녁 걸렀음. 손목 아직 시큰함.</span></div>
+      <div class="memo" style="margin-top:8px;"><span class="ic">📝</span><span class="txt ph">오늘 한 줄 메모…</span></div>
+    </div>
+    <div class="why">
+      <div class="g"><div class="h">장점</div><b>초경량</b>·자유도 최고. 뭐든 적기 편함.</div>
+      <div class="b"><div class="h">아쉬움</div>구조화 안 됨 → <b>통계·필터 불가</b>.</div>
+    </div>
+  </div>
+
+  <div class="foot">
+    제 추천은 <b>3안</b>이되 <b>단계적</b>으로: <span class="k">1단계</span> 2안(컨디션 배지 + 기간 지정 + 스트릭 면제)로 기록·달력부터, <span class="k">2단계</span>에서 계산 제외를 얹기. &nbsp;가볍게 시작하려면 <b>1안</b>, 정말 최소면 <b>4안</b>이에요.<br>
+    <span style="color:var(--sub)">→ <b style="color:var(--text)">번호</b>로 골라주세요(조합·단계 지정도 OK). 유형을 <b style="color:#d8d8d0">부상·질병</b>만 둘지, 휴식·과음·수면부족 같은 <b style="color:#d8d8d0">컨디션 전반</b>까지 둘지도 알려주시면 반영합니다.</span>
+  </div>
+</div>
