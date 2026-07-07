@@ -23,6 +23,11 @@ describe("activeEvents", () => {
     const r = activeEvents([illness, injury], "2026-07-05");
     expect(r.map((e) => e.id)).toEqual([1]); // 장염은 지남
   });
+  it("오늘 회복(end=오늘)도 오늘은 표시 (홈 배지·달력 일관)", () => {
+    const ev = { id: 3, type: "injury", start: "2026-07-01", end: "2026-07-05" };
+    expect(activeEvents([ev], "2026-07-05").map((e) => e.id)).toEqual([3]);
+    expect(activeEvents([ev], "2026-07-06")).toEqual([]); // 회복 다음날 빠짐
+  });
 });
 
 describe("eventsForDate", () => {
