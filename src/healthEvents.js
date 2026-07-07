@@ -25,10 +25,11 @@ export function eventsForDate(events, ds) {
   return (events || []).filter((ev) => dateInEvent(ds, ev));
 }
 
-// 오늘 기준 진행중(활성) 이벤트 — 시작 최신순
+// 진행중(활성) 이벤트 = 종료일 없음 + 이미 시작함. 시작 최신순.
+// (회복 처리 = end 지정. 회복하면 진행중에서 빠짐.)
 export function activeEvents(events, todayStr) {
   return (events || [])
-    .filter((ev) => dateInEvent(todayStr, ev))
+    .filter((ev) => !ev.end && ev.start && ev.start <= todayStr)
     .sort((a, b) => (b.start || "").localeCompare(a.start || ""));
 }
 
