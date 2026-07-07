@@ -216,11 +216,12 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
 
   return (
     <>
-      {!showForm && (
+      {/* 전용 버튼 제거 — 기록/수정은 아래 최신 카드에 녹임. 단, 기록이 0건일 때만 시작 버튼 */}
+      {!showForm && !latest && (
         <div style={{ marginBottom: 10 }}>
           <button onClick={() => setShowForm(true)}
-            style={{ width: "100%", padding: 12, background: existing ? "#252525" : "#4a8fc9", border: existing ? "1px solid rgba(74,143,201,0.3)" : "none", borderRadius: 12, color: existing ? "#4a8fc9" : "#fff", fontSize: 14, fontWeight: 500, cursor: "pointer" }}>
-            {existing ? `${date} 기록 수정` : `${date} 체성분 기록`}
+            style={{ width: "100%", padding: 12, background: "#4a8fc9", border: "none", borderRadius: 12, color: "#fff", fontSize: 14, fontWeight: 500, cursor: "pointer" }}>
+            ＋ 체성분 기록 시작
           </button>
         </div>
       )}
@@ -265,6 +266,11 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
         <>
           {/* 점수 + BMI/BMR + 막대그래프 */}
           <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, marginBottom: 10 }}>
+            {!existing && !showForm && (
+              <div onClick={() => setShowForm(true)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 12px", background: "rgba(74,143,201,0.08)", borderBottom: "1px solid rgba(74,143,201,0.15)", borderRadius: "16px 16px 0 0", margin: "-16px -16px 12px", fontSize: 12.5, color: "#4a8fc9", fontWeight: 500, cursor: "pointer" }}>
+                <span>＋ {date} 체성분 기록</span><span>›</span>
+              </div>
+            )}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
               <div>
                 <div style={{ fontSize: 10, color: "#707070" }}>{latest.date}</div>
@@ -274,7 +280,8 @@ function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals
                   {dS !== null && dS !== 0 && <span style={{ background: dS > 0 ? "rgba(90,158,111,0.15)" : "rgba(224,82,82,0.15)", color: dS > 0 ? "#5a9e6f" : "#e05252", fontSize: 10, padding: "1px 6px", borderRadius: 4 }}>{chgSign(dS)}</span>}
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 4 }}>
+              <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                {existing && !showForm && <div onClick={() => setShowForm(true)} style={{ width: 28, height: 28, borderRadius: 8, background: "#252525", border: "1px solid rgba(74,143,201,0.3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#4a8fc9", cursor: "pointer", marginRight: 2 }}>✎</div>}
                 <div style={{ background: "#252525", borderRadius: 8, padding: "6px 10px", textAlign: "center" }}>
                   <div style={{ fontSize: 8, color: "#707070" }}>BMI</div>
                   <div style={{ fontSize: 13, fontWeight: 500 }}>{bmi}</div>
