@@ -7,6 +7,7 @@ import { today, nowHour, isCompletedDay, calcTargets, sortByHour, periodOf, grou
 import { estimateTDEE } from "./adaptiveTDEE.js";
 import { pendingReminders } from "./reminders.js";
 import { pushConfigured, enablePush, disablePush, syncPushState } from "./push.js";
+import { isExcludedDate, activeEvents, eventsForDate, typeMeta } from "./healthEvents.js";
 import { useLongPress } from "./hooks/useLongPress.js";
 import { LongPressActionBar } from "./components/LongPressActionBar.jsx";
 import { Modal } from "./components/Modal.jsx";
@@ -23,6 +24,7 @@ import { WeekdayRadar } from "./components/WeekdayRadar.jsx";
 import { DateCopySheet, recentCopyDays, copyDupCount } from "./components/DateCopySheet.jsx";
 import { AdaptiveTdeeCard } from "./components/AdaptiveTdeeCard.jsx";
 import { ReminderSettings } from "./components/ReminderSettings.jsx";
+import { HealthEvents } from "./components/HealthEvents.jsx";
 import { AddFoodForm } from "./components/AddFoodForm.jsx";
 import { AddExForm } from "./components/AddExForm.jsx";
 import { EditMealForm } from "./components/EditMealForm.jsx";
@@ -1697,6 +1699,7 @@ function MainApp({ user, onLogout }) {
   const [lastBackup, setLastBackup] = useState(null);
   const [justBacked, setJustBacked] = useState(false);
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
+  const [showHealth, setShowHealth] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
   const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"); });
   const [yesterdayData, setYesterdayData] = useState({ meals: [], exercises: [] });
@@ -1998,6 +2001,12 @@ function MainApp({ user, onLogout }) {
   }, [allDays, bodyLog, goals.reminders, accountMature, backupDaysAgo]);
   const rmdOn = (k) => goals.reminders?.[k] !== false;
 
+  // 건강 이벤트(부상·질병·휴식) — goals.healthEvents. 계산 제외 판정은 적응형 TDEE에 주입.
+  const healthEvents = useMemo(() => goals.healthEvents || [], [goals.healthEvents]);
+  const saveHealthEvents = (events) => saveGoals({ ...goals, healthEvents: events });
+  const isExcludedCalc = useCallback((ds) => isExcludedDate(healthEvents, ds), [healthEvents]);
+  const activeHealth = useMemo(() => activeEvents(healthEvents, today()), [healthEvents]);
+
   // 백그라운드 푸시(매일 밤 8시 크론)용 상태 — 크론이 KV에서 읽어 조건 판단.
   const pushReady = useMemo(() => pushConfigured(), []);
   const pushState = useMemo(() => {
@@ -2054,7 +2063,7 @@ function MainApp({ user, onLogout }) {
   const TARGETS = targetsByMode[mode];
 
   // 실측 유지칼로리 역산(최근 4주) — 설정 목표 탭 카드/제안에 사용
-  const tdeeEstimate = useMemo(() => estimateTDEE(bodyLog, allDays, today(), bmr, 28), [bodyLog, allDays, bmr, today()]);
+  const tdeeEstimate = useMemo(() => estimateTDEE(bodyLog, allDays, today(), bmr, 28, isExcludedCalc), [bodyLog, allDays, bmr, today(), isExcludedCalc]);
 
   // 그 날 유효 보정치로 목표 K를 조정(과거 판정 보존): 현재 목표K − 현재보정 + 그날보정
   const dayTargetK = (m, ds) => (targetsByMode[m] || targetsByMode.cut).k - appAdjust + adjustForDate(tdeeHistory, ds);
@@ -2302,6 +2311,8 @@ function MainApp({ user, onLogout }) {
               <div style={{ position: "absolute", right: 0, top: 34, background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "4px 0", zIndex: 100, minWidth: 150, boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}>
                 <div onClick={() => { setShowManage(true); setShowHeaderMenu(false); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", fontSize: 12, color: "#f5f5f0", cursor: "pointer" }}><span style={{ color: "#d4af37", fontSize: 13, width: 18, textAlign: "center" }}>⚙</span>설정 / 데이터</div>
                 <div style={{ height: 0.5, background: "rgba(255,255,255,0.06)" }} />
+                <div onClick={() => { setShowHealth(true); setShowHeaderMenu(false); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", fontSize: 12, color: "#f5f5f0", cursor: "pointer" }}><span style={{ fontSize: 13, width: 18, textAlign: "center" }}>🩹</span>컨디션 기록</div>
+                <div style={{ height: 0.5, background: "rgba(255,255,255,0.06)" }} />
                 <div onClick={() => { doBackup(); setShowHeaderMenu(false); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", fontSize: 12, color: "#f5f5f0", cursor: "pointer" }}><span style={{ color: "#4a8fc9", fontSize: 13, width: 18, textAlign: "center" }}>📥</span>CSV 내보내기</div>
                 <div style={{ height: 0.5, background: "rgba(255,255,255,0.06)" }} />
                 <div onClick={() => { onLogout(); setShowHeaderMenu(false); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", fontSize: 12, color: "#e05252", cursor: "pointer" }}><span style={{ fontSize: 13, width: 18, textAlign: "center" }}>↗</span>로그아웃</div>
@@ -2361,6 +2372,7 @@ function MainApp({ user, onLogout }) {
                 const calOk = a && !isToday ? isCalOk(a.k, a.ex, dayTargetK(dMode, ds), dMode) : null;
                 const hasData = !!a && a.k > 0;
                 const dow = (offset + i) % 7;
+                const hev = eventsForDate(healthEvents, ds)[0];
                 return (
                   <div key={day} onClick={() => { setDate(ds); setShowCalendar(false); }} style={{ textAlign: "center", cursor: "pointer", padding: "1px 0" }}>
                     <div style={{ fontSize: 7, color: isToday ? "#d4af37" : isSelected ? "#f5f5f0" : (dow === 0 || dow === 6) ? "#707070" : "#4a4a4a", fontWeight: isToday ? 500 : 400, marginBottom: 1 }}>{day}</div>
@@ -2372,6 +2384,7 @@ function MainApp({ user, onLogout }) {
                         {ring(18, 18, 7.5, pP, "#4a8fc9")}
                       </svg>
                       {hasData && calOk !== null && <div style={{ position: "absolute", top: 0, right: -1, width: 6, height: 6, borderRadius: "50%", background: calOk ? "#5a9e6f" : "#e05252" }} />}
+                      {hev && <div style={{ position: "absolute", bottom: -1, left: -1, fontSize: 9, lineHeight: 1 }}>{typeMeta(hev.type).ico}</div>}
                     </div>
                   </div>
                 );
@@ -2392,6 +2405,20 @@ function MainApp({ user, onLogout }) {
       <div style={{ padding: "16px 20px 80px" }}>
         {/* HOME */}
         {tab === "home" && (<>
+          {/* 진행중 컨디션(부상·질병) 배너 — 탭하면 관리 모달 */}
+          {activeHealth.map((ev) => {
+            const tm = typeMeta(ev.type);
+            return (
+              <div key={ev.id} onClick={() => setShowHealth(true)} style={{ background: tm.color + "1a", border: `1px solid ${tm.color}44`, borderRadius: 16, padding: 12, marginBottom: 12, display: "flex", alignItems: "center", gap: 11, cursor: "pointer" }}>
+                <span style={{ fontSize: 20 }}>{tm.ico}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: tm.color }}>{ev.label || tm.name} · 진행중</div>
+                  <div style={{ fontSize: 11, color: "#707070", marginTop: 2 }}>{ev.start}부터{ev.exclude ? " · 계산 제외 중" : ""}{ev.note ? ` · ${ev.note}` : ""}</div>
+                </div>
+                <span style={{ fontSize: 11, color: "#707070" }}>관리 ›</span>
+              </div>
+            );
+          })}
           {/* 리마인더 배너 — 앱 열 때 상태 기반 (기록/체중). 백업은 아래 전용 배너로 처리 */}
           {pendingRmd.filter(r => r.key === "record").map(() => (
             <div key="rmd-record" onClick={() => setTab("diet")} style={{ background: "rgba(212,175,55,0.1)", border: "1px solid rgba(212,175,55,0.25)", borderRadius: 16, padding: 12, marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
@@ -3009,6 +3036,9 @@ function MainApp({ user, onLogout }) {
       </Modal>
       <Modal open={showAddEx} onClose={() => setShowAddEx(false)} title="새 운동 추가">
         <AddExForm initialName={exSearch} onSave={saveCustomEx} onCancel={() => setShowAddEx(false)} weight={TARGETS.weight} />
+      </Modal>
+      <Modal open={showHealth} onClose={() => setShowHealth(false)} title="🩹 컨디션 기록">
+        <HealthEvents events={healthEvents} onChange={saveHealthEvents} todayStr={today()} />
       </Modal>
       <Modal open={showManage} onClose={() => setShowManage(false)} title="설정 / 데이터">
         <div style={{ display: "flex", gap: 0, marginBottom: 14, borderRadius: 8, overflow: "hidden" }}>

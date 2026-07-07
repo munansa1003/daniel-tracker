@@ -68,4 +68,26 @@ describe("estimateTDEE — 실측 유지칼로리 역산", () => {
     expect(r.loggedDays).toBe(25); // 오늘 제외 그대로
     expect(r.avgIntake).toBe(1760);
   });
+
+  it("isExcluded 미지정이면 기존과 완전 동일(정상일 불변)", () => {
+    const { allDays, bodyLog } = fixture();
+    const a = estimateTDEE(bodyLog, allDays, TODAY, BMR, 28);
+    const b = estimateTDEE(bodyLog, allDays, TODAY, BMR, 28, () => false);
+    expect(b).toEqual(a);
+  });
+
+  it("장염 급감일을 계산에서 제외하면 왜곡이 사라짐", () => {
+    const { allDays, bodyLog } = fixture();
+    // 07-14~07-16: 장염 — 거의 못 먹고(500) 탈수로 체중 급감(-1.5kg 스파이크)
+    const sick = ["2026-07-14", "2026-07-15", "2026-07-16"];
+    for (const ds of sick) allDays[ds] = { meals: [{ k: 500, serving: 1 }], exercises: [] };
+    const crash = bodyLog.map((b) => (b.date >= "2026-07-14" && b.date <= "2026-07-16" ? { ...b, weight: b.weight - 1.5 } : b));
+    crash.push({ date: "2026-07-15", weight: 77.9 + (-1.2 / 28) * 14 - 1.5 });
+
+    const withSick = estimateTDEE(crash, allDays, TODAY, BMR, 28);
+    const excluded = estimateTDEE(crash, allDays, TODAY, BMR, 28, (ds) => ds >= "2026-07-14" && ds <= "2026-07-16");
+    // 제외하면 원래 클린 추정(−55 근처)으로 복귀, 미제외는 그보다 왜곡(더 낮은 delta)
+    expect(excluded.delta).toBeGreaterThan(withSick.delta);
+    expect(excluded.delta).toBeCloseTo(-55, -1); // 대략 클린값 부근
+  });
 });

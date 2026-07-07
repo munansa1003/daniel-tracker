@@ -26,17 +26,18 @@ function linRegSlope(pts) {
 }
 
 // bmr: 현재 체중 기준 BMR(공식 비운동 유지 = bmr×1.05). windowDays 기본 28.
-export function estimateTDEE(bodyLog, allDays, todayStr, bmr, windowDays = 28) {
+// isExcluded(ds): 그 날을 계산에서 제외할지(부상·질병 등 예외 기간). 기본은 미제외 → 기존 동작 불변.
+export function estimateTDEE(bodyLog, allDays, todayStr, bmr, windowDays = 28, isExcluded = () => false) {
   const start = shiftDays(todayStr, -windowDays);
   let sumK = 0, sumEx = 0, loggedDays = 0;
   for (const ds in (allDays || {})) {
-    if (ds >= start && ds < todayStr) {
+    if (ds >= start && ds < todayStr && !isExcluded(ds)) {
       const a = aggregateDay(allDays[ds]);
       if (a.k > 0) { sumK += a.k; sumEx += a.ex; loggedDays++; }
     }
   }
   const weighs = (bodyLog || [])
-    .filter((b) => b && b.date >= start && b.date < todayStr && b.weight > 0)
+    .filter((b) => b && b.date >= start && b.date < todayStr && b.weight > 0 && !isExcluded(b.date))
     .map((b) => ({ x: dayIndex(b.date, start), w: b.weight }))
     .sort((a, b) => a.x - b.x);
 
