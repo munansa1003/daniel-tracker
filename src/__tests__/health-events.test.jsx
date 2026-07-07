@@ -31,4 +31,12 @@ describe("HealthEvents 렌더", () => {
     expect(h).toContain("회복");     // ongoing → ✓ 회복 버튼
     expect(h).toContain("되돌리기");  // ended → 되돌리기
   });
+
+  it("예정 종료(미래 end) — 오늘 걸려있으면 '까지'로 활성 표시", () => {
+    const events = [{ id: 3, type: "other", label: "장마", start: "2026-07-01", end: "2026-07-20", exclude: false }];
+    const h = renderToStaticMarkup(<HealthEvents events={events} onChange={noop} todayStr="2026-07-07" />);
+    expect(h).toContain("장마");
+    expect(h).toContain("2026-07-20까지"); // 예정 종료(활성)
+    expect(h).not.toContain("진행중 ");     // 무기한 진행중 아님
+  });
 });
