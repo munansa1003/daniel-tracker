@@ -25,10 +25,15 @@ export function InviteGate({ email, onSubmit, onSignOut }) {
   };
 
   return (
-    <div style={{ background: THEME.bg, color: THEME.text, minHeight: "100vh", maxWidth: 480, margin: "0 auto", padding: "120px 24px 60px", textAlign: "center" }}>
-      <div className="dbp-fade">
-        <div style={{ fontSize: 24, fontWeight: 500, marginBottom: 8, letterSpacing: "-0.5px" }}>{APP_NAME}</div>
-        <div style={{ fontSize: 12, color: THEME.gold, opacity: 0.6, letterSpacing: "2px", textTransform: "uppercase", marginBottom: 40 }}>초대 코드 입력</div>
+    // 레이아웃은 로그인 화면(G+C 확정안)과 공통 모티프 — 좌상단 브랜드 도트, 좌측 정렬 헤딩 + 골드 룰
+    <div style={{ background: THEME.bg, color: THEME.text, minHeight: "100vh", maxWidth: 480, margin: "0 auto", padding: "26px 24px 60px" }}>
+      <div className="dbp-fade" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ width: 5, height: 5, borderRadius: "50%", background: THEME.gold }} />
+        <span style={{ fontSize: 14, fontWeight: 500, letterSpacing: "-0.5px" }}>{APP_NAME}</span>
+      </div>
+      <div className="dbp-fade" style={{ marginTop: 84, marginBottom: 24 }}>
+        <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.8px", lineHeight: 1.4 }}>초대 코드 입력</div>
+        <div style={{ width: 34, height: 2, background: THEME.gold, opacity: 0.7, marginTop: 16 }} />
       </div>
       <div className="dbp-fade-d1" style={{ background: THEME.card, border: `1px solid ${THEME.border}`, borderRadius: 16, padding: 20, boxShadow: THEME.shadow, textAlign: "left" }}>
         <div style={{ fontSize: 12, color: THEME.sub, marginBottom: 14, lineHeight: 1.6 }}>
@@ -46,7 +51,7 @@ export function InviteGate({ email, onSubmit, onSignOut }) {
           {busy ? "확인 중..." : "등록하기"}
         </button>
       </div>
-      <div onClick={busy ? undefined : onSignOut} style={{ fontSize: 12, color: THEME.muted, marginTop: 24, cursor: busy ? "default" : "pointer", textDecoration: "underline", opacity: busy ? 0.4 : 1 }}>
+      <div onClick={busy ? undefined : onSignOut} style={{ fontSize: 12, color: THEME.muted, marginTop: 24, cursor: busy ? "default" : "pointer", textDecoration: "underline", opacity: busy ? 0.4 : 1, display: "inline-block" }}>
         다른 계정으로 로그인
       </div>
     </div>

@@ -110,7 +110,12 @@ export default function App() {
   if (phase === "signedout") return <><GlobalStyles /><LoginScreen onGoogle={signInWithGoogle} externalError={loginError} /></>;
   if (phase === "invite") return <><GlobalStyles /><InviteGate email={account?.email} onSubmit={handleInvite} onSignOut={handleLogout} /></>;
   if (phase === "onboarding") return <><GlobalStyles />
-    <div style={{ background: THEME.bg, minHeight: "100vh", maxWidth: 480, margin: "0 auto", padding: "60px 24px" }}>
+    <div style={{ background: THEME.bg, minHeight: "100vh", maxWidth: 480, margin: "0 auto", padding: "26px 24px 60px" }}>
+      {/* 로그인·초대 화면과 공통 모티프 (G+C 확정안) — 좌상단 브랜드 도트 */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 48 }}>
+        <span style={{ width: 5, height: 5, borderRadius: "50%", background: THEME.gold }} />
+        <span style={{ color: THEME.text, fontSize: 14, fontWeight: 500, letterSpacing: "-0.5px" }}>{APP_NAME}</span>
+      </div>
       <ProfileSetup defaultName={account?.displayName || ""} colorSeed={account?.uid || ""} onSave={handleProfileSave} />
     </div></>;
 

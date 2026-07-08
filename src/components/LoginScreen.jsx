@@ -2,7 +2,8 @@ import { useState } from "react";
 import { THEME } from "../theme.jsx";
 import { APP_NAME } from "../data.js";
 
-// 로그인 화면 (경로 B: Google 로그인) — 프로필 선택 방식을 대체.
+// 로그인 화면 (경로 B · 컨셉 G+C 확정) — 실측 철학 카피가 히어로(좌측 정렬, C안),
+// 하단엔 체중 라인 + 7일 이동평균 + 목표 밴드의 정적 추세 그래픽(G안)을 은은하게 깐다.
 // 인증·세션은 Firebase Auth가 전담하고, 이 컴포넌트는 버튼과 오류 표시만 담당한다.
 // 이전 구현의 프로필 목록·PBKDF2 비밀번호·마스터키(/api/verify-master)는 Auth 도입으로 제거됨.
 
@@ -14,6 +15,26 @@ function GoogleLogo() {
       <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
       <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
     </svg>
+  );
+}
+
+// 하단 추세 배경 — 체중 라인(흰) + 7일 이동평균(골드) + 목표 밴드. 데이터 없이 그려지는
+// 결정적 장식(무작위 아님). 로그인은 앱 본체보다 먼저 뜨는 화면이라 recharts를 끌어오지
+// 않고 정적 SVG로 그린다. 위쪽 페이드는 카피, 아래쪽 스크림은 버튼·안내문 가독성용.
+function TrendBackdrop() {
+  return (
+    <div aria-hidden="true" style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 230, pointerEvents: "none" }}>
+      <svg width="100%" height="230" viewBox="0 0 300 250" preserveAspectRatio="none">
+        {[60, 110, 160, 210].map(y => <line key={y} x1="0" y1={y} x2="300" y2={y} stroke="rgba(255,255,255,0.05)" />)}
+        <polygon points="0,118 300,158 300,196 0,152" fill="rgba(212,175,55,0.09)" />
+        <polyline points="0,122 30,135 60,126 90,142 120,133 150,148 180,139 210,152 240,144 270,158 300,150" fill="none" stroke="rgba(245,245,240,0.38)" strokeWidth="1.5" />
+        <polyline points="0,128 50,131 100,136 150,141 200,146 250,151 300,154" fill="none" stroke="#d4af37" strokeWidth="2" opacity="0.65" />
+        <circle cx="90" cy="142" r="2" fill="rgba(245,245,240,0.55)" />
+        <circle cx="180" cy="139" r="2" fill="rgba(245,245,240,0.55)" />
+        <circle cx="300" cy="154" r="3.5" fill="#d4af37" opacity="0.85" />
+      </svg>
+      <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, #141414 0%, rgba(20,20,20,0) 52%), linear-gradient(0deg, rgba(20,20,20,0.55) 0%, rgba(20,20,20,0) 45%)" }} />
+    </div>
   );
 }
 
@@ -46,19 +67,36 @@ export function LoginScreen({ onGoogle, externalError }) {
   const shownError = error || externalError;
 
   return (
-    <div style={{ background: THEME.bg, color: THEME.text, minHeight: "100vh", maxWidth: 480, margin: "0 auto", padding: "140px 24px 60px", textAlign: "center" }}>
-      <div className="dbp-fade">
-        <div style={{ fontSize: 28, fontWeight: 500, marginBottom: 8, letterSpacing: "-0.5px" }}>{APP_NAME}</div>
-        <div style={{ fontSize: 12, color: THEME.gold, opacity: 0.6, letterSpacing: "2px", textTransform: "uppercase", marginBottom: 56 }}>식단 · 운동 · 체성분</div>
+    <div style={{ background: THEME.bg, color: THEME.text, minHeight: "100vh", maxWidth: 480, margin: "0 auto", padding: "26px 24px 30px", position: "relative", overflow: "hidden", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+      <TrendBackdrop />
+
+      {/* 상단 브랜드 (초대·온보딩 화면과 공통 모티프) */}
+      <div className="dbp-fade" style={{ display: "flex", alignItems: "center", gap: 8, position: "relative", zIndex: 2 }}>
+        <span style={{ width: 5, height: 5, borderRadius: "50%", background: THEME.gold }} />
+        <span style={{ fontSize: 14, fontWeight: 500, letterSpacing: "-0.5px" }}>{APP_NAME}</span>
       </div>
-      <button onClick={handleClick} disabled={busy} className="dbp-btn dbp-fade-d1"
-        style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 10, width: "100%", maxWidth: 320, padding: "14px 20px", background: "#f5f5f0", border: "none", borderRadius: 14, color: "#141414", fontSize: 15, fontWeight: 600, cursor: busy ? "wait" : "pointer", opacity: busy ? 0.7 : 1, boxShadow: THEME.shadow }}>
-        <GoogleLogo />
-        {busy ? "로그인 중..." : "Google로 계속하기"}
-      </button>
-      {shownError && <div style={{ fontSize: 12, color: "#e05252", marginTop: 14 }}>{shownError}</div>}
-      <div className="dbp-fade-d2" style={{ fontSize: 11, color: THEME.sub, marginTop: 32, lineHeight: 1.7 }}>
-        초대받은 사용자만 이용할 수 있어요.<br />로그인 후 초대 코드를 입력합니다.
+
+      {/* 히어로 카피 — 이 앱의 차별점(실측 캘리브레이션 철학)을 정면에 */}
+      <div className="dbp-fade-d1" style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", position: "relative", zIndex: 2 }}>
+        <div style={{ fontSize: 30, lineHeight: 1.42, fontWeight: 600, letterSpacing: "-0.8px" }}>
+          공식을 믿지 말고,<br /><span style={{ color: THEME.gold }}>실측으로</span> 보정하라.
+        </div>
+        <div style={{ width: 34, height: 2, background: THEME.gold, opacity: 0.7, margin: "20px 0 14px" }} />
+        <div style={{ fontSize: 12, color: THEME.sub, lineHeight: 1.75 }}>
+          7개월의 실사용 데이터로 다듬은<br />식단 · 운동 · 체성분 기록 도구.
+        </div>
+      </div>
+
+      <div className="dbp-fade-d2" style={{ position: "relative", zIndex: 2 }}>
+        <button onClick={handleClick} disabled={busy} className="dbp-btn"
+          style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, width: "100%", padding: "14px 20px", background: "rgba(20,20,20,0.5)", border: "1px solid rgba(255,255,255,0.28)", borderRadius: 14, color: THEME.text, fontSize: 15, fontWeight: 600, cursor: busy ? "wait" : "pointer", opacity: busy ? 0.7 : 1 }}>
+          <GoogleLogo />
+          {busy ? "로그인 중..." : "Google로 계속하기"}
+        </button>
+        {shownError && <div style={{ fontSize: 12, color: "#e05252", marginTop: 12, textAlign: "center" }}>{shownError}</div>}
+        <div style={{ fontSize: 11, color: THEME.sub, marginTop: 16, lineHeight: 1.7, textAlign: "center" }}>
+          초대받은 사용자만 이용할 수 있어요. 로그인 후 초대 코드를 입력합니다.
+        </div>
       </div>
     </div>
   );
