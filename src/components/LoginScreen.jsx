@@ -18,22 +18,23 @@ function GoogleLogo() {
   );
 }
 
-// 하단 추세 배경 — 체중 라인(흰) + 7일 이동평균(골드) + 목표 밴드. 데이터 없이 그려지는
+// 추세 띠 — 체중 라인(흰) + 7일 이동평균(골드) + 목표 밴드. 데이터 없이 그려지는
 // 결정적 장식(무작위 아님). 로그인은 앱 본체보다 먼저 뜨는 화면이라 recharts를 끌어오지
-// 않고 정적 SVG로 그린다. 위쪽 페이드는 카피, 아래쪽 스크림은 버튼·안내문 가독성용.
-function TrendBackdrop() {
+// 않고 정적 SVG로 그린다. 카피와 버튼 "사이"의 독립 블록이라 어떤 요소와도 겹치지 않고,
+// 위·아래 페이드로 배경에 떠 있는 것처럼 섞인다.
+function TrendStrip() {
   return (
-    <div aria-hidden="true" style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 230, pointerEvents: "none" }}>
-      <svg width="100%" height="230" viewBox="0 0 300 250" preserveAspectRatio="none">
+    <div aria-hidden="true" style={{ position: "relative", height: 140, margin: "0 -24px 20px", pointerEvents: "none" }}>
+      <svg width="100%" height="140" viewBox="0 0 300 250" preserveAspectRatio="none" style={{ display: "block" }}>
         {[60, 110, 160, 210].map(y => <line key={y} x1="0" y1={y} x2="300" y2={y} stroke="rgba(255,255,255,0.05)" />)}
-        <polygon points="0,118 300,158 300,196 0,152" fill="rgba(212,175,55,0.09)" />
-        <polyline points="0,122 30,135 60,126 90,142 120,133 150,148 180,139 210,152 240,144 270,158 300,150" fill="none" stroke="rgba(245,245,240,0.38)" strokeWidth="1.5" />
-        <polyline points="0,128 50,131 100,136 150,141 200,146 250,151 300,154" fill="none" stroke="#d4af37" strokeWidth="2" opacity="0.65" />
-        <circle cx="90" cy="142" r="2" fill="rgba(245,245,240,0.55)" />
-        <circle cx="180" cy="139" r="2" fill="rgba(245,245,240,0.55)" />
-        <circle cx="300" cy="154" r="3.5" fill="#d4af37" opacity="0.85" />
+        <polygon points="0,88 300,158 300,216 0,142" fill="rgba(212,175,55,0.09)" />
+        <polyline points="0,96 30,128 60,106 90,146 120,124 150,160 180,138 210,170 240,150 270,184 300,164" fill="none" stroke="rgba(245,245,240,0.38)" strokeWidth="1.5" />
+        <polyline points="0,110 50,118 100,130 150,142 200,154 250,164 300,172" fill="none" stroke="#d4af37" strokeWidth="2" opacity="0.65" />
+        <circle cx="90" cy="146" r="2" fill="rgba(245,245,240,0.55)" />
+        <circle cx="180" cy="138" r="2" fill="rgba(245,245,240,0.55)" />
+        <circle cx="300" cy="172" r="3.5" fill="#d4af37" opacity="0.85" />
       </svg>
-      <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, #141414 0%, rgba(20,20,20,0) 52%), linear-gradient(0deg, rgba(20,20,20,0.55) 0%, rgba(20,20,20,0) 45%)" }} />
+      <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, #141414 0%, rgba(20,20,20,0) 38%, rgba(20,20,20,0) 62%, #141414 100%)" }} />
     </div>
   );
 }
@@ -67,17 +68,15 @@ export function LoginScreen({ onGoogle, externalError }) {
   const shownError = error || externalError;
 
   return (
-    <div style={{ background: THEME.bg, color: THEME.text, minHeight: "100vh", maxWidth: 480, margin: "0 auto", padding: "26px 24px 30px", position: "relative", overflow: "hidden", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
-      <TrendBackdrop />
-
+    <div style={{ background: THEME.bg, color: THEME.text, minHeight: "100vh", maxWidth: 480, margin: "0 auto", padding: "26px 24px 30px", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
       {/* 상단 브랜드 (초대·온보딩 화면과 공통 모티프) */}
-      <div className="dbp-fade" style={{ display: "flex", alignItems: "center", gap: 8, position: "relative", zIndex: 2 }}>
+      <div className="dbp-fade" style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ width: 5, height: 5, borderRadius: "50%", background: THEME.gold }} />
         <span style={{ fontSize: 14, fontWeight: 500, letterSpacing: "-0.5px" }}>{APP_NAME}</span>
       </div>
 
       {/* 히어로 카피 — 이 앱의 차별점(실측 캘리브레이션 철학)을 정면에 */}
-      <div className="dbp-fade-d1" style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", position: "relative", zIndex: 2 }}>
+      <div className="dbp-fade-d1" style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" }}>
         <div style={{ fontSize: 30, lineHeight: 1.42, fontWeight: 600, letterSpacing: "-0.8px" }}>
           공식을 믿지 말고,<br /><span style={{ color: THEME.gold }}>실측으로</span> 보정하라.
         </div>
@@ -87,9 +86,12 @@ export function LoginScreen({ onGoogle, externalError }) {
         </div>
       </div>
 
-      <div className="dbp-fade-d2" style={{ position: "relative", zIndex: 2 }}>
+      {/* 추세 띠 — 카피와 버튼 사이 (버튼·안내문과 겹치지 않음) */}
+      <TrendStrip />
+
+      <div className="dbp-fade-d2">
         <button onClick={handleClick} disabled={busy} className="dbp-btn"
-          style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, width: "100%", padding: "14px 20px", background: "rgba(20,20,20,0.5)", border: "1px solid rgba(255,255,255,0.28)", borderRadius: 14, color: THEME.text, fontSize: 15, fontWeight: 600, cursor: busy ? "wait" : "pointer", opacity: busy ? 0.7 : 1 }}>
+          style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, width: "100%", padding: "14px 20px", background: "transparent", border: "1px solid rgba(255,255,255,0.28)", borderRadius: 14, color: THEME.text, fontSize: 15, fontWeight: 600, cursor: busy ? "wait" : "pointer", opacity: busy ? 0.7 : 1 }}>
           <GoogleLogo />
           {busy ? "로그인 중..." : "Google로 계속하기"}
         </button>
