@@ -36,6 +36,73 @@
    - 필드: `active` (boolean) = `true`, `note` (string) = "누구용" 메모
    - 폐기할 때는 `active: false`로 수정 (삭제해도 됨 — 이미 가입한 멤버는 영향 없음)
 
+## 1.5 프리뷰(머지 전) 테스트 — 전환기 규칙
+
+머지 결정 전에 Vercel Preview에서 실동작을 확인하려면 규칙 문제를 먼저 풀어야 한다:
+현재 게시된 규칙은 `members`/`invites` 경로를 전부 차단해 **새 앱이 멤버 등록에서 막히고**,
+반대로 최종 규칙(`firestore.rules`)을 게시하면 **기존 앱(폰)의 동기화가 멈춘다**.
+
+→ 아래 **전환기 규칙**을 게시하면 둘 다 동작한다 (개인 데이터 보호 수준은 기존과 동일한
+App Check 단계 — 전환기 한정. 머지 후 §3에서 최종 규칙으로 교체):
+
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.app != null && request.auth != null; }
+    function isSelf(uid) { return signedIn() && request.auth.uid == uid; }
+    function isOwner() {
+      return signedIn()
+        && request.auth.token.email == 'munansa@gmail.com'
+        && request.auth.token.email_verified == true;
+    }
+
+    // 새 앱(프리뷰)용 — 최종 규칙과 동일
+    match /invites/{code} { allow read, write: if false; }
+    match /members/{uid} {
+      allow get: if isSelf(uid);
+      allow create: if isSelf(uid)
+        && request.resource.data.keys().hasOnly(['code', 'email', 'joinedAt'])
+        && request.resource.data.email == request.auth.token.email
+        && (isOwner()
+            || (request.resource.data.code is string
+                && get(/databases/$(database)/documents/invites/$(request.resource.data.code)).data.active == true));
+      allow list, update, delete: if false;
+    }
+
+    // 전환기: 기존 앱 호환 (현행과 동일한 App Check 단계 보호)
+    match /users/{uid}/data/{document=**} {
+      allow read, write: if request.app != null;
+    }
+    match /users/_shared/data/{doc} {
+      allow read, write: if request.app != null;
+    }
+
+    match /{document=**} { allow read, write: if false; }
+  }
+}
+```
+
+프리뷰 테스트 전 콘솔 준비 (§1과 겹치는 것 포함, 순서대로):
+1. Google 제공업체 켜기 (§1-1)
+2. **Vercel Preview 도메인**을 두 곳에 등록 — PR의 Vercel 봇 코멘트에서 프리뷰 URL 확인 후:
+   - Firebase Authentication → 승인된 도메인
+   - reCAPTCHA v3 키 설정 → 도메인 (App Check용 — 누락 시 request.app이 null이 되어 전부 거부됨.
+     테스트 동안만 `vercel.app` 상위 도메인을 넣으면 모든 프리뷰가 커버되고, 끝나면 제거)
+3. 위 전환기 규칙 게시
+4. 초대 코드 문서 1개 생성 (§1-3) — 초대 흐름 테스트용
+5. (선택) 프리뷰에서 AI 분석·푸시는 서버 origin 화이트리스트(PRODUCTION_ORIGIN·VERCEL_URL)
+   때문에 막힐 수 있음 — 프리뷰 검증 대상은 로그인 → 초대 → 온보딩 → 가져오기 → 기록 흐름
+
+프리뷰 테스트 시나리오 (운영자 계정):
+- Google 로그인 → 초대 코드 없이 자동 가입되는지
+- 온보딩에서 **175 / 42 / 15** 입력 → 홈 진입
+- ⋮ 메뉴 → 기존 데이터 가져오기(`daniel`) → 새로고침 후 기록·체성분·달력 dot·**홈 목표 K(체중 77.3 기준 1570)** 확인
+- 다른 Google 계정으로도 로그인해 초대 코드 흐름(잘못된 코드 거부 → 올바른 코드 통과 → 온보딩) 확인
+- ⚠️ 프리뷰 단계의 가져오기는 **실데이터가 아니라 사본**에 쓰는 게 아니라 실제 새 계정
+  경로(`users/{auth-uid}`)에 쓴다 — 원본(`users/daniel`)은 읽기만 하므로 안전하고,
+  테스트로 생긴 새 계정 데이터는 본 전환 때 병합돼도 무해(멱등)
+
 ## 2. 전환 직전 — 데이터 안전
 
 4. **기존 앱(폰)을 온라인 상태로 한 번 열어** 오프라인 대기분(syncQueue)을 Firestore에 반영
