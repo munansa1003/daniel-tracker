@@ -395,6 +395,9 @@ function MainApp({ user, onLogout }) {
 
   // JSON 복원 — 검증 → 확인 → 현재 데이터 안전본 자동 저장 → 전체 교체(상태+store)
   const importJsonFile = async (file) => {
+    // 오프라인 가드 — Firestore setDoc은 오프라인에서 무한 대기라(store.js 주석) 복원
+    // 루프가 중간에 멈춰 localStorage가 부분 갱신될 수 있다. 복원은 온라인 전용.
+    if (typeof navigator !== "undefined" && navigator.onLine === false) { alert("복원은 온라인 상태에서만 가능해요."); return; }
     let obj;
     try { obj = JSON.parse(await file.text()); }
     catch { alert("복원 실패: JSON 파일을 읽을 수 없어요"); return; }
