@@ -8,6 +8,7 @@ import { estimateTDEE } from "./adaptiveTDEE.js";
 import { pendingReminders } from "./reminders.js";
 import { pushConfigured, enablePush, disablePush, syncPushState } from "./push.js";
 import { isExcludedDate, activeEvents, eventsForDate, typeMeta } from "./healthEvents.js";
+import { buildBackup, validateBackup, summarizeBackup } from "./backup.js";
 import { useLongPress } from "./hooks/useLongPress.js";
 import { LongPressActionBar } from "./components/LongPressActionBar.jsx";
 import { Modal } from "./components/Modal.jsx";
@@ -1981,6 +1982,66 @@ function MainApp({ user, onLogout }) {
     setTimeout(() => setJustBacked(false), 5000);
   };
 
+  // 파일 다운로드 공통
+  const downloadFile = (content, name, type) => {
+    const blob = new Blob([content], { type });
+    const url = URL.createObjectURL(blob); const a = document.createElement("a");
+    a.href = url; a.download = name; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  };
+
+  // JSON 전체 백업 — 복원 가능한 유일한 형태 (CSV는 열람용)
+  const exportJson = async () => {
+    const backup = buildBackup({ allDays, bodyLog, goals, customFoods, customExercises: customEx }, new Date().toISOString());
+    downloadFile(JSON.stringify(backup, null, 2), `daniel_backup_${today()}.json`, "application/json");
+    const now = today();
+    setLastBackup(now); setJustBacked(true);
+    await store.set("lastBackup", now);
+    setTimeout(() => setJustBacked(false), 5000);
+  };
+
+  // JSON 복원 — 검증 → 확인 → 현재 데이터 안전본 자동 저장 → 전체 교체(상태+store)
+  const importJsonFile = async (file) => {
+    let obj;
+    try { obj = JSON.parse(await file.text()); }
+    catch { alert("복원 실패: JSON 파일을 읽을 수 없어요"); return; }
+    const v = validateBackup(obj);
+    if (!v.ok) { alert(`복원할 수 없어요: ${v.error}`); return; }
+    const s = summarizeBackup(obj);
+    const ok = confirm(
+      `이 백업으로 전체 복원할까요?\n\n` +
+      `백업 내용: ${s.days}일 (${s.firstDay || "-"} ~ ${s.lastDay || "-"}) · 체성분 ${s.bodyLog}건\n` +
+      `백업 생성일: ${s.exportedAt ? s.exportedAt.slice(0, 10) : "알 수 없음"}\n\n` +
+      `현재 기록(${Object.keys(allDays).length}일 · 체성분 ${bodyLog.length}건)을 위 내용으로 덮어씁니다.\n` +
+      `복원 직전, 현재 데이터가 안전본(JSON)으로 자동 다운로드됩니다.`
+    );
+    if (!ok) return;
+    // 1) 현재 상태 안전본 — 실수로 옛 백업을 넣어도 되돌릴 길을 남긴다
+    const safety = buildBackup({ allDays, bodyLog, goals, customFoods, customExercises: customEx }, new Date().toISOString());
+    downloadFile(JSON.stringify(safety), `daniel_safety_${today()}.json`, "application/json");
+    // 2) 적용 — 상태 즉시 교체 후 store 반영(로컬 우선이라 즉시 안전)
+    const d = obj.data;
+    const newDays = d.days || {};
+    const sortedLog = [...d.bodylog].sort((a, b) => a.date.localeCompare(b.date));
+    const staleDays = Object.keys(allDays).filter((k) => !newDays[k]);
+    setAllDays(newDays);
+    setBodyLog(sortedLog);
+    setGoals(d.goals || {});
+    setCustomFoods(d.customFoods || []);
+    setCustomEx(d.customExercises || []);
+    try {
+      for (const [k, rec] of Object.entries(newDays)) await store.set(`day:${k}`, rec);
+      for (const k of staleDays) await store.delete(`day:${k}`);
+      await store.set("bodylog", sortedLog);
+      await store.set("goals", d.goals || {});
+      await store.set("custom-foods", d.customFoods || []);
+      await store.set("custom-exercises", d.customExercises || []);
+      alert(`복원 완료 — ${s.days}일 · 체성분 ${s.bodyLog}건`);
+    } catch (e) {
+      console.error("restore error:", e);
+      alert("일부 저장에 실패했어요. 온라인 상태에서 앱을 다시 열면 자동 재시도됩니다.");
+    }
+  };
+
   // 백업 경과 일수 계산
   const backupDaysAgo = useMemo(() => {
     if (!lastBackup) return 999;
@@ -2441,7 +2502,7 @@ function MainApp({ user, onLogout }) {
               <div style={{ fontSize: 18, color: "#5a9e6f" }}>✓</div>
             </div>
           ) : rmdOn("backup") && accountMature && backupDaysAgo >= 15 && (
-            <div onClick={doBackup} style={{ background: "rgba(212,175,55,0.1)", border: "1px solid rgba(212,175,55,0.25)", borderRadius: 16, padding: 12, marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
+            <div onClick={exportJson} style={{ background: "rgba(212,175,55,0.1)", border: "1px solid rgba(212,175,55,0.25)", borderRadius: 16, padding: 12, marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
               <div>
                 <div style={{ fontSize: 13, color: "#d4af37", fontWeight: 500 }}>백업을 해주세요</div>
                 <div style={{ fontSize: 11, color: "#707070", marginTop: 2 }}>마지막 백업: {lastBackup ? `${backupDaysAgo}일 전` : "없음"}</div>
@@ -3204,10 +3265,26 @@ function MainApp({ user, onLogout }) {
               </div>
               <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#5a9e6f" }} />
             </div>
+            <div onClick={exportJson} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", borderBottom: "0.5px solid rgba(255,255,255,0.04)", cursor: "pointer" }}>
+              <div>
+                <div style={{ fontSize: 12, color: "#f5f5f0" }}>JSON 전체 백업</div>
+                <div style={{ fontSize: 10, color: "#707070", marginTop: 2 }}>모든 기록·설정 포함 · 복원 가능한 유일한 형태</div>
+              </div>
+              <span style={{ fontSize: 12, color: "#5a9e6f" }}>💾</span>
+            </div>
+            <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", borderBottom: "0.5px solid rgba(255,255,255,0.04)", cursor: "pointer" }}>
+              <div>
+                <div style={{ fontSize: 12, color: "#f5f5f0" }}>JSON 복원 (가져오기)</div>
+                <div style={{ fontSize: 10, color: "#707070", marginTop: 2 }}>백업 파일로 전체 되살리기 · 복원 전 안전본 자동 저장</div>
+              </div>
+              <span style={{ fontSize: 12, color: "#d4af37" }}>📂</span>
+              <input type="file" accept=".json,application/json" style={{ display: "none" }}
+                onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) importJsonFile(f); }} />
+            </label>
             <div onClick={doBackup} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", borderBottom: "0.5px solid rgba(255,255,255,0.04)", cursor: "pointer" }}>
               <div>
                 <div style={{ fontSize: 12, color: "#f5f5f0" }}>CSV 내보내기</div>
-                <div style={{ fontSize: 10, color: "#707070", marginTop: 2 }}>식단 + 운동 + 체성분 엑셀 호환</div>
+                <div style={{ fontSize: 10, color: "#707070", marginTop: 2 }}>엑셀 열람용 (복원 불가)</div>
               </div>
               <span style={{ fontSize: 12, color: "#4a8fc9" }}>📥</span>
             </div>
@@ -3216,7 +3293,7 @@ function MainApp({ user, onLogout }) {
                 <div style={{ fontSize: 12, color: "#f5f5f0" }}>마지막 백업</div>
                 <div style={{ fontSize: 10, color: "#707070", marginTop: 2 }}>{lastBackup ? `${backupDaysAgo}일 전 · ${lastBackup}` : "없음"}</div>
               </div>
-              <div onClick={() => { doBackup(); setShowManage(false); }} style={{ background: "#d4af37", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: "#fff", fontWeight: 500, cursor: "pointer" }}>백업</div>
+              <div onClick={() => { exportJson(); setShowManage(false); }} style={{ background: "#d4af37", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: "#fff", fontWeight: 500, cursor: "pointer" }}>백업</div>
             </div>
           </div>
           <div style={{ fontSize: 11, color: "#707070", marginBottom: 8 }}>데이터 관리</div>
