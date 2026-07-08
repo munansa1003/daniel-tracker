@@ -134,6 +134,39 @@ export async function addSharedExercise(exercise) {
   }
 }
 
+// ── 진행 사진 (개인) ──
+// 경로: users/{uid}/data/photos/items/{id} — 기존 보안규칙(data/{document=**})에 맞고,
+// getAllData(data 컬렉션 직속 문서만 조회)·localStorage 미러에 안 걸린다(용량 보호).
+// 사진은 클라이언트에서 압축된 dataURL(≲300KB)로 문서당 1개 저장. JSON 백업엔 미포함.
+export async function listProgressPhotos() {
+  const uid = getCurrentUserId();
+  if (!uid) return [];
+  try {
+    const snap = await getDocs(collection(db, "users", uid, "data", "photos", "items"));
+    const arr = [];
+    snap.forEach(d => arr.push({ id: d.id, ...d.data() }));
+    return arr.sort((a, b) => (a.date || "").localeCompare(b.date || "") || (a.ts || 0) - (b.ts || 0));
+  } catch (e) {
+    console.error("listProgressPhotos error:", e);
+    return null; // 오류(오프라인 등) — 빈 목록과 구분
+  }
+}
+
+export async function saveProgressPhoto(photo) {
+  const uid = getCurrentUserId();
+  if (!uid) return null;
+  const id = `${photo.date}_${photo.ts}`;
+  await setDoc(doc(db, "users", uid, "data", "photos", "items", id), photo);
+  return id;
+}
+
+export async function deleteProgressPhoto(id) {
+  const uid = getCurrentUserId();
+  if (!uid) return false;
+  await deleteDoc(doc(db, "users", uid, "data", "photos", "items", id));
+  return true;
+}
+
 const store = {
   async get(key) {
     const uid = getCurrentUserId();

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { pendingReminders, daysBetween, reminderPush, REMINDER_DEFAULTS } from "../reminders.js";
+import { pendingReminders, daysBetween, reminderPush, weeklyReportPush, mondayOf, REMINDER_DEFAULTS } from "../reminders.js";
 
 const base = { reminders: REMINDER_DEFAULTS, recordedToday: true, lastWeighDate: "2026-07-28", todayStr: "2026-07-29", accountMature: true, backupDaysAgo: 0 };
 
@@ -58,5 +58,35 @@ describe("reminderPush", () => {
     const p = reminderPush([{ key: "backup", days: 30 }]);
     expect(p.tab).toBe("home");
     expect(p.body).toContain("30일");
+  });
+});
+
+describe("weeklyReportPush — 월요일 성적표", () => {
+  // 2026-07-13 = 월요일, 지난주 월요일 = 2026-07-06
+  const MON = "2026-07-13";
+  it("월요일이 아니면 null", () => {
+    expect(weeklyReportPush(null, "2026-07-14")).toBe(null); // 화요일
+    expect(weeklyReportPush(null, "2026-07-12")).toBe(null); // 일요일
+  });
+  it("월요일 + 지난주 요약 있음 → 수치 포함", () => {
+    const wr = { weekStart: "2026-07-06", recorded: 6, calOk: 5, protHit: 4, workouts: 3 };
+    const p = weeklyReportPush(wr, MON);
+    expect(p.tab).toBe("stats");
+    expect(p.tag).toBe("daniel-weekly");
+    expect(p.body).toContain("6/7일");
+    expect(p.body).toContain("칼로리 적정 5일");
+    expect(p.body).toContain("운동 3회");
+  });
+  it("요약이 옛 주(stale)면 일반 안내", () => {
+    const wr = { weekStart: "2026-06-29", recorded: 6, calOk: 5, protHit: 4, workouts: 3 };
+    const p = weeklyReportPush(wr, MON);
+    expect(p.body).not.toContain("6/7일");
+    expect(p.body).toContain("확인");
+  });
+  it("report 기본 ON + mondayOf 월요일 시작", () => {
+    expect(REMINDER_DEFAULTS.report).toBe(true);
+    expect(mondayOf("2026-07-13")).toBe("2026-07-13"); // 월
+    expect(mondayOf("2026-07-12")).toBe("2026-07-06"); // 일 → 그 주 월
+    expect(mondayOf("2026-07-15")).toBe("2026-07-13"); // 수
   });
 });

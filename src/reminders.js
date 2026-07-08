@@ -1,8 +1,19 @@
 // 리마인더 판단(순수). 인앱 배너(앱 열 때)와 백그라운드 푸시(매일 밤 크론) 양쪽에서 공용으로 쓴다.
-export const REMINDER_DEFAULTS = { record: true, weight: true, backup: true };
+export const REMINDER_DEFAULTS = { record: true, weight: true, backup: true, report: true };
 
 export function daysBetween(aStr, bStr) {
   return Math.round((new Date(bStr + "T12:00:00") - new Date(aStr + "T12:00:00")) / 86400000);
+}
+
+function shiftDateStr(ds, n) {
+  const d = new Date(ds + "T12:00:00"); d.setDate(d.getDate() + n);
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+
+// 해당 날짜가 속한 주의 월요일 (통계 탭과 동일한 월요일 시작 기준)
+export function mondayOf(ds) {
+  const day = new Date(ds + "T12:00:00").getDay();
+  return shiftDateStr(ds, day === 0 ? -6 : 1 - day);
 }
 
 // 켜진 리마인더 중 지금 조건이 맞는 것만 반환. [{ key, days? }]
@@ -33,4 +44,17 @@ export function reminderPush(pending) {
     return { title: "체중 잴 시간 ⚖️", body: `${b} 추세·적응형 정확도를 위해 한 번!`, tab: "body" };
   }
   return { title: "백업이 필요해요 💾", body: `${top.days}일째 백업이 없어요. 데이터 안전을 위해 백업해주세요.`, tab: "home" };
+}
+
+// 주간 성적표 푸시(월요일 저녁 크론 전용). 지난 주(월~일) 요약이 KV에 동기화돼 있으면
+// 수치를 담고, 없거나 옛 주면 일반 안내. 월요일이 아니면 null.
+// weekReport: { weekStart, recorded, calOk, protHit, workouts } (클라이언트가 동기화)
+export function weeklyReportPush(weekReport, todayStr) {
+  if (new Date(todayStr + "T12:00:00").getDay() !== 1) return null; // 월요일만
+  const expected = shiftDateStr(mondayOf(todayStr), -7); // 지난주 월요일
+  const base = { title: "지난 주 성적표가 나왔어요 🎯", tab: "stats", tag: "daniel-weekly" };
+  if (weekReport && weekReport.weekStart === expected) {
+    return { ...base, body: `기록 ${weekReport.recorded}/7일 · 칼로리 적정 ${weekReport.calOk}일 · 단백질 ${weekReport.protHit}일 · 운동 ${weekReport.workouts}회` };
+  }
+  return { ...base, body: "통계 탭에서 지난 주 등급을 확인해보세요." };
 }

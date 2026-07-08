@@ -4,6 +4,7 @@ import store, { getCurrentUserId } from "../store.js";
 import { isCompletedDay } from "../utils.js";
 import { useLongPress } from "../hooks/useLongPress.js";
 import { LongPressActionBar } from "./LongPressActionBar.jsx";
+import { ProgressPhotos } from "./ProgressPhotos.jsx";
 
 export function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals, onSaveGoals, allDays }) {
   const [w, setW] = useState("");
@@ -449,6 +450,9 @@ export function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user
           )}
         </>
       )}
+
+      {/* 진행 사진 타임라인 (접힘, 펼칠 때 로드) */}
+      <ProgressPhotos date={date} bodyLog={bodyLog} />
 
       {/* 히스토리 (3건 + 전체보기) */}
       <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 12, padding: 12 }}>
