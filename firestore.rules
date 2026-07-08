@@ -37,17 +37,22 @@ service cloud.firestore {
         && (isOwner() || exists(/databases/$(database)/documents/members/$(request.auth.uid)));
     }
 
-    // 초대 코드 — 콘솔에서만 발급/폐기. get만 허용(코드를 아는 사람만), list 금지.
+    // 초대 코드 — 콘솔에서만 발급/폐기. 클라이언트 접근 전면 차단:
+    // members 생성 규칙의 get()은 규칙 엔진이 수행해 클라이언트 read 권한이 필요 없고,
+    // get을 열어두면 가입하지 않고도(=흔적 없이) 코드 적중을 확인하는 오라클 + note 메모
+    // 노출이 된다 (보안 리뷰 발견).
     match /invites/{code} {
-      allow get: if signedIn();
-      allow list, create, update, delete: if false;
+      allow read, write: if false;
     }
 
     // 멤버 등록 — 유효한 초대 코드(또는 운영자)로 본인 문서 1회 생성. 수정/삭제 불가.
+    // email은 토큰의 이메일과 일치 강제 — 존재 여부만 권한에 쓰이지만, 향후 이 필드를
+    // 운영(초대자 추적 등)에 쓸 때 위조값이 섞이지 않도록.
     match /members/{uid} {
       allow get: if isSelf(uid);
       allow create: if isSelf(uid)
         && request.resource.data.keys().hasOnly(['code', 'email', 'joinedAt'])
+        && request.resource.data.email == request.auth.token.email
         && (isOwner()
             || (request.resource.data.code is string
                 && get(/databases/$(database)/documents/invites/$(request.resource.data.code)).data.active == true));

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar, ComposedChart, Legend, ReferenceLine } from "recharts";
-import store, { getCurrentUserId, setUserId, logout, getMembership, joinWithInvite, getSharedFoods, addSharedFood, getSharedExercises, addSharedExercise } from "./store.js";
+import store, { getCurrentUserId, setUserId, logout, getMembership, joinWithInvite, getMigratedMark, getSharedFoods, addSharedFood, getSharedExercises, addSharedExercise } from "./store.js";
 import { watchAuth, signInWithGoogle, signOutUser, isOwnerEmail } from "./auth.js";
 import { APP_NAME, DEFAULT_FOODS, DEFAULT_EX, TARGETS as DEFAULT_TARGETS, COLORS } from "./data.js";
 import { THEME, GlobalStyles } from "./theme.jsx";
@@ -50,47 +50,64 @@ export default function App() {
   const [phase, setPhase] = useState("checking"); // checking | signedout | invite | onboarding | ready
   const [account, setAccount] = useState(null);   // Firebase user (uid·email·displayName)
   const [profile, setProfile] = useState(null);   // users/{uid}/data/profile
+  const [loginError, setLoginError] = useState(""); // 리다이렉트 폴백 복귀 실패 표면화
+  // 세대 카운터 — 비동기 콜백이 진행되는 동안 계정이 또 바뀌면 이전 실행을 무효화
+  // (느린 네트워크에서 A→B 연속 로그인 시 늦게 끝난 A의 판정이 B의 화면을 덮는 레이스 차단)
+  const authGen = useRef(0);
 
   // 멤버 확정 후 공통 진입: 프로필 있으면 ready, 없으면 온보딩
-  const enterApp = async () => {
+  const enterApp = async (gen) => {
     const prof = await store.get("profile");
+    if (gen !== authGen.current) return;
     if (prof && prof.name) { setProfile(prof); setPhase("ready"); }
     else setPhase("onboarding");
   };
 
   useEffect(() => {
     return watchAuth(async (u) => {
+      const gen = ++authGen.current;
       if (!u) { logout(); setAccount(null); setProfile(null); setPhase("signedout"); return; }
       setUserId(u.uid);
       setAccount(u);
       let member = await getMembership();
+      if (gen !== authGen.current) return;
       if (!member && isOwnerEmail(u.email)) {
-        // 운영자는 초대 코드 없이 통과 (규칙의 isOwner 분기)
+        // 운영자는 초대 코드 없이 통과 (규칙의 isOwner 분기). 오프라인이면 타임아웃 → 초대 화면
         const r = await joinWithInvite(null, u.email);
+        if (gen !== authGen.current) return;
         if (r.ok) member = { owner: true };
       }
       if (!member) { setPhase("invite"); return; }
-      await enterApp();
-    });
+      await enterApp(gen);
+    }, () => setLoginError("로그인에 실패했어요. 다시 시도해주세요."));
   }, []);
 
   const handleInvite = async (code) => {
+    const gen = authGen.current;
     const r = await joinWithInvite(code, account?.email);
-    if (r.ok) await enterApp();
+    if (gen !== authGen.current) return { ok: true }; // 계정이 바뀜 — 새 콜백이 처리
+    if (r.ok) await enterApp(gen);
     return r;
   };
 
-  const handleProfileSave = async (p) => {
-    await store.set("profile", p);
+  // ⚠️ store.set을 await하지 않는다 — 오프라인에서 setDoc은 무한 대기라 화면 전이가
+  // 영원히 막힌다. 로컬 기록+큐 선등록은 store.set 내부에서 동기적으로 끝나므로 안전.
+  const handleProfileSave = (p) => {
+    store.set("profile", p);
     setProfile(p);
     setPhase("ready");
   };
 
-  // watchAuth가 null을 받아 signedout으로 전환한다 (localStorage 데이터는 유지 — 기존 정책)
-  const handleLogout = () => { signOutUser().catch(e => console.error("signOut error:", e)); };
+  // 이 기기의 푸시 구독을 해제한 뒤 로그아웃 — 공용 기기에서 이전 사용자 리마인더·성적표가
+  // 계속 오는 것을 방지. 해제는 로그아웃 "이전"이어야 함(idToken·uid 필요). 실패해도 진행.
+  const handleLogout = () => {
+    disablePush().catch(() => {}).finally(() => {
+      signOutUser().catch(e => console.error("signOut error:", e)); // watchAuth가 signedout 전환
+    });
+  };
 
   if (phase === "checking") return <><GlobalStyles /><div style={{ background: THEME.bg, color: THEME.sub, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>로딩 중...</div></>;
-  if (phase === "signedout") return <><GlobalStyles /><LoginScreen onGoogle={signInWithGoogle} /></>;
+  if (phase === "signedout") return <><GlobalStyles /><LoginScreen onGoogle={signInWithGoogle} externalError={loginError} /></>;
   if (phase === "invite") return <><GlobalStyles /><InviteGate email={account?.email} onSubmit={handleInvite} onSignOut={handleLogout} /></>;
   if (phase === "onboarding") return <><GlobalStyles />
     <div style={{ background: THEME.bg, minHeight: "100vh", maxWidth: 480, margin: "0 auto", padding: "60px 24px" }}>
@@ -677,12 +694,14 @@ function MainApp({ user, onLogout }) {
 
   // AI·사진 분석 결과 보존 — 운영자는 공용 DB(전원 공유), 그 외 계정은 개인 DB에 저장해 재사용.
   // (경로 B: 공용 DB는 읽기 전용 공유. 이름 중복은 양쪽 모두 추가하지 않음)
+  const sameName = (list, n) => list.some(x => (x.n || "").trim().toLowerCase() === n.trim().toLowerCase());
   const keepAnalyzedFood = (food) => {
     if (user.isOwner) {
       addSharedFood({ ...food, addedBy: user.name }).then(updated => { if (updated) setSharedFoods(updated); });
     } else {
       setCustomFoods(prev => {
-        if (prev.some(x => x.n.trim().toLowerCase() === food.n.trim().toLowerCase())) return prev;
+        // 기본 DB와 겹치면 목록에 이중 표시되므로 기본+개인 양쪽 대상으로 중복 검사
+        if (sameName(DEFAULT_FOODS, food.n) || sameName(prev, food.n)) return prev;
         const nf = [...prev, { ...food, custom: true }];
         store.set("custom-foods", nf);
         return nf;
@@ -694,7 +713,7 @@ function MainApp({ user, onLogout }) {
       addSharedExercise({ ...ex, addedBy: user.name }).then(updated => { if (updated) setSharedExercises(updated); });
     } else {
       setCustomEx(prev => {
-        if (prev.some(x => x.n.trim().toLowerCase() === ex.n.trim().toLowerCase())) return prev;
+        if (sameName(DEFAULT_EX, ex.n) || sameName(prev, ex.n)) return prev;
         const ne = [...prev, { ...ex, custom: true }];
         store.set("custom-exercises", ne);
         return ne;
@@ -1832,12 +1851,17 @@ function MainApp({ user, onLogout }) {
         )}
       </Modal>
 
-      {/* 레거시 데이터 가져오기 (운영자 전용) — 프로필 선택 시절 uid의 Firestore 데이터를 Auth uid로 복사 */}
-      <Modal open={showMigrate} onClose={() => { if (!migrateBusy) { setShowMigrate(false); setMigrateMsg(null); } }} title="기존 데이터 가져오기">
+      {/* 레거시 데이터 가져오기 (운영자 전용) — 프로필 선택 시절 uid의 데이터를 Auth uid로 병합 복사 */}
+      <Modal open={showMigrate} onClose={() => { setShowMigrate(false); setMigrateMsg(null); }} title="기존 데이터 가져오기">
         <div style={{ fontSize: 12, color: "#707070", lineHeight: 1.7, marginBottom: 12 }}>
-          프로필 선택 방식(구버전)에서 쓰던 ID의 데이터를 현재 계정으로 복사해요.<br />
-          기존 데이터는 지워지지 않으며, 같은 키는 가져온 값으로 덮어써요.
+          프로필 선택 방식(구버전)에서 쓰던 ID의 데이터를 현재 계정으로 가져와요.<br />
+          기록(일별·체성분·DB)은 <b style={{ color: "#8a8a8a" }}>합쳐지고</b>, 설정(목표·모드·알림)은 가져온 값이 우선돼요.
         </div>
+        {getMigratedMark() && (
+          <div style={{ fontSize: 11, color: "#d4af37", lineHeight: 1.6, marginBottom: 10, background: "rgba(212,175,55,0.08)", border: "1px solid rgba(212,175,55,0.2)", borderRadius: 8, padding: "8px 10px" }}>
+            이미 {String(getMigratedMark().at || "").slice(0, 10)}에 가져왔어요. 다시 실행하면 그 후 바꾼 설정(목표·모드·알림)이 이전 값으로 돌아갈 수 있어요.
+          </div>
+        )}
         <div style={{ fontSize: 12, color: "#707070", marginBottom: 4 }}>이전 프로필 ID</div>
         <input value={migrateId} onChange={e => { setMigrateId(e.target.value); setMigrateMsg(null); }}
           placeholder="예: daniel"

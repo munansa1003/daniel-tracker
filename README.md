@@ -52,7 +52,7 @@ daniel-tracker/
 │   ├── analyze-body.js     # 체성분 변화 → 코칭
 │   ├── push-sync.js        # 웹푸시 구독/상태 (Firebase ID 토큰 검증)
 │   ├── cron-reminders.js   # 예약 푸시 크론 (매일 20:00 KST)
-│   └── _lib/security.js    # checkOrigin / rateLimit / safeEqual
+│   └── _lib/security.js    # checkOrigin / rateLimit
 └── src/
     ├── main.jsx            # React 진입점
     ├── App.jsx             # 전체 UI + 로직

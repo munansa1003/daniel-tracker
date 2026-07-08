@@ -17,7 +17,7 @@ function GoogleLogo() {
   );
 }
 
-export function LoginScreen({ onGoogle }) {
+export function LoginScreen({ onGoogle, externalError }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -26,7 +26,9 @@ export function LoginScreen({ onGoogle }) {
     setBusy(true); setError("");
     try {
       await onGoogle();
-      // 성공 시 App의 watchAuth가 화면을 전환한다 (리다이렉트 폴백이면 페이지 이탈)
+      // 성공 — watchAuth의 멤버십 판정이 끝나 화면이 전환(언마운트)될 때까지 busy 유지.
+      // 여기서 풀면 느린 네트워크에서 "로그인이 안 됐다"로 오인하고 재시도하게 된다.
+      // (리다이렉트 폴백이면 페이지 이탈이라 어차피 무관)
     } catch (e) {
       const code = e && e.code;
       if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
@@ -37,10 +39,11 @@ export function LoginScreen({ onGoogle }) {
         setError("로그인에 실패했어요. 잠시 후 다시 시도해주세요.");
         console.error("login error:", e);
       }
-    } finally {
       setBusy(false);
     }
   };
+
+  const shownError = error || externalError;
 
   return (
     <div style={{ background: THEME.bg, color: THEME.text, minHeight: "100vh", maxWidth: 480, margin: "0 auto", padding: "140px 24px 60px", textAlign: "center" }}>
@@ -53,7 +56,7 @@ export function LoginScreen({ onGoogle }) {
         <GoogleLogo />
         {busy ? "로그인 중..." : "Google로 계속하기"}
       </button>
-      {error && <div style={{ fontSize: 12, color: "#e05252", marginTop: 14 }}>{error}</div>}
+      {shownError && <div style={{ fontSize: 12, color: "#e05252", marginTop: 14 }}>{shownError}</div>}
       <div className="dbp-fade-d2" style={{ fontSize: 11, color: THEME.sub, marginTop: 32, lineHeight: 1.7 }}>
         초대받은 사용자만 이용할 수 있어요.<br />로그인 후 초대 코드를 입력합니다.
       </div>

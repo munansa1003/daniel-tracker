@@ -16,14 +16,20 @@ export function ReminderSettings({ reminders, onChange, pushReady, onEnablePush,
   const supported = typeof window !== "undefined" && "Notification" in window;
   const [perm, setPerm] = useState(supported ? window.Notification.permission : "unsupported");
   const [busy, setBusy] = useState(false);
+  const [subError, setSubError] = useState(""); // 권한은 승인됐는데 서버 구독 저장이 실패한 경우
 
   const requestPerm = async () => {
     if (!supported) return;
-    setBusy(true);
+    setBusy(true); setSubError("");
     try {
       if (pushReady && onEnablePush) {
         const ok = await onEnablePush();
         setPerm(ok ? "granted" : window.Notification.permission);
+        // 권한 granted인데 서버 저장 실패 → 그대로 두면 "켜짐 ✓"로 보이면서 크론 푸시는
+        // 영영 안 오는 침묵 실패가 됨 — 명시적으로 알린다
+        if (!ok && window.Notification.permission === "granted") {
+          setSubError("알림 서버 등록에 실패했어요 — 잠시 후 '알림 끄기' 후 다시 켜주세요");
+        }
       } else {
         setPerm(await window.Notification.requestPermission());
       }
@@ -66,6 +72,7 @@ export function ReminderSettings({ reminders, onChange, pushReady, onEnablePush,
         {granted && <button onClick={test} disabled={busy} style={{ background: "#2a2a2a", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, color: "#8a8a8a", fontSize: 12, padding: "8px 12px", cursor: "pointer", flexShrink: 0 }}>테스트</button>}
         {!granted && perm !== "denied" && perm !== "unsupported" && <button onClick={requestPerm} disabled={busy} style={{ background: "#d4af37", border: "none", borderRadius: 8, color: "#141414", fontSize: 12, fontWeight: 600, padding: "8px 14px", cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1, flexShrink: 0 }}>{busy ? "…" : "알림 켜기"}</button>}
       </div>
+      {subError && <div style={{ fontSize: 11, color: "#e05252", margin: "-6px 0 12px", lineHeight: 1.5 }}>{subError}</div>}
 
       {/* 토글 */}
       <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 12, overflow: "hidden" }}>

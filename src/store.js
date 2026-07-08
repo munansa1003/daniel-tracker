@@ -48,7 +48,14 @@ export async function joinWithInvite(code, email) {
   try {
     const data = { email: email || null, joinedAt: new Date().toISOString() };
     if (code) data.code = code.trim();
-    await setDoc(doc(db, "members", uid), data);
+    // ⚠️ 순수 오프라인에서 setDoc은 reject가 아니라 무한 대기(§store.set 주석 참조).
+    // 멤버 등록은 규칙 검증이 필수라 낙관적 성공 처리가 불가 → 타임아웃으로 탈출시켜
+    // 게이트 UI가 "온라인 상태를 확인하세요"를 띄우게 한다. 대기 중이던 setDoc이
+    // 온라인 복귀 후 성공해도 다음 시작의 getMembership이 문서를 발견하므로 무해.
+    await Promise.race([
+      setDoc(doc(db, "members", uid), data),
+      new Promise((_, rej) => setTimeout(() => rej(Object.assign(new Error("timeout"), { code: "timeout" })), 8000)),
+    ]);
     localStorage.setItem("dt_" + uid + "_member", "1");
     return { ok: true };
   } catch (e) {
@@ -172,6 +179,48 @@ export async function deleteProgressPhoto(id) {
   return true;
 }
 
+// 마이그레이션 병합 — 새 계정에 이미 생긴 값(current)과 레거시 값(legacy)을 키 성격별로 합친다.
+// 원칙: 기록(배열·일별 문서)은 합집합(dedup), 설정(goals 등)은 7개월 축적된 레거시 우선.
+// 모든 병합이 dedup 기반이라 재실행해도 결과 동일(멱등) — goals만 재실행 시 레거시로 회귀(모달 경고).
+// 순수 함수 — migrate-merge.test.js가 멱등성·비파괴를 보호한다.
+export function mergeMigrated(key, legacy, current) {
+  if (current === undefined || current === null) return legacy;
+  if (legacy === undefined || legacy === null) return current;
+  if (key === "bodylog" && Array.isArray(legacy) && Array.isArray(current)) {
+    const byDate = new Map();
+    for (const e of legacy) if (e && e.date) byDate.set(e.date, e);
+    for (const e of current) if (e && e.date) byDate.set(e.date, e); // 같은 날짜는 새 계정 기록 우선
+    return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+  }
+  if (key.startsWith("day:")) {
+    const l = legacy || {}, c = current || {};
+    const uniq = (arr) => {
+      const seen = new Set(); const out = [];
+      for (const m of arr) {
+        const k = m && m.ts != null ? `${m.n}|${m.ts}` : JSON.stringify(m);
+        if (!seen.has(k)) { seen.add(k); out.push(m); }
+      }
+      return out;
+    };
+    // 스프레드 순서: 새 계정 값(mode 스탬프 포함)이 우선, 항목 배열은 합집합
+    return { ...l, ...c, meals: uniq([...(l.meals || []), ...(c.meals || [])]), exercises: uniq([...(l.exercises || []), ...(c.exercises || [])]) };
+  }
+  if ((key === "custom-foods" || key === "custom-exercises") && Array.isArray(legacy) && Array.isArray(current)) {
+    const names = new Set(legacy.map(x => ((x && x.n) || "").trim().toLowerCase()));
+    return [...legacy, ...current.filter(x => !names.has(((x && x.n) || "").trim().toLowerCase()))];
+  }
+  if (key === "lastBackup") return String(current) > String(legacy) ? current : legacy;
+  if (key === "profile") return current; // 온보딩 입력 우선 (레거시 구조엔 profile 문서 없음)
+  return legacy; // goals 등 설정류 — 레거시(모드·tdeeHistory·리마인더) 우선
+}
+
+// 마이그레이션 완료 마커 — 데이터 프리픽스(dt_{uid}_*) 밖에 둬 getLocalAll 오염 방지
+export function getMigratedMark() {
+  const uid = getCurrentUserId();
+  if (!uid) return null;
+  try { return JSON.parse(localStorage.getItem("dt_migrated_" + uid) || "null"); } catch { return null; }
+}
+
 const store = {
   async get(key) {
     const uid = getCurrentUserId();
@@ -179,7 +228,13 @@ const store = {
     try {
       const docRef = doc(db, "users", uid, "data", key);
       const snap = await getDoc(docRef);
-      if (snap.exists()) return snap.data().value;
+      if (snap.exists()) {
+        const v = snap.data().value;
+        // localStorage 미러 갱신 — 두 번째 기기가 getAllData 전에 종료돼도
+        // 오프라인 재시작 체인(예: profile → 온보딩 오판)이 끊기지 않게 (getAllData와 동일 정책)
+        try { localStorage.setItem("dt_" + uid + "_" + key, JSON.stringify(v)); } catch { /* 용량 등 무시 */ }
+        return v;
+      }
       const local = localStorage.getItem("dt_" + uid + "_" + key);
       if (local) {
         const parsed = JSON.parse(local);
@@ -188,8 +243,10 @@ const store = {
       }
       return null;
     } catch (e) {
-      const local = localStorage.getItem("dt_" + uid + "_" + key);
-      return local ? JSON.parse(local) : null;
+      try {
+        const local = localStorage.getItem("dt_" + uid + "_" + key);
+        return local ? JSON.parse(local) : null;
+      } catch { return null; } // 손상된 로컬 캐시 — 시작 체인을 끊지 않는다
     }
   },
 
@@ -308,21 +365,45 @@ const store = {
   // 레거시(프로필 선택 시절) uid → Auth uid 데이터 마이그레이션.
   // 규칙상 레거시 경로 읽기는 운영자 이메일만 허용(firestore.rules의 isOwner 참조).
   // Firestore 실패는 throw — 호출측(설정 모달)이 권한/네트워크 오류를 구분해 안내한다.
+  //
+  // ⚠️ 멱등·비파괴 원칙: 새 계정에 이미 생긴 기록(전환 당일 점심 기록, 체중 입력 등)을
+  // 레거시 값으로 덮어쓰지 않는다. 키 성격별 병합 — mergeMigrated() 참조. 재실행해도
+  // 결과가 같도록 병합은 전부 dedup 기반(재실행 시 goals만 레거시 우선이라 모달에서 경고).
   async migrateFrom(oldUid) {
     const newUid = getCurrentUserId();
     if (!newUid || !oldUid || newUid === oldUid) return { copied: 0, photos: 0, local: 0 };
     let copied = 0, photos = 0, local = 0;
     const seen = new Set();
 
-    // 1) data 컬렉션 직속 문서 복사 + localStorage 캐시 갱신(재로드 시 즉시 표시)
-    const snap = await getDocs(collection(db, "users", oldUid, "data"));
+    // 1) data 컬렉션 직속 문서를 "병합해서" 복사 + localStorage 캐시 갱신(재로드 시 즉시 표시)
+    const [snap, newSnap] = await Promise.all([
+      getDocs(collection(db, "users", oldUid, "data")),
+      getDocs(collection(db, "users", newUid, "data")),
+    ]);
+    const currentVals = new Map();
+    newSnap.forEach(d => { if (d.data().value !== undefined) currentVals.set(d.id, d.data().value); });
+    // 새 uid에서 아직 서버 미반영(pending)인 키는 localStorage가 더 최신 — 그 값을 현재값으로 사용
+    const newPending = new Set(getPending(newUid));
+    for (const k of newPending) {
+      try {
+        const raw = localStorage.getItem("dt_" + newUid + "_" + k);
+        if (raw !== null) currentVals.set(k, JSON.parse(raw));
+      } catch { /* 무시 */ }
+    }
     for (const d of snap.docs) {
-      await setDoc(doc(db, "users", newUid, "data", d.id), d.data());
-      seen.add(d.id);
-      const val = d.data().value;
-      if (val !== undefined) {
-        try { localStorage.setItem("dt_" + newUid + "_" + d.id, JSON.stringify(val)); } catch { /* 용량 초과 등 무시 */ }
+      const legacyVal = d.data().value;
+      const cur = currentVals.get(d.id);
+      let toWrite;
+      if (legacyVal === undefined) {
+        if (cur !== undefined) continue; // 이상 문서 + 새 값 존재 → 건드리지 않음
+        await setDoc(doc(db, "users", newUid, "data", d.id), d.data());
+        seen.add(d.id); copied++;
+        continue;
       }
+      toWrite = cur === undefined ? legacyVal : mergeMigrated(d.id, legacyVal, cur);
+      await setDoc(doc(db, "users", newUid, "data", d.id), { value: toWrite, updatedAt: new Date().toISOString() });
+      seen.add(d.id);
+      try { localStorage.setItem("dt_" + newUid + "_" + d.id, JSON.stringify(toWrite)); } catch { /* 용량 초과 등 무시 */ }
       copied++;
     }
 
@@ -352,8 +433,15 @@ const store = {
         if (seen.has(dataKey) && !pending.has(dataKey)) continue; // 서버 사본이 진실
         const raw = localStorage.getItem(prefix + dataKey);
         if (raw === null) continue;
-        try { JSON.parse(raw); } catch { continue; } // JSON 아닌 로컬 캐시는 제외
-        localStorage.setItem("dt_" + newUid + "_" + dataKey, raw);
+        let legacyLocal;
+        try { legacyLocal = JSON.parse(raw); } catch { continue; } // JSON 아닌 로컬 캐시는 제외
+        // 1단계가 만든 병합 결과(또는 새 계정 값)가 있으면 그 위에 다시 병합 — 덮어쓰기 금지
+        let merged = legacyLocal;
+        try {
+          const curRaw = localStorage.getItem("dt_" + newUid + "_" + dataKey);
+          if (curRaw !== null) merged = mergeMigrated(dataKey, legacyLocal, JSON.parse(curRaw));
+        } catch { /* 현재 값 파싱 실패 — 레거시 값 사용 */ }
+        localStorage.setItem("dt_" + newUid + "_" + dataKey, JSON.stringify(merged));
         addPending(newUid, dataKey);
         local++;
       }
@@ -362,6 +450,9 @@ const store = {
       if (oldCreated) localStorage.setItem("dt_" + newUid + "_createdAt", oldCreated);
       if (local) await this.flushPendingSync();
     } catch (e) { console.error("Migration local carry error:", e); }
+
+    // 완료 마커 — 재실행 시 모달이 "goals가 레거시로 회귀할 수 있음"을 경고하는 근거
+    try { localStorage.setItem("dt_migrated_" + newUid, JSON.stringify({ oldUid, at: new Date().toISOString() })); } catch { /* 무시 */ }
 
     return { copied, photos, local };
   }

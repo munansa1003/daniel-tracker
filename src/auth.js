@@ -21,9 +21,13 @@ export function isOwnerEmail(email) {
 
 // 로그인 상태 구독. cb(firebaseUser | null). 반환값은 해지 함수.
 // 오프라인 재시작 시에도 indexedDB에 저장된 세션으로 즉시 발화한다(offline-first 유지).
-export function watchAuth(cb) {
+// onError: 리다이렉트 폴백 복귀가 실패했을 때(네트워크 등) 로그인 화면에 표시할 기회 제공.
+export function watchAuth(cb, onError) {
   // 리다이렉트 폴백 복귀 시 결과 소모(로그인 자체는 onAuthStateChanged가 반영)
-  getRedirectResult(auth).catch((e) => console.error("redirect login error:", e));
+  getRedirectResult(auth).catch((e) => {
+    console.error("redirect login error:", e);
+    if (onError) onError(e);
+  });
   return onAuthStateChanged(auth, cb);
 }
 

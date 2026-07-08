@@ -36,6 +36,7 @@ vi.mock("../store.js", () => ({
   logout: () => {},
   getMembership: async () => holder.membership,
   joinWithInvite: async (code, email) => { holder.joinCalls.push({ code, email }); return holder.joinResult; },
+  getMigratedMark: () => null,
   getSharedFoods: async () => [],
   addSharedFood: async () => [],
   getSharedExercises: async () => [],

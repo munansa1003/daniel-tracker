@@ -44,7 +44,7 @@ src/
 │                    App.jsx/push.js가 firebase/auth를 직접 안 만지는 seam — 테스트는 이 모듈만 mock
 ├── data.js          기본 음식/운동 DB, DEFAULT_TARGETS, COLORS
 └── main.jsx         진입점
-api/                 서버리스 (analyze-food/exercise/body, verify-master, _lib/security.js)
+api/                 서버리스 (analyze-food/exercise/body, push-sync(ID토큰 검증), cron-reminders, _lib/security.js)
 vitest.config.js     테스트 전용 설정 (PWA 플러그인 미로딩)
 ```
 

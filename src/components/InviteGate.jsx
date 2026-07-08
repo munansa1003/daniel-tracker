@@ -16,8 +16,10 @@ export function InviteGate({ email, onSubmit, onSignOut }) {
     const r = await onSubmit(c);
     setBusy(false);
     if (!r.ok) {
+      // permission-denied는 대부분 잘못된 코드지만, App Check(reCAPTCHA) 차단 환경에서도
+      // 같은 코드가 떨어지므로 두 번째 안내를 함께 준다
       setError(r.error === "permission-denied"
-        ? "유효하지 않은 초대 코드예요"
+        ? "유효하지 않은 초대 코드예요. 코드가 확실하다면 광고 차단 기능(reCAPTCHA 차단)을 꺼보세요."
         : "등록에 실패했어요 — 온라인 상태를 확인하세요");
     }
   };
@@ -44,7 +46,7 @@ export function InviteGate({ email, onSubmit, onSignOut }) {
           {busy ? "확인 중..." : "등록하기"}
         </button>
       </div>
-      <div onClick={onSignOut} style={{ fontSize: 12, color: THEME.muted, marginTop: 24, cursor: "pointer", textDecoration: "underline" }}>
+      <div onClick={busy ? undefined : onSignOut} style={{ fontSize: 12, color: THEME.muted, marginTop: 24, cursor: busy ? "default" : "pointer", textDecoration: "underline", opacity: busy ? 0.4 : 1 }}>
         다른 계정으로 로그인
       </div>
     </div>

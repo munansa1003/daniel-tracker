@@ -30,6 +30,7 @@ vi.mock("../store.js", () => {
     logout: () => {},
     getMembership: async () => ({ email: "munansa@gmail.com", joinedAt: "2026-07-01T00:00:00.000Z" }),
     joinWithInvite: async () => ({ ok: true }),
+    getMigratedMark: () => null,
     getSharedFoods: async () => [],
     addSharedFood: async () => [],
     getSharedExercises: async () => [],
