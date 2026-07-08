@@ -22,33 +22,38 @@ export function logout() {
   localStorage.removeItem("dt_currentUser");
 }
 
-// 프로필 목록 관리 (모든 사용자 공유 — 보안 규칙 호환 경로 사용)
-export async function getProfiles() {
+// ── 멤버십 (초대 코드 게이트, 경로 B) ──
+// members/{uid} 문서가 있어야 개인 데이터 규칙이 통과한다. 코드 유효성 검증은
+// 클라이언트가 아니라 보안 규칙이 수행(invites/{code}.active == true, 또는 운영자 이메일).
+// 이전의 _shared/profiles(프로필 선택 목록)는 Firebase Auth가 대체해 제거됨.
+export async function getMembership() {
+  const uid = getCurrentUserId();
+  if (!uid) return null;
   try {
-    const docRef = doc(db, "users", "_shared", "data", "profiles");
-    const snap = await getDoc(docRef);
+    const snap = await getDoc(doc(db, "members", uid));
     if (snap.exists()) {
-      const list = snap.data().list || [];
-      localStorage.setItem("dt_profiles", JSON.stringify(list));
-      return list;
+      localStorage.setItem("dt_" + uid + "_member", "1"); // 오프라인 시작용 캐시
+      return snap.data();
     }
-    // localStorage fallback
-    const local = localStorage.getItem("dt_profiles");
-    return local ? JSON.parse(local) : [];
-  } catch (e) {
-    console.error("getProfiles error:", e);
-    const local = localStorage.getItem("dt_profiles");
-    return local ? JSON.parse(local) : [];
+    return null; // 온라인으로 확인된 비멤버
+  } catch {
+    // 오프라인 등 조회 실패 — 이전에 확인된 멤버면 통과시켜 offline-first 유지
+    return localStorage.getItem("dt_" + uid + "_member") === "1" ? { cached: true } : null;
   }
 }
 
-export async function saveProfiles(list) {
+export async function joinWithInvite(code, email) {
+  const uid = getCurrentUserId();
+  if (!uid) return { ok: false, error: "no-user" };
   try {
-    await setDoc(doc(db, "users", "_shared", "data", "profiles"), { list, updatedAt: new Date().toISOString() });
-    localStorage.setItem("dt_profiles", JSON.stringify(list));
+    const data = { email: email || null, joinedAt: new Date().toISOString() };
+    if (code) data.code = code.trim();
+    await setDoc(doc(db, "members", uid), data);
+    localStorage.setItem("dt_" + uid + "_member", "1");
+    return { ok: true };
   } catch (e) {
-    console.error("saveProfiles error:", e);
-    localStorage.setItem("dt_profiles", JSON.stringify(list));
+    // permission-denied = 유효하지 않은 초대 코드 (규칙이 invites/{code} 검증에서 거부)
+    return { ok: false, error: (e && e.code) || "unknown" };
   }
 }
 
@@ -300,18 +305,65 @@ const store = {
     }
   },
 
-  // 기존 데이터 마이그레이션 (이전 user_xxx ID에서 새 ID로)
+  // 레거시(프로필 선택 시절) uid → Auth uid 데이터 마이그레이션.
+  // 규칙상 레거시 경로 읽기는 운영자 이메일만 허용(firestore.rules의 isOwner 참조).
+  // Firestore 실패는 throw — 호출측(설정 모달)이 권한/네트워크 오류를 구분해 안내한다.
   async migrateFrom(oldUid) {
     const newUid = getCurrentUserId();
-    if (!newUid || !oldUid) return;
-    try {
-      const colRef = collection(db, "users", oldUid, "data");
-      const snap = await getDocs(colRef);
-      for (const d of snap.docs) {
-        await setDoc(doc(db, "users", newUid, "data", d.id), d.data());
+    if (!newUid || !oldUid || newUid === oldUid) return { copied: 0, photos: 0, local: 0 };
+    let copied = 0, photos = 0, local = 0;
+    const seen = new Set();
+
+    // 1) data 컬렉션 직속 문서 복사 + localStorage 캐시 갱신(재로드 시 즉시 표시)
+    const snap = await getDocs(collection(db, "users", oldUid, "data"));
+    for (const d of snap.docs) {
+      await setDoc(doc(db, "users", newUid, "data", d.id), d.data());
+      seen.add(d.id);
+      const val = d.data().value;
+      if (val !== undefined) {
+        try { localStorage.setItem("dt_" + newUid + "_" + d.id, JSON.stringify(val)); } catch { /* 용량 초과 등 무시 */ }
       }
-      console.log("Migration complete:", snap.docs.length, "docs");
-    } catch (e) { console.error("Migration error:", e); }
+      copied++;
+    }
+
+    // 2) 진행 사진은 서브컬렉션(data/photos/items)이라 위 getDocs에 안 잡힘 — 별도 복사
+    try {
+      const psnap = await getDocs(collection(db, "users", oldUid, "data", "photos", "items"));
+      for (const d of psnap.docs) {
+        await setDoc(doc(db, "users", newUid, "data", "photos", "items", d.id), d.data());
+        photos++;
+      }
+    } catch (e) { console.error("Migration photos error:", e); }
+
+    // 3) 같은 기기의 레거시 localStorage 중 서버에 없거나(pending) 미동기화였던 값 승계.
+    //    서버 사본이 있는 키는 1)에서 이미 최신을 받았으므로 건너뜀. member/createdAt/
+    //    body-coaching은 JSON 데이터가 아닌 로컬 메타/캐시라 pending 대상에서 제외.
+    try {
+      const pending = new Set(getPending(oldUid));
+      const skip = new Set(["member", "createdAt", "body-coaching"]);
+      const prefix = "dt_" + oldUid + "_";
+      const keys = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(prefix)) keys.push(k.slice(prefix.length));
+      }
+      for (const dataKey of keys) {
+        if (skip.has(dataKey)) continue;
+        if (seen.has(dataKey) && !pending.has(dataKey)) continue; // 서버 사본이 진실
+        const raw = localStorage.getItem(prefix + dataKey);
+        if (raw === null) continue;
+        try { JSON.parse(raw); } catch { continue; } // JSON 아닌 로컬 캐시는 제외
+        localStorage.setItem("dt_" + newUid + "_" + dataKey, raw);
+        addPending(newUid, dataKey);
+        local++;
+      }
+      // 계정 생성일(로컬 메타)은 원 계정 값을 승계 — 백업 리마인더 성숙 판정 유지
+      const oldCreated = localStorage.getItem(prefix + "createdAt");
+      if (oldCreated) localStorage.setItem("dt_" + newUid + "_createdAt", oldCreated);
+      if (local) await this.flushPendingSync();
+    } catch (e) { console.error("Migration local carry error:", e); }
+
+    return { copied, photos, local };
   }
 };
 

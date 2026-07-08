@@ -1,7 +1,9 @@
 // src/push.js — 웹푸시 구독/상태 동기화(클라이언트).
 // "알림 켜기" → 브라우저 구독 생성 → /api/push-sync 로 저장.
 // 이후 기록/체중/백업 변화 시 상태만 갱신 → 크론이 밤 8시에 조건 맞으면 푸시.
+// 경로 B: 요청마다 Firebase ID 토큰을 동봉 — 서버가 uid 사칭(타인 구독 덮어쓰기)을 차단.
 import { getCurrentUserId } from "./store.js";
+import { getIdToken } from "./auth.js";
 
 const VAPID_PUBLIC = import.meta.env.VITE_VAPID_PUBLIC_KEY;
 
@@ -24,10 +26,11 @@ function urlBase64ToUint8Array(base64String) {
 }
 
 async function post(body) {
+  const idToken = await getIdToken(); // 미로그인/오프라인이면 null → 서버가 401 (호출측은 조용히 허용)
   return fetch("/api/push-sync", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ ...body, idToken }),
   });
 }
 

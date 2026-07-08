@@ -1,37 +1,73 @@
 rules_version = '2';
 
-// Daniel Tracker — Firestore Security Rules
+// Body Plan (daniel-tracker) — Firestore Security Rules (경로 B: 멀티유저)
 //
-// 보호 전략: Firebase App Check (reCAPTCHA v3) 토큰을 가진 요청만 허용.
-// → 너의 앱(공식 도메인 + reCAPTCHA 통과)에서 온 요청만 통과
-// → 외부 SDK 직접 호출, curl, 봇 등은 차단
+// 보호 전략 (이중):
+//   1) App Check (reCAPTCHA v3) — 공식 앱에서 온 요청만 (외부 SDK·curl·봇 차단)
+//   2) Firebase Auth — 본인(request.auth.uid == uid) + 멤버(초대 코드 통과)만 개인 데이터 접근
 //
-// 주의: 이 룰은 App Check가 클라이언트에 통합되고 정상 동작하는 게 확인된 후에 deploy해야 함.
-// 그렇지 않으면 앱이 Firestore에 접근 못 해서 즉시 다운됨.
+// 초대 게이트:
+//   - invites/{code}: 운영자가 Firebase 콘솔에서 생성 ({ active: true, note: "..." }).
+//     코드 문자열을 아는 로그인 사용자만 get 가능(list 금지 — 열거 차단). 폐기 = active:false.
+//   - members/{uid}: 가입자가 유효한 코드로 본인 문서를 1회 생성. 규칙이 코드를 검증하므로
+//     서버(Admin SDK) 불필요. 운영자 이메일은 코드 없이 통과.
 //
-// 단계적 deploy:
-//   1단계 (지금): App Check 통합 후 firebase.js 배포
-//   2단계 (검증 후): 이 룰을 콘솔에 붙여넣고 Publish
+// ⚠️ 배포 순서 (docs/DEPLOY-PATH-B.md 참조):
+//   이 규칙은 Auth 통합 앱과 함께 배포해야 함. 구버전 앱(프로필 선택)은 이 규칙에서
+//   전부 거부된다(오프라인 폴백으로 동작은 하나 동기화 중단) — 규칙 게시 전 기존 앱을
+//   온라인으로 한 번 열어 대기분을 동기화할 것.
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // 프로필 목록 (로그인 화면에서 모든 사용자가 봐야 함)
-    // App Check 통과한 클라이언트만 읽기/쓰기 허용
-    match /users/_shared/data/profiles {
-      allow read, write: if request.app != null;
+    function signedIn() {
+      return request.app != null && request.auth != null;
+    }
+    function isSelf(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+    // 운영자 — src/auth.js의 OWNER_EMAIL과 반드시 동일하게 유지 (규칙은 env를 못 읽음)
+    function isOwner() {
+      return signedIn()
+        && request.auth.token.email == 'munansa@gmail.com'
+        && request.auth.token.email_verified == true;
+    }
+    function isMember() {
+      return signedIn()
+        && (isOwner() || exists(/databases/$(database)/documents/members/$(request.auth.uid)));
     }
 
-    // 공용 음식 / 운동 DB (모든 사용자가 함께 사용)
+    // 초대 코드 — 콘솔에서만 발급/폐기. get만 허용(코드를 아는 사람만), list 금지.
+    match /invites/{code} {
+      allow get: if signedIn();
+      allow list, create, update, delete: if false;
+    }
+
+    // 멤버 등록 — 유효한 초대 코드(또는 운영자)로 본인 문서 1회 생성. 수정/삭제 불가.
+    match /members/{uid} {
+      allow get: if isSelf(uid);
+      allow create: if isSelf(uid)
+        && request.resource.data.keys().hasOnly(['code', 'email', 'joinedAt'])
+        && (isOwner()
+            || (request.resource.data.code is string
+                && get(/databases/$(database)/documents/invites/$(request.resource.data.code)).data.active == true));
+      allow list, update, delete: if false;
+    }
+
+    // 공용 음식/운동 DB — 멤버 읽기 전용, 쓰기는 운영자만 (7개월 축적 DB 오염 방지).
+    // 이전의 profiles 문서(프로필 목록·비밀번호 해시)는 Auth 도입으로 폐기 —
+    // 마이그레이션 후 콘솔에서 users/_shared/data/profiles 문서를 삭제할 것.
     match /users/_shared/data/{doc} {
-      allow read, write: if request.app != null;
+      allow read: if isMember();
+      allow write: if isOwner();
     }
 
-    // 개인 사용자 데이터 (식단, 체성분, 설정 등)
-    // 현재 단계: App Check만 검증. 추후 Firebase Auth 도입 시
-    //   `request.auth.uid == uid` 추가하여 본인 데이터만 접근 가능하게 강화 예정
+    // 개인 데이터 (식단·체성분·설정·진행사진 등) — 본인 + 멤버만.
+    // 운영자 read는 레거시(프로필 선택 시절) uid 데이터 마이그레이션용 —
+    // 마이그레이션 완료 후 이 한 줄은 제거해도 됨(콘솔 접근 권한과 동일 수준이라 유지도 무방).
     match /users/{uid}/data/{document=**} {
-      allow read, write: if request.app != null;
+      allow read, write: if isSelf(uid) && isMember();
+      allow read: if isOwner();
     }
 
     // 그 외 모든 경로는 명시적 차단

@@ -1,5 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
 import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 
 const firebaseConfig = {
@@ -36,3 +37,6 @@ if (RECAPTCHA_SITE_KEY) {
 }
 
 export const db = getFirestore(app);
+// Firebase Auth (경로 B: 프로필 선택 → 진짜 로그인). 세션은 기본 indexedDB 지속 —
+// 오프라인 재시작 시에도 onAuthStateChanged가 저장된 사용자를 복원한다.
+export const auth = getAuth(app);
