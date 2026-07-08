@@ -14,7 +14,7 @@ self.addEventListener("push", (event) => {
       body: data.body,
       icon: "/icon-192.png",
       badge: "/icon-192.png",
-      tag: "daniel-reminder",
+      tag: data.tag || "daniel-reminder",
       data: { tab: data.tab || "home" },
     })
   );

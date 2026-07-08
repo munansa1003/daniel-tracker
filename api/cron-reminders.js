@@ -10,7 +10,7 @@
 
 import webpush from "web-push";
 import { kv, kvConfigured } from "./_lib/kv.js";
-import { pendingReminders, reminderPush, daysBetween } from "../src/reminders.js";
+import { pendingReminders, reminderPush, weeklyReportPush, daysBetween, REMINDER_DEFAULTS } from "../src/reminders.js";
 
 // 크론 실행 시점(UTC)을 KST 날짜 문자열(YYYY-MM-DD)로. 밤 8시 KST 기준 "오늘".
 function todayKST() {
@@ -56,19 +56,30 @@ export default async function handler(req, res) {
         accountMature,
         backupDaysAgo,
       });
-      const payload = reminderPush(pending);
-      if (!payload) continue;
+      // 상태 리마인더 1건 + (월요일이면) 주간 성적표 — 태그가 달라 둘 다 표시 가능
+      const payloads = [];
+      const daily = reminderPush(pending);
+      if (daily) payloads.push(daily);
+      const rmd = { ...REMINDER_DEFAULTS, ...(st.reminders || {}) };
+      if (rmd.report) {
+        const weekly = weeklyReportPush(st.weekReport || null, today);
+        if (weekly) payloads.push(weekly);
+      }
+      if (!payloads.length) continue;
 
-      try {
-        await webpush.sendNotification(subscription, JSON.stringify(payload));
-        sent++;
-      } catch (err) {
-        if (err.statusCode === 404 || err.statusCode === 410) {
-          await kv("DEL", `push:sub:${uid}`);
-          await kv("SREM", "push:uids", uid);
-          cleaned++;
-        } else {
-          console.error("[cron-reminders] send fail", uid, err.statusCode);
+      for (const payload of payloads) {
+        try {
+          await webpush.sendNotification(subscription, JSON.stringify(payload));
+          sent++;
+        } catch (err) {
+          if (err.statusCode === 404 || err.statusCode === 410) {
+            await kv("DEL", `push:sub:${uid}`);
+            await kv("SREM", "push:uids", uid);
+            cleaned++;
+            break; // 구독이 죽었으면 나머지도 보낼 수 없음
+          } else {
+            console.error("[cron-reminders] send fail", uid, err.statusCode);
+          }
         }
       }
     }

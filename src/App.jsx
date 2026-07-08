@@ -469,23 +469,6 @@ function MainApp({ user, onLogout }) {
   const isExcludedCalc = useCallback((ds) => isExcludedDate(healthEvents, ds), [healthEvents]);
   const activeHealth = useMemo(() => activeEvents(healthEvents, today()), [healthEvents]);
 
-  // 백그라운드 푸시(매일 밤 8시 크론)용 상태 — 크론이 KV에서 읽어 조건 판단.
-  const pushReady = useMemo(() => pushConfigured(), []);
-  const pushState = useMemo(() => {
-    const recordedDates = Object.keys(allDays).filter(d => { const x = allDays[d]; return x && (((x.meals || []).length) || ((x.exercises || []).length)); }).sort();
-    let accountCreatedAt = null;
-    try { accountCreatedAt = localStorage.getItem("dt_" + getCurrentUserId() + "_createdAt") || null; } catch { /* 무시 */ }
-    return {
-      lastRecordDate: recordedDates.length ? recordedDates[recordedDates.length - 1] : null,
-      lastWeighDate: bodyLog.length ? bodyLog[bodyLog.length - 1].date : null,
-      lastBackup: lastBackup || null,
-      accountCreatedAt: accountCreatedAt ? accountCreatedAt.slice(0, 10) : null,
-    };
-  }, [allDays, bodyLog, lastBackup]);
-  const doEnablePush = () => enablePush({ state: pushState, reminders: goals.reminders });
-  const doDisablePush = () => disablePush();
-  // 구독돼 있으면 상태·토글 변화 시 KV 갱신(구독 없으면 no-op).
-  useEffect(() => { syncPushState({ state: pushState, reminders: goals.reminders }); }, [pushState, goals.reminders]);
   // 푸시 클릭으로 앱이 포커스될 때 해당 탭으로 이동 (서비스워커 postMessage)
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
@@ -537,6 +520,41 @@ function MainApp({ user, onLogout }) {
     const h = user.height || 175, a = user.age || 35;
     return { delta: tdeeEstimate.delta, current: targetsByMode[mode], proposed: calcTargets(monthWeight, h, a, mode, tdeeEstimate.delta) };
   }, [adaptiveOn, tdeeEstimate, appAdjust, targetsByMode, mode, monthWeight, user]);
+
+  // 백그라운드 푸시(매일 밤 8시 크론)용 상태 — 크론이 KV에서 읽어 조건 판단.
+  // (targetsByMode·dayTargetK 정의 이후에 위치해야 함 — weekReport가 참조)
+  const pushReady = useMemo(() => pushConfigured(), []);
+  const pushState = useMemo(() => {
+    const recordedDates = Object.keys(allDays).filter(d => { const x = allDays[d]; return x && (((x.meals || []).length) || ((x.exercises || []).length)); }).sort();
+    let accountCreatedAt = null;
+    try { accountCreatedAt = localStorage.getItem("dt_" + getCurrentUserId() + "_createdAt") || null; } catch { /* 무시 */ }
+    // 지난 주(월~일) 요약 — 월요일 저녁 성적표 푸시용. 주 시작은 통계 탭과 동일(월요일).
+    const lastMon = (() => { const d = new Date(today() + "T12:00:00"); const dow = d.getDay(); d.setDate(d.getDate() + (dow === 0 ? -6 : 1 - dow) - 7); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); })();
+    let recorded = 0, workouts = 0, calOk = 0, protHit = 0;
+    for (let i = 0; i < 7; i++) {
+      const dd = new Date(lastMon + "T12:00:00"); dd.setDate(dd.getDate() + i);
+      const ds = dd.getFullYear() + "-" + String(dd.getMonth() + 1).padStart(2, "0") + "-" + String(dd.getDate()).padStart(2, "0");
+      const day = allDays[ds]; if (!day) continue;
+      const a = aggregateDay(day);
+      const hasAny = ((day.meals || []).length) || ((day.exercises || []).length);
+      if (hasAny) recorded++;
+      if ((day.exercises || []).length) workouts++;
+      const dM = day.mode || "cut";
+      if (a.k > 0 && isCalOk(a.k, a.ex, dayTargetK(dM, ds), dM)) calOk++;
+      if (a.p >= (targetsByMode[dM] || targetsByMode.cut).p) protHit++;
+    }
+    return {
+      lastRecordDate: recordedDates.length ? recordedDates[recordedDates.length - 1] : null,
+      lastWeighDate: bodyLog.length ? bodyLog[bodyLog.length - 1].date : null,
+      lastBackup: lastBackup || null,
+      accountCreatedAt: accountCreatedAt ? accountCreatedAt.slice(0, 10) : null,
+      weekReport: { weekStart: lastMon, recorded, calOk, protHit, workouts },
+    };
+  }, [allDays, bodyLog, lastBackup, targetsByMode, appAdjust, tdeeHistory]);
+  const doEnablePush = () => enablePush({ state: pushState, reminders: goals.reminders });
+  const doDisablePush = () => disablePush();
+  // 구독돼 있으면 상태·토글 변화 시 KV 갱신(구독 없으면 no-op).
+  useEffect(() => { syncPushState({ state: pushState, reminders: goals.reminders }); }, [pushState, goals.reminders]);
 
   // 적응형 핸들러 (전부 비파괴적·되돌리기 가능)
   const setAdaptiveOn = (on) => saveGoals({ ...goals, adaptiveOn: on });

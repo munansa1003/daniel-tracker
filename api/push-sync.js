@@ -47,6 +47,7 @@ export default async function handler(req, res) {
       lastWeighDate: state?.lastWeighDate ?? null,
       lastBackup: state?.lastBackup ?? null,
       accountCreatedAt: state?.accountCreatedAt ?? null,
+      weekReport: state?.weekReport ?? null, // 지난 주 요약(월요일 성적표 푸시용)
       reminders: reminders || {},
     };
     await kv("SET", `push:state:${uid}`, JSON.stringify(merged));
