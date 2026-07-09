@@ -12,7 +12,7 @@
 |---|---|---|
 | 로그인 | 프로필 선택 + 선택적 비밀번호 | **Google 로그인** (Firebase Auth) |
 | 가입 제한 | 없음 (누구나 프로필 생성) | **초대 코드** (`invites/{code}`, 규칙이 검증) |
-| Firestore 규칙 | App Check만 (누구나 타인 데이터 접근 가능) | App Check + **본인(auth.uid)** + **멤버** |
+| Firestore 규칙 | **전체 허용**(`if true` — 2026-07 콘솔 실측. 저장소의 App Check 규칙은 미게시 상태였음) | App Check + **본인(auth.uid)** + **멤버** |
 | 공용 음식/운동 DB | 전원 읽기/쓰기 | 멤버 읽기 전용, **쓰기는 운영자만** |
 | 프로필 | `_shared/profiles` 목록 (비번 해시 포함) | `users/{uid}/data/profile` (온보딩 입력) |
 | 푸시 API | uid 무검증 (사칭 가능) | **Firebase ID 토큰 검증** |
@@ -39,25 +39,28 @@
 ## 1.5 프리뷰(머지 전) 테스트 — 전환기 규칙
 
 머지 결정 전에 Vercel Preview에서 실동작을 확인하려면 규칙 문제를 먼저 풀어야 한다:
-현재 게시된 규칙은 `members`/`invites` 경로를 전부 차단해 **새 앱이 멤버 등록에서 막히고**,
-반대로 최종 규칙(`firestore.rules`)을 게시하면 **기존 앱(폰)의 동기화가 멈춘다**.
+현재 게시된 규칙은 `members`/`invites` 경로가 매치되지 않아(기본 거부) **새 앱이 멤버
+등록에서 막히고**, 반대로 최종 규칙(`firestore.rules`)을 게시하면 **기존 앱(폰)의 동기화가
+멈출 수 있다**.
 
-→ 아래 **전환기 규칙**을 게시하면 둘 다 동작한다 (개인 데이터 보호 수준은 기존과 동일한
-App Check 단계 — 전환기 한정. 머지 후 §3에서 최종 규칙으로 교체):
+> ⚠️ **2026-07 콘솔 실측**: 실제 게시돼 있던 규칙은 저장소 파일과 달리
+> `users/{userId}/data/{document=**}`에 `allow read, write: if true` (App Check 조건 없음).
+> 즉 App Check가 규칙에서 강제된 적이 없으므로, `request.app != null`을 넣는 순간
+> 기존 앱이 깨질 수 있다(클라이언트 App Check 정상 동작 미검증). 전환기 규칙은 이
+> 실측 상태 기준으로 작성 — **users 블록을 현행 그대로 유지**하고 invites/members만 추가한다.
 
 ```
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() { return request.app != null && request.auth != null; }
-    function isSelf(uid) { return signedIn() && request.auth.uid == uid; }
+    function isSelf(uid) { return request.auth != null && request.auth.uid == uid; }
     function isOwner() {
-      return signedIn()
+      return request.auth != null
         && request.auth.token.email == 'munansa@gmail.com'
         && request.auth.token.email_verified == true;
     }
 
-    // 새 앱(프리뷰)용 — 최종 규칙과 동일
+    // 새 앱(프리뷰)용 — 초대 코드 / 멤버 게이트
     match /invites/{code} { allow read, write: if false; }
     match /members/{uid} {
       allow get: if isSelf(uid);
@@ -70,12 +73,9 @@ service cloud.firestore {
       allow list, update, delete: if false;
     }
 
-    // 전환기: 기존 앱 호환 (현행과 동일한 App Check 단계 보호)
-    match /users/{uid}/data/{document=**} {
-      allow read, write: if request.app != null;
-    }
-    match /users/_shared/data/{doc} {
-      allow read, write: if request.app != null;
+    // 전환기: 기존 앱 호환 — 현재 게시본과 동일 (App Check 조건 없음)
+    match /users/{userId}/data/{document=**} {
+      allow read, write: if true;
     }
 
     match /{document=**} { allow read, write: if false; }
@@ -85,10 +85,9 @@ service cloud.firestore {
 
 프리뷰 테스트 전 콘솔 준비 (§1과 겹치는 것 포함, 순서대로):
 1. Google 제공업체 켜기 (§1-1)
-2. **Vercel Preview 도메인**을 두 곳에 등록 — PR의 Vercel 봇 코멘트에서 프리뷰 URL 확인 후:
-   - Firebase Authentication → 승인된 도메인
-   - reCAPTCHA v3 키 설정 → 도메인 (App Check용 — 누락 시 request.app이 null이 되어 전부 거부됨.
-     테스트 동안만 `vercel.app` 상위 도메인을 넣으면 모든 프리뷰가 커버되고, 끝나면 제거)
+2. **Vercel Preview 도메인**을 Firebase Authentication → 승인된 도메인에 등록
+   (PR의 Vercel 봇 코멘트에서 프리뷰 URL 확인. reCAPTCHA 도메인 등록은 현재 규칙이
+   App Check를 강제하지 않아 **전환기엔 생략 가능** — 최종 규칙 게시 전에만 정리하면 됨, §3 참조)
 3. 위 전환기 규칙 게시
 4. 초대 코드 문서 1개 생성 (§1-3) — 초대 흐름 테스트용
 5. (선택) 프리뷰에서 AI 분석·푸시는 서버 origin 화이트리스트(PRODUCTION_ORIGIN·VERCEL_URL)
@@ -110,6 +109,14 @@ service cloud.firestore {
 5. 설정 → **JSON 전체 백업** 1회 (만일의 사고 대비)
 
 ## 3. 규칙 게시 + 코드 배포 (같은 타이밍에)
+
+> ⚠️ 최종 규칙(`firestore.rules`)은 모든 경로에 `request.app != null`(App Check)을 요구한다.
+> §1.5 실측처럼 App Check가 규칙에서 강제된 적이 없으므로, **게시 전에 반드시 확인**:
+> ① Vercel Production 환경변수에 `VITE_RECAPTCHA_SITE_KEY`가 있는가
+> ② reCAPTCHA v3 키의 도메인에 `daniel-tracker.vercel.app`이 있는가
+> ③ 배포된 앱 콘솔에 App Check 오류가 없는가 (Firebase 콘솔 → App Check에서 검증된 요청 수 확인)
+> 셋 중 하나라도 불확실하면 최종 규칙에서 `request.app != null` 조건을 빼고 게시(Auth+멤버만으로도
+> 경로 B의 핵심 보호는 성립), App Check는 이후 별도 단계로 조인다.
 
 6. **Firestore → 규칙**에 저장소의 `firestore.rules` 내용 붙여넣고 게시
 7. main 머지 → Vercel 자동 배포 (규칙 게시와 배포 사이엔 구버전 앱 동기화가 잠시 멈춤 —
