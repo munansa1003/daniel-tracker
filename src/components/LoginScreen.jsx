@@ -2,6 +2,33 @@ import { useState } from "react";
 import { THEME } from "../theme.jsx";
 import { APP_NAME } from "../data.js";
 
+// ── 인앱 브라우저 감지 (카톡·인스타·페북·네이버·라인 등) ──
+// Google OAuth는 WebView 로그인을 전면 차단한다(403 disallowed_useragent — 호스트 앱이
+// 로그인 화면을 읽거나 조작할 수 있는 구조라 피싱 방지 차원). 초대 링크가 주로 카톡으로
+// 전달되므로, 감지 시 배너 + 외부 브라우저 탈출 버튼을 보여준다.
+function getInAppBrowser() {
+  const ua = (typeof navigator !== "undefined" && navigator.userAgent) || "";
+  if (/KAKAOTALK/i.test(ua)) return "kakao";
+  if (/Instagram|FBAN|FBAV|FB_IAB/i.test(ua)) return "meta";
+  if (/NAVER\(inapp|DaumApps|Line\//i.test(ua)) return "portal";
+  if (/; wv\)/.test(ua)) return "webview"; // 안드로이드 일반 WebView 마커
+  return null;
+}
+
+// 외부(기본) 브라우저로 현재 주소 열기 — 카톡은 공식 스킴, 안드로이드는 Chrome intent.
+// iOS의 기타 인앱은 강제 이동 수단이 없어 주소 복사 버튼이 폴백.
+function openExternalBrowser() {
+  const url = window.location.href;
+  const ua = navigator.userAgent || "";
+  if (/KAKAOTALK/i.test(ua)) {
+    window.location.href = "kakaotalk://web/openExternal?url=" + encodeURIComponent(url);
+    return;
+  }
+  if (/android/i.test(ua)) {
+    window.location.href = "intent://" + window.location.host + window.location.pathname + "#Intent;scheme=https;package=com.android.chrome;end";
+  }
+}
+
 // 로그인 화면 (경로 B · 컨셉 G+C 확정) — 실측 철학 카피가 히어로(좌측 정렬, C안),
 // 하단엔 체중 라인 + 7일 이동평균 + 목표 밴드의 정적 추세 그래픽(G안)을 은은하게 깐다.
 // 인증·세션은 Firebase Auth가 전담하고, 이 컴포넌트는 버튼과 오류 표시만 담당한다.
@@ -42,6 +69,16 @@ function TrendStrip() {
 export function LoginScreen({ onGoogle, externalError }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+  const inApp = getInAppBrowser(); // UA는 세션 중 불변 — 상태 불필요
+
+  const copyUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch { /* 클립보드 미지원 인앱 — 안내 문구가 폴백 */ }
+  };
 
   const handleClick = async () => {
     if (busy) return;
@@ -88,6 +125,30 @@ export function LoginScreen({ onGoogle, externalError }) {
 
       {/* 추세 띠 — 카피와 버튼 사이 (버튼·안내문과 겹치지 않음) */}
       <TrendStrip />
+
+      {/* 인앱 브라우저 경고 — Google이 WebView 로그인을 차단하므로 탈출 경로 제공 */}
+      {inApp && (
+        <div style={{ background: "rgba(212,175,55,0.08)", border: "1px solid rgba(212,175,55,0.35)", borderRadius: 14, padding: "14px 16px", marginBottom: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: THEME.gold, marginBottom: 6 }}>
+            {inApp === "kakao" ? "카카오톡" : "이 앱의 내장"} 브라우저에서는 Google 로그인이 차단돼요
+          </div>
+          <div style={{ fontSize: 11.5, color: THEME.sub, lineHeight: 1.65, marginBottom: 10 }}>
+            Google 보안 정책이에요. Chrome이나 Safari 같은 일반 브라우저로 열면 정상 로그인됩니다.
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {(inApp === "kakao" || /android/i.test(navigator.userAgent || "")) && (
+              <button onClick={openExternalBrowser} className="dbp-btn"
+                style={{ flex: 1, padding: "11px 12px", background: THEME.gold, border: "none", borderRadius: 10, color: "#141414", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                기본 브라우저로 열기
+              </button>
+            )}
+            <button onClick={copyUrl} className="dbp-btn"
+              style={{ flex: 1, padding: "11px 12px", background: "transparent", border: `1px solid ${THEME.borderLight}`, borderRadius: 10, color: THEME.text, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+              {copied ? "복사됨! 브라우저에 붙여넣으세요" : "주소 복사"}
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="dbp-fade-d2">
         <button onClick={handleClick} disabled={busy} className="dbp-btn"
