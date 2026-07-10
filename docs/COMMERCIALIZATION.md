@@ -73,24 +73,23 @@
 
 ### 4.B 경로 B — 멀티유저 전환 (소수 공유, ~2주)
 
-1. **Firebase Auth 도입** (이메일 링크 or Google 로그인)
-   - `LoginScreen.jsx` 전면 재작성: 프로필 선택 → 실제 로그인
-   - `store.js getCurrentUserId()`: localStorage 저장 ID → `auth.currentUser.uid`
-   - 기존 Daniel 데이터 마이그레이션: `store.migrateFrom(oldUid)` 이미 존재 — 재활용
-2. **Firestore 규칙 강화** (`firestore.rules`)
-   ```
-   match /users/{uid}/data/{document=**} {
-     allow read, write: if request.app != null
-                        && request.auth != null && request.auth.uid == uid;
-   }
-   ```
-   - `_shared`(프로필 목록·공용 음식/운동 DB) 처리 결정 필요:
-     프로필 목록은 **삭제**(Auth가 대체), 공용 DB는 read-only 또는 사용자별 복사로 전환
-3. **푸시 개인화 점검**: `api/push-sync.js`·`cron-reminders.js`는 이미 uid 단위 —
-   Auth uid로 자연 전환됨. `VAPID_SUBJECT`(개인 이메일)만 서비스 주소로 교체
-4. **하드코딩 정리**: 앱 이름/아이콘의 "Daniel", `api/verify-master.js`(관리자 마스터키)
-   용도 재검토, 기본 프로필(키 175/나이 35) → 온보딩 입력으로
-5. **초대 제한**: 공개 가입 막고 초대 코드(환경변수 화이트리스트)로 소수만
+> **2026-07-08 구현 완료** (브랜치 `claude/daniel-tracker-commercialization-uj2nxs`).
+> 실배포는 Firebase 콘솔 작업이 병행돼야 함 — **`docs/DEPLOY-PATH-B.md`의 순서를 따를 것.**
+
+1. ✅ **Firebase Auth 도입** — Google 로그인 (popup + 불가 환경 redirect 폴백)
+   - `LoginScreen.jsx` 전면 재작성 (프로필 선택·PBKDF2·마스터키 제거), `src/auth.js` 신설(테스트 seam)
+   - uid 배선: `watchAuth` → `setUserId(authUser.uid)` — store의 localStorage 캐시 구조는 유지(offline-first)
+   - Daniel 데이터 마이그레이션: `store.migrateFrom` 강화(진행사진 서브컬렉션 + 미동기화 로컬 승계) +
+     운영자 전용 "기존 데이터 가져오기" 메뉴
+2. ✅ **Firestore 규칙 강화** — App Check + `request.auth.uid == uid` + 멤버 게이트
+   - `_shared` 처리: 프로필 목록 **삭제**(Auth 대체, 콘솔에서 문서 제거 필요), 공용 음식/운동 DB는
+     **멤버 읽기 전용 + 운영자만 쓰기** (지인 추가분은 개인 DB로 — `keepAnalyzedFood/Ex`)
+3. ✅ **푸시 개인화**: Auth uid로 자연 전환 + `api/push-sync.js`에 **Firebase ID 토큰 검증** 추가
+   (uid 사칭 차단). `VAPID_SUBJECT` 교체는 배포 시 Vercel env 작업(체크리스트 §5)
+4. ✅ **하드코딩 정리**: 앱 이름 "Body Plan" 중립화(`APP_NAME`), `api/verify-master.js` 삭제,
+   기본 프로필(175/35) → 온보딩 필수 입력(`ProfileSetup` 개편)
+5. ✅ **초대 제한**: `invites/{code}` + `members/{uid}` — 코드 유효성을 **보안 규칙이 강제**
+   (env 화이트리스트 대신 Firestore 방식 채택: 코드 발급·폐기에 재배포 불필요, 규칙 레벨 차단)
 
 ### 4.C 경로 C — 유료화 (B 완료 + 반응 확인 후, +6~10주)
 

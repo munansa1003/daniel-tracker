@@ -11,6 +11,28 @@
 import { checkOrigin, rateLimit } from "./_lib/security.js";
 import { kv, kvConfigured } from "./_lib/kv.js";
 
+// Firebase ID 토큰 검증 — uid 사칭(타인 구독 덮어쓰기·주간 성적표 가로채기) 차단.
+// Admin SDK 없이 Google identitytoolkit(accounts:lookup)으로 서명·만료를 검증한다.
+// API 키는 클라이언트 번들에 이미 공개된 웹 키(비밀 아님) — env로 교체 가능.
+const FIREBASE_WEB_API_KEY = process.env.FIREBASE_WEB_API_KEY || "AIzaSyDnY73MnZviHLP1W-hE7fsamOqL35lpyRc";
+
+async function verifyUid(idToken, uid) {
+  if (!idToken || typeof idToken !== "string") return false;
+  try {
+    const r = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${FIREBASE_WEB_API_KEY}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idToken }),
+    });
+    if (!r.ok) return false;
+    const data = await r.json();
+    return data?.users?.[0]?.localId === uid;
+  } catch (e) {
+    console.error("[push-sync] token verify error:", e);
+    return false;
+  }
+}
+
 export default async function handler(req, res) {
   if (!checkOrigin(req, res)) return;
   if (req.method === "OPTIONS") return res.status(200).end();
@@ -22,9 +44,12 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "Not configured" });
   }
 
-  const { uid, subscription, state, reminders, enabled } = req.body || {};
+  const { uid, idToken, subscription, state, reminders, enabled } = req.body || {};
   if (!uid || typeof uid !== "string" || uid.length > 128) {
     return res.status(400).json({ error: "uid required" });
+  }
+  if (!(await verifyUid(idToken, uid))) {
+    return res.status(401).json({ error: "auth required" });
   }
 
   try {

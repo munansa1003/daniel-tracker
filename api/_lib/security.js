@@ -79,14 +79,3 @@ export async function rateLimit(req, res, { key, max, windowSec = 60 }) {
     return true; // KV 장애 시 fail-open
   }
 }
-
-// 타이밍 안전 문자열 비교 (마스터키 검증용)
-export function safeEqual(a, b) {
-  if (typeof a !== "string" || typeof b !== "string") return false;
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return diff === 0;
-}

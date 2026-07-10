@@ -5,21 +5,32 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 
+// Firebase Auth 대체 — 로그인된 사용자를 즉시 발화시켜 MainApp까지 진입 (firebase/auth 미로딩)
+vi.mock("../auth.js", () => ({
+  OWNER_EMAIL: "munansa@gmail.com",
+  isOwnerEmail: (e) => e === "munansa@gmail.com",
+  watchAuth: (cb) => { cb({ uid: "auth-uid-1", email: "munansa@gmail.com", displayName: "Daniel" }); return () => {}; },
+  signInWithGoogle: async () => {},
+  signOutUser: async () => {},
+  getIdToken: async () => null,
+}));
+
 vi.mock("../store.js", () => {
-  const profile = { id: "daniel", name: "Daniel", height: 175, age: 42, targetFat: 15, color: "#4a8fc9", createdAt: "2025-01-01T00:00:00.000Z" };
+  const profile = { name: "Daniel", height: 175, age: 42, targetFat: 15, color: "#4a8fc9", createdAt: "2025-01-01T00:00:00.000Z" };
   return {
     default: {
       getLocalAll: () => ({}),
       getAllData: async () => ({ "day:2025-02-03": { meals: [{ n: "스모크밥", k: 520, serving: 1, p: 30, c: 60, f: 10, hour: 13 }], exercises: [{ n: "스모크런", kcal: 300, duration: 30, m: 6, hour: 18 }] } }),
-      get: async () => null,
+      get: async (key) => (key === "profile" ? profile : null),
       set: async () => {},
       flushPendingSync: async () => 0,
     },
-    getCurrentUserId: () => "daniel",
+    getCurrentUserId: () => "auth-uid-1",
     setUserId: () => {},
     logout: () => {},
-    getProfiles: async () => [profile],
-    saveProfiles: async () => {},
+    getMembership: async () => ({ email: "munansa@gmail.com", joinedAt: "2026-07-01T00:00:00.000Z" }),
+    joinWithInvite: async () => ({ ok: true }),
+    getMigratedMark: () => null,
     getSharedFoods: async () => [],
     addSharedFood: async () => [],
     getSharedExercises: async () => [],

@@ -14,9 +14,10 @@
 | 프론트 | React 18 + Vite 5, recharts, 인라인 스타일 (CSS 파일 없음) |
 | PWA | vite-plugin-pwa (Workbox). 수동 sw.js/manifest 없음 — 빌드 시 자동 생성. vite.config의 `manualChunks`로 firebase·recharts·vendor 청크 분리(앱 코드만 바뀌면 큰 라이브러리는 SW 캐시 유지 → 업데이트 재다운 최소) |
 | 데이터 | Firebase Firestore(주 저장소) + localStorage(캐시/오프라인 폴백). `src/store.js`가 추상화 |
+| 인증 | **Firebase Auth Google 로그인 + 초대 코드**(경로 B, 2026-07). 흐름: 로그인 → `members/{uid}`(규칙이 `invites/{code}` 검증) → 온보딩(`data/profile`) → MainApp. `src/auth.js`가 seam. 규칙·배포 순서는 `docs/DEPLOY-PATH-B.md` |
 | 백엔드 | Vercel 서버리스 `api/*` — Claude API로 음식/운동/체성분 AI 분석 |
 | 배포 | main에 머지 → Vercel 자동 배포 (https://daniel-tracker.vercel.app) |
-| 사용자 프로필 | 175cm · 1984년생(42세) · ~77kg · 목표: 근육 유지하며 완만~표준 감량 |
+| 사용자 프로필 | 175cm · 1984년생(42세) · ~77kg · 목표: 근육 유지하며 완만~표준 감량. 멀티유저 전환 후에도 Daniel 계정의 캘리브레이션 값은 §3 그대로 |
 
 **TS 없음, 최소 ESLint(`npm run lint`) + Vitest(`npm test`)** — 빌드 성공이 변수 참조 오류를 잡아주지 못하므로(아래 §6 주의) ESLint 3규칙(no-undef · react/jsx-no-undef · rules-of-hooks)이 import 누락을 정적으로, 순수 함수 단위 테스트 + App 렌더 스모크가 동작을 방어. 스타일 규칙은 의도적으로 없음.
 
@@ -38,10 +39,12 @@ src/
 │                    순서(⚠️ Firestore는 오프라인에서 reject가 아니라 무한 대기라, await 뒤에 두면 앱 종료 시 유실).
 │                    flushPendingSync가 localStorage "현재 값"을 재전송. ⚠️ flush는 반드시 getAllData "이전"에
 │                    (순서 바뀌면 Firestore 옛값이 로컬 최신을 덮음 — MainApp Phase 2와 online 이벤트에 배선됨)
-├── firebase.js      Firebase 초기화 + App Check(reCAPTCHA v3, VITE_RECAPTCHA_SITE_KEY)
+├── firebase.js      Firebase 초기화 + App Check(reCAPTCHA v3, VITE_RECAPTCHA_SITE_KEY) + Auth(getAuth)
+├── auth.js          Firebase Auth 래퍼(watchAuth·signInWithGoogle·getIdToken·OWNER_EMAIL).
+│                    App.jsx/push.js가 firebase/auth를 직접 안 만지는 seam — 테스트는 이 모듈만 mock
 ├── data.js          기본 음식/운동 DB, DEFAULT_TARGETS, COLORS
 └── main.jsx         진입점
-api/                 서버리스 (analyze-food/exercise/body, verify-master, _lib/security.js)
+api/                 서버리스 (analyze-food/exercise/body, push-sync(ID토큰 검증), cron-reminders, _lib/security.js)
 vitest.config.js     테스트 전용 설정 (PWA 플러그인 미로딩)
 ```
 
@@ -118,8 +121,9 @@ BMR = Mifflin-St Jeor (10W + 6.25H − 5A + 5)
 | components/AddExForm.jsx | AddExForm | **weight prop 필요** |
 | components/EditMealForm.jsx | EditMealForm | periodOf 사용 |
 | components/EditExForm.jsx | EditExForm | **weight prop 필요**, periodOf 사용 |
-| components/ProfileSetup.jsx | ProfileSetup | PROFILE_COLORS 사용 |
-| components/LoginScreen.jsx | LoginScreen + 비밀번호 해싱 유틸(비공개) | PBKDF2-SHA256 10만회 + 레거시 SHA-256/평문 호환(PR #1)은 LoginScreen만 사용해 같은 파일에 module-private으로 둠. store의 프로필 CRUD 사용 |
+| components/ProfileSetup.jsx | ProfileSetup | 온보딩(경로 B): 이름·키·나이·목표체지방 → `data/profile` 저장. 비밀번호 필드는 Auth 대체로 제거. uid 시드 결정적 색상 |
+| components/LoginScreen.jsx | LoginScreen | Google 로그인 버튼 + 오류 표시(경로 B 전면 재작성). 프로필 선택·PBKDF2·마스터키 로직 제거 — 인증은 auth.js/Firebase가 전담 |
+| components/InviteGate.jsx | InviteGate | 초대 코드 입력(비멤버 로그인 후). 코드 검증은 클라이언트가 아니라 보안 규칙(invites/{code}.active) |
 
 ### App.jsx에 남은 것 (~2,950줄, 라인은 2026-06 기준)
 

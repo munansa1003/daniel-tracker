@@ -10,7 +10,7 @@ export default defineConfig({
       injectRegister: 'auto',
       includeAssets: ['favicon.svg', 'icon-192.png', 'icon-512.png', 'offline.html'],
       manifest: {
-        name: 'Daniel Body Plan',
+        name: 'Body Plan',
         short_name: 'BodyPlan',
         description: '식단 · 운동 · 체성분 관리',
         theme_color: '#141414',

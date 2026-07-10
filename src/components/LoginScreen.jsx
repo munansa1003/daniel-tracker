@@ -1,286 +1,105 @@
-import { useState, useEffect } from "react";
-import { getProfiles, saveProfiles } from "../store.js";
-import { THEME, PROFILE_COLORS } from "../theme.jsx";
-import { ProfileSetup } from "./ProfileSetup.jsx";
+import { useState } from "react";
+import { THEME } from "../theme.jsx";
+import { APP_NAME } from "../data.js";
 
-/* ───── 비밀번호 해싱 (평문 저장 방지 + brute-force 저항) ─────
-   PBKDF2-HMAC-SHA256 (10만 회 반복) + 프로필별 랜덤 salt 사용.
-   저장 포맷에 algo/iters를 함께 기록해 향후 파라미터 상향이 가능하다.
-   crypto.subtle은 보안 컨텍스트(https/localhost)에서만 동작하므로,
-   불가한 환경(예: http://LAN-IP)에서는 기존 평문 방식으로 폴백한다. */
-const PWD_ALGO = "pbkdf2-sha256";
-const PBKDF2_ITERS = 100000;
+// 로그인 화면 (경로 B · 컨셉 G+C 확정) — 실측 철학 카피가 히어로(좌측 정렬, C안),
+// 하단엔 체중 라인 + 7일 이동평균 + 목표 밴드의 정적 추세 그래픽(G안)을 은은하게 깐다.
+// 인증·세션은 Firebase Auth가 전담하고, 이 컴포넌트는 버튼과 오류 표시만 담당한다.
+// 이전 구현의 프로필 목록·PBKDF2 비밀번호·마스터키(/api/verify-master)는 Auth 도입으로 제거됨.
 
-function cryptoAvailable() {
-  return typeof crypto !== "undefined" && crypto.subtle
-    && typeof crypto.subtle.deriveBits === "function"
-    && typeof crypto.subtle.importKey === "function";
-}
-function bytesToHex(bytes) {
-  return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
-}
-function hexToBytes(hex) {
-  const arr = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < arr.length; i++) arr[i] = parseInt(hex.substr(i * 2, 2), 16);
-  return arr;
-}
-function genSalt() {
-  const arr = new Uint8Array(16);
-  crypto.getRandomValues(arr);
-  return bytesToHex(arr);
-}
-// PBKDF2 파생 (현재 방식)
-async function pbkdf2Hash(password, saltHex, iterations) {
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw", new TextEncoder().encode(password), { name: "PBKDF2" }, false, ["deriveBits"]
+function GoogleLogo() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
+      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+      <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+    </svg>
   );
-  const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", salt: hexToBytes(saltHex), iterations, hash: "SHA-256" },
-    keyMaterial, 256
+}
+
+// 추세 띠 — 체중 라인(흰) + 7일 이동평균(골드) + 목표 밴드. 데이터 없이 그려지는
+// 결정적 장식(무작위 아님). 로그인은 앱 본체보다 먼저 뜨는 화면이라 recharts를 끌어오지
+// 않고 정적 SVG로 그린다. 카피와 버튼 "사이"의 독립 블록이라 어떤 요소와도 겹치지 않고,
+// 위·아래 페이드로 배경에 떠 있는 것처럼 섞인다.
+function TrendStrip() {
+  return (
+    <div aria-hidden="true" style={{ position: "relative", height: 140, margin: "0 -24px 20px", pointerEvents: "none" }}>
+      <svg width="100%" height="140" viewBox="0 0 300 250" preserveAspectRatio="none" style={{ display: "block" }}>
+        {[60, 110, 160, 210].map(y => <line key={y} x1="0" y1={y} x2="300" y2={y} stroke="rgba(255,255,255,0.05)" />)}
+        <polygon points="0,88 300,158 300,216 0,142" fill="rgba(212,175,55,0.09)" />
+        <polyline points="0,96 30,128 60,106 90,146 120,124 150,160 180,138 210,170 240,150 270,184 300,164" fill="none" stroke="rgba(245,245,240,0.38)" strokeWidth="1.5" />
+        <polyline points="0,110 50,118 100,130 150,142 200,154 250,164 300,172" fill="none" stroke="#d4af37" strokeWidth="2" opacity="0.65" />
+        <circle cx="90" cy="146" r="2" fill="rgba(245,245,240,0.55)" />
+        <circle cx="180" cy="138" r="2" fill="rgba(245,245,240,0.55)" />
+        <circle cx="300" cy="172" r="3.5" fill="#d4af37" opacity="0.85" />
+      </svg>
+      <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, #141414 0%, rgba(20,20,20,0) 38%, rgba(20,20,20,0) 62%, #141414 100%)" }} />
+    </div>
   );
-  return bytesToHex(new Uint8Array(bits));
-}
-// 레거시 단일 SHA-256 (이전 구현 호환용 — 검증 시에만 사용)
-async function sha256Hash(password, salt) {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(salt + ":" + password));
-  return bytesToHex(new Uint8Array(buf));
-}
-// 비밀번호 필드 생성 (생성/업그레이드 공통)
-async function makePasswordFields(plainPw) {
-  const passwordSalt = genSalt();
-  const passwordHash = await pbkdf2Hash(plainPw, passwordSalt, PBKDF2_ITERS);
-  return { passwordHash, passwordSalt, passwordAlgo: PWD_ALGO, passwordIters: PBKDF2_ITERS };
-}
-// 검증: PBKDF2 → 레거시 SHA-256 → 평문 순으로 호환 (어떤 단계 사용자든 잠금 없음)
-async function verifyProfilePassword(profile, candidate) {
-  if (profile.passwordAlgo === PWD_ALGO) {
-    if (!cryptoAvailable()) return false;
-    try { return (await pbkdf2Hash(candidate, profile.passwordSalt || "", profile.passwordIters || PBKDF2_ITERS)) === profile.passwordHash; }
-    catch { return false; }
-  }
-  if (profile.passwordHash) { // 레거시 단일 SHA-256
-    if (!cryptoAvailable()) return false;
-    try { return (await sha256Hash(candidate, profile.passwordSalt || "")) === profile.passwordHash; }
-    catch { return false; }
-  }
-  if (profile.password != null) return candidate === profile.password; // 평문
-  return false;
 }
 
-// 로그인 화면 (A안 - 프로필 선택형)
-export function LoginScreen({ onLogin }) {
-  const [profiles, setProfiles] = useState([]);
-  const [showNew, setShowNew] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [pwModal, setPwModal] = useState(null); // 비밀번호 입력 대상 프로필
-  const [pw, setPw] = useState("");
-  const [pwError, setPwError] = useState(false);
-  const [pwSubmitting, setPwSubmitting] = useState(false);
-  const [deleteIdx, setDeleteIdx] = useState(null); // 삭제 대상 인덱스
-  const [adminPw, setAdminPw] = useState("");
-  const [adminPwError, setAdminPwError] = useState(false);
-  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
+export function LoginScreen({ onGoogle, externalError }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
-  // 관리자 마스터키는 클라이언트 번들에 두지 않고 서버(/api/verify-master)에서 검증
-  // 본인 비번은 클라이언트에서 즉시 비교 (서버 라운드트립 불필요)
-  const verifyMasterKey = async (candidate) => {
+  const handleClick = async () => {
+    if (busy) return;
+    setBusy(true); setError("");
     try {
-      const res = await fetch("/api/verify-master", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pw: candidate }),
-      });
-      if (!res.ok) return false;
-      const data = await res.json();
-      return !!data.ok;
-    } catch {
-      return false;
-    }
-  };
-
-  useEffect(() => {
-    getProfiles().then(p => { setProfiles(p); setLoading(false); });
-  }, []);
-
-  const handleCreate = async (profile) => {
-    let toSave = profile;
-    // 비밀번호가 있으면 해싱하여 저장 (평문 저장 방지)
-    if (profile.password && cryptoAvailable()) {
-      try {
-        const { password, ...rest } = profile;
-        toSave = { ...rest, ...(await makePasswordFields(profile.password)) };
-      } catch (e) { console.error("password hashing failed, storing as-is:", e); }
-    }
-    const newProfiles = [...profiles, toSave];
-    setProfiles(newProfiles);
-    await saveProfiles(newProfiles);
-    setShowNew(false);
-    onLogin(toSave);
-  };
-
-  const handleDeleteRequest = (idx, e) => {
-    e.stopPropagation();
-    setDeleteIdx(idx);
-    setAdminPw("");
-    setAdminPwError(false);
-  };
-
-  const handleDeleteConfirm = async () => {
-    if (deleteSubmitting) return;
-    setDeleteSubmitting(true);
-    try {
-      const ok = await verifyMasterKey(adminPw);
-      if (!ok) {
-        setAdminPwError(true);
-        return;
-      }
-      const newProfiles = profiles.filter((_, i) => i !== deleteIdx);
-      setProfiles(newProfiles);
-      await saveProfiles(newProfiles);
-      setDeleteIdx(null);
-    } finally {
-      setDeleteSubmitting(false);
-    }
-  };
-
-  const handleProfileClick = (profile) => {
-    if (profile.password || profile.passwordHash) {
-      setPwModal(profile);
-      setPw("");
-      setPwError(false);
-    } else {
-      onLogin(profile);
-    }
-  };
-
-  // 로그인 성공 시, 아직 PBKDF2가 아닌 프로필(평문 또는 레거시 SHA-256)을 자동 업그레이드
-  const upgradePasswordIfNeeded = async (profile, plainPw) => {
-    if (profile.passwordAlgo === PWD_ALGO || !cryptoAvailable()) return;
-    if (!profile.passwordHash && profile.password == null) return; // 비번 없는 프로필
-    try {
-      const fields = await makePasswordFields(plainPw);
-      const upgraded = profiles.map(p => {
-        if (p === profile || (p.id === profile.id && p.createdAt === profile.createdAt)) {
-          const { password, ...rest } = p;
-          return { ...rest, ...fields };
-        }
-        return p;
-      });
-      setProfiles(upgraded);
-      await saveProfiles(upgraded);
-    } catch (e) { console.error("password upgrade failed:", e); }
-  };
-
-  const handlePwSubmit = async () => {
-    if (pwSubmitting) return;
-    setPwSubmitting(true);
-    try {
-      // 1) 본인 비번 검증 (해시 또는 평문) — 오프라인에서도 동작
-      if (await verifyProfilePassword(pwModal, pw)) {
-        await upgradePasswordIfNeeded(pwModal, pw);
-        setPwModal(null);
-        onLogin(pwModal);
-        return;
-      }
-      // 2) 마스터키는 서버에서 검증 (브루트포스 방지 + 번들 노출 제거)
-      const ok = await verifyMasterKey(pw);
-      if (ok) {
-        setPwModal(null);
-        onLogin(pwModal);
+      await onGoogle();
+      // 성공 — watchAuth의 멤버십 판정이 끝나 화면이 전환(언마운트)될 때까지 busy 유지.
+      // 여기서 풀면 느린 네트워크에서 "로그인이 안 됐다"로 오인하고 재시도하게 된다.
+      // (리다이렉트 폴백이면 페이지 이탈이라 어차피 무관)
+    } catch (e) {
+      const code = e && e.code;
+      if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
+        // 사용자가 취소 — 오류 아님
+      } else if (code === "auth/network-request-failed") {
+        setError("네트워크 오류 — 온라인 상태를 확인하세요");
       } else {
-        setPwError(true);
+        setError("로그인에 실패했어요. 잠시 후 다시 시도해주세요.");
+        console.error("login error:", e);
       }
-    } finally {
-      setPwSubmitting(false);
+      setBusy(false);
     }
   };
 
-  if (loading) return <div style={{ background: THEME.bg, color: THEME.sub, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>로딩 중...</div>;
+  const shownError = error || externalError;
 
   return (
-    <div style={{ background: THEME.bg, color: THEME.text, minHeight: "100vh", maxWidth: 480, margin: "0 auto", padding: "60px 24px" }}>
-      <div style={{ textAlign: "center", marginBottom: 32 }}>
-        <div style={{ fontSize: 24, fontWeight: 500, marginBottom: 6, letterSpacing: "-0.5px" }}>Daniel Body Plan</div>
-        <div style={{ fontSize: 12, color: THEME.gold, opacity: 0.6, letterSpacing: "2px", textTransform: "uppercase" }}>사용자를 선택하세요</div>
+    <div style={{ background: THEME.bg, color: THEME.text, minHeight: "100vh", maxWidth: 480, margin: "0 auto", padding: "26px 24px 30px", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+      {/* 상단 브랜드 (초대·온보딩 화면과 공통 모티프) */}
+      <div className="dbp-fade" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ width: 5, height: 5, borderRadius: "50%", background: THEME.gold }} />
+        <span style={{ fontSize: 14, fontWeight: 500, letterSpacing: "-0.5px" }}>{APP_NAME}</span>
       </div>
 
-      {showNew ? (
-        <ProfileSetup onSave={handleCreate} onCancel={() => setShowNew(false)} colorIdx={profiles.length} />
-      ) : (
-        <>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
-            {profiles.map((p, i) => (
-              <div key={i} onClick={() => handleProfileClick(p)} className="dbp-btn dbp-fade"
-                style={{ background: THEME.card, border: `1px solid ${THEME.border}`, borderRadius: 16, padding: "18px 10px", textAlign: "center", cursor: "pointer", position: "relative", boxShadow: THEME.shadow, animationDelay: `${i * 0.06}s` }}>
-                <button onClick={(e) => handleDeleteRequest(i, e)}
-                  style={{ position: "absolute", top: 6, right: 8, background: "none", border: "none", color: THEME.hint, fontSize: 14, cursor: "pointer" }}>✕</button>
-                <div style={{ width: 52, height: 52, borderRadius: "50%", background: p.color || PROFILE_COLORS[i % PROFILE_COLORS.length], margin: "0 auto 10px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 500, color: "#fff" }}>
-                  {p.name.charAt(0).toUpperCase()}
-                </div>
-                <div style={{ fontSize: 15, fontWeight: 500 }}>{p.name}</div>
-                <div style={{ fontSize: 11, color: THEME.sub, marginTop: 4 }}>목표 체지방 {p.targetFat}%</div>
-                {(p.password || p.passwordHash) && <div style={{ fontSize: 10, color: THEME.hint, marginTop: 4 }}>🔒</div>}
-              </div>
-            ))}
-
-            <div onClick={() => setShowNew(true)} className="dbp-btn dbp-fade"
-              style={{ background: THEME.card, border: `1px dashed rgba(212,175,55,0.2)`, borderRadius: 16, padding: "18px 10px", textAlign: "center", cursor: "pointer", boxShadow: THEME.shadow }}>
-              <div style={{ width: 52, height: 52, borderRadius: "50%", background: THEME.surface, margin: "0 auto 10px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, color: THEME.gold }}>+</div>
-              <div style={{ fontSize: 15, color: THEME.sub }}>새 사용자</div>
-              <div style={{ fontSize: 11, color: THEME.hint, marginTop: 4 }}>추가하기</div>
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* 비밀번호 입력 모달 */}
-      {pwModal && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div onClick={() => setPwModal(null)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.65)" }} />
-          <div style={{ position: "relative", width: "90%", maxWidth: 340, background: "#1e1e1e", borderRadius: 16, padding: 24 }}>
-            <div style={{ textAlign: "center", marginBottom: 20 }}>
-              <div style={{ width: 52, height: 52, borderRadius: "50%", background: pwModal.color || "#4a8fc9", margin: "0 auto 10px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 500, color: "#fff" }}>
-                {pwModal.name.charAt(0).toUpperCase()}
-              </div>
-              <div style={{ fontSize: 16, fontWeight: 500 }}>{pwModal.name}</div>
-            </div>
-            <div style={{ fontSize: 12, color: "#707070", marginBottom: 6 }}>비밀번호</div>
-            <input type="password" value={pw} onChange={e => { setPw(e.target.value); setPwError(false); }}
-              onKeyDown={e => e.key === "Enter" && handlePwSubmit()}
-              placeholder="비밀번호를 입력하세요"
-              autoFocus
-              style={{ width: "100%", padding: 12, background: "#252525", border: `1px solid ${pwError ? "#e05252" : "rgba(255,255,255,0.08)"}`, borderRadius: 8, color: "#f5f5f0", fontSize: 15, boxSizing: "border-box", marginBottom: 6 }} />
-            {pwError && <div style={{ fontSize: 12, color: "#e05252", marginBottom: 8 }}>비밀번호가 틀렸습니다</div>}
-            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-              <button onClick={() => setPwModal(null)} disabled={pwSubmitting} style={{ flex: 1, padding: 12, background: "#2a2a2a", border: "none", borderRadius: 16, color: "#8a8a8a", fontSize: 14, cursor: pwSubmitting ? "not-allowed" : "pointer", opacity: pwSubmitting ? 0.6 : 1 }}>취소</button>
-              <button onClick={handlePwSubmit} disabled={pwSubmitting} style={{ flex: 1, padding: 12, background: "#d4af37", border: "none", borderRadius: 12, color: "#141414", fontSize: 14, fontWeight: 500, cursor: pwSubmitting ? "not-allowed" : "pointer", opacity: pwSubmitting ? 0.6 : 1 }}>{pwSubmitting ? "확인 중..." : "로그인"}</button>
-            </div>
-          </div>
+      {/* 히어로 카피 — 이 앱의 차별점(실측 캘리브레이션 철학)을 정면에 */}
+      <div className="dbp-fade-d1" style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+        <div style={{ fontSize: 30, lineHeight: 1.42, fontWeight: 600, letterSpacing: "-0.8px" }}>
+          공식을 믿지 말고,<br /><span style={{ color: THEME.gold }}>실측으로</span> 보정하라.
         </div>
-      )}
-
-      {/* 관리자 비밀번호 삭제 모달 */}
-      {deleteIdx !== null && profiles[deleteIdx] && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div onClick={() => setDeleteIdx(null)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.65)" }} />
-          <div style={{ position: "relative", width: "90%", maxWidth: 340, background: "#1e1e1e", borderRadius: 16, padding: 24 }}>
-            <div style={{ textAlign: "center", marginBottom: 16 }}>
-              <div style={{ fontSize: 16, fontWeight: 500, color: "#e05252" }}>프로필 삭제</div>
-              <div style={{ fontSize: 13, color: "#707070", marginTop: 6 }}>"{profiles[deleteIdx].name}"을(를) 삭제하려면<br/>관리자 비밀번호를 입력하세요</div>
-            </div>
-            <input type="password" value={adminPw} onChange={e => { setAdminPw(e.target.value); setAdminPwError(false); }}
-              onKeyDown={e => e.key === "Enter" && handleDeleteConfirm()}
-              placeholder="관리자 비밀번호"
-              autoFocus
-              style={{ width: "100%", padding: 12, background: "#252525", border: `1px solid ${adminPwError ? "#e05252" : "rgba(255,255,255,0.08)"}`, borderRadius: 8, color: "#f5f5f0", fontSize: 15, boxSizing: "border-box", marginBottom: 6 }} />
-            {adminPwError && <div style={{ fontSize: 12, color: "#e05252", marginBottom: 8 }}>관리자 비밀번호가 틀렸습니다</div>}
-            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-              <button onClick={() => setDeleteIdx(null)} disabled={deleteSubmitting} style={{ flex: 1, padding: 12, background: "#2a2a2a", border: "none", borderRadius: 16, color: "#8a8a8a", fontSize: 14, cursor: deleteSubmitting ? "not-allowed" : "pointer", opacity: deleteSubmitting ? 0.6 : 1 }}>취소</button>
-              <button onClick={handleDeleteConfirm} disabled={deleteSubmitting} style={{ flex: 1, padding: 12, background: "#e05252", border: "none", borderRadius: 16, color: "#fff", fontSize: 14, fontWeight: 500, cursor: deleteSubmitting ? "not-allowed" : "pointer", opacity: deleteSubmitting ? 0.6 : 1 }}>{deleteSubmitting ? "확인 중..." : "삭제"}</button>
-            </div>
-          </div>
+        <div style={{ width: 34, height: 2, background: THEME.gold, opacity: 0.7, margin: "20px 0 14px" }} />
+        <div style={{ fontSize: 12, color: THEME.sub, lineHeight: 1.75 }}>
+          7개월의 실사용 데이터로 다듬은<br />식단 · 운동 · 체성분 기록 도구.
         </div>
-      )}
+      </div>
+
+      {/* 추세 띠 — 카피와 버튼 사이 (버튼·안내문과 겹치지 않음) */}
+      <TrendStrip />
+
+      <div className="dbp-fade-d2">
+        <button onClick={handleClick} disabled={busy} className="dbp-btn"
+          style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, width: "100%", padding: "14px 20px", background: "transparent", border: "1px solid rgba(255,255,255,0.28)", borderRadius: 14, color: THEME.text, fontSize: 15, fontWeight: 600, cursor: busy ? "wait" : "pointer", opacity: busy ? 0.7 : 1 }}>
+          <GoogleLogo />
+          {busy ? "로그인 중..." : "Google로 계속하기"}
+        </button>
+        {shownError && <div style={{ fontSize: 12, color: "#e05252", marginTop: 12, textAlign: "center" }}>{shownError}</div>}
+        <div style={{ fontSize: 11, color: THEME.sub, marginTop: 16, lineHeight: 1.7, textAlign: "center" }}>
+          초대받은 사용자만 이용할 수 있어요. 로그인 후 초대 코드를 입력합니다.
+        </div>
+      </div>
     </div>
   );
 }

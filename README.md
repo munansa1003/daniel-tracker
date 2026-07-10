@@ -1,4 +1,4 @@
-# Daniel Tracker (Daniel Body Plan) — 식단·운동·체성분 관리 웹앱
+# Daniel Tracker (Body Plan) — 식단·운동·체성분 관리 웹앱
 
 스마트폰 홈 화면에서 앱처럼 사용할 수 있는 **PWA(Progressive Web App)**입니다.
 **Firebase Firestore로 여러 기기 간 데이터가 동기화**되며, **AI(Claude)**가 음식·운동·체성분을 분석해 줍니다.
@@ -8,14 +8,14 @@
 
 ## ✨ 주요 기능
 
-- **멀티 사용자 프로필** — 로그인 화면에서 프로필 선택/생성, 프로필별 비밀번호(선택), 관리자 마스터키로 삭제
+- **멀티 사용자 (초대제)** — Google 로그인(Firebase Auth) + 초대 코드 가입. 보안 규칙이 본인 데이터만 접근 허용
 - **AI 분석** (Anthropic Claude Haiku)
   - 음식: 텍스트(예: "닭볶음탕 1인분") 또는 **사진**으로 단백질·탄수·지방·칼로리 추정
   - 운동: 운동명으로 MET 계수(강도별) 추정
   - 체성분: 측정 변화 + 식단/운동 데이터를 종합한 코칭 피드백
 - **식단/운동/체성분 기록** — 시간대별 그룹핑, 롱프레스 수정/삭제, Net 칼로리 신호등
 - **통계** — 주/월/년 집계, 7일 이동평균 차트(Recharts), CSV 내보내기
-- **공용 DB** — 모든 사용자가 함께 쓰는 음식/운동 DB (앱 내 "DB 관리"에서 편집)
+- **공용 DB** — 함께 읽는 음식/운동 DB (읽기 전용 공유 · 쓰기는 운영자만, 개인 추가분은 각자 DB에)
 - **PWA** — 홈 화면 설치, 오프라인 동작
 
 ---
@@ -50,14 +50,16 @@ daniel-tracker/
 │   ├── analyze-food.js     # 음식(텍스트/사진) → 영양성분
 │   ├── analyze-exercise.js # 운동 → MET 계수
 │   ├── analyze-body.js     # 체성분 변화 → 코칭
-│   ├── verify-master.js    # 관리자 마스터키 검증
-│   └── _lib/security.js    # checkOrigin / rateLimit / safeEqual
+│   ├── push-sync.js        # 웹푸시 구독/상태 (Firebase ID 토큰 검증)
+│   ├── cron-reminders.js   # 예약 푸시 크론 (매일 20:00 KST)
+│   └── _lib/security.js    # checkOrigin / rateLimit
 └── src/
     ├── main.jsx            # React 진입점
     ├── App.jsx             # 전체 UI + 로직
-    ├── firebase.js         # Firebase 초기화 + App Check
-    ├── store.js            # Firestore 저장소 (localStorage 폴백)
-    └── data.js             # 기본 음식/운동 DB + 목표값
+    ├── firebase.js         # Firebase 초기화 + App Check + Auth
+    ├── auth.js             # Google 로그인 / 세션 / ID 토큰 (Firebase Auth 래퍼)
+    ├── store.js            # Firestore 저장소 (localStorage 폴백) + 멤버십/마이그레이션
+    └── data.js             # 기본 음식/운동 DB + 목표값 + APP_NAME
 ```
 
 > ℹ️ 서비스워커와 매니페스트는 `vite-plugin-pwa`가 빌드 시 자동 생성합니다(수동 `sw.js`/`manifest.json` 없음).
@@ -72,7 +74,10 @@ daniel-tracker/
 |------|------|:---:|------|
 | `VITE_RECAPTCHA_SITE_KEY` | 프론트(빌드) | ✅ | App Check(reCAPTCHA v3). 미설정 시 App Check 비활성 → `firestore.rules` 배포 상태면 **앱이 Firestore 접근 불가** |
 | `ANTHROPIC_API_KEY` | 서버리스 | ✅ | Claude API 키. 없으면 AI 분석 전부 실패(500) |
-| `ADMIN_MASTER_KEY` | 서버리스 | ✅ | 관리자 마스터키 검증(프로필 삭제/비번 우회) |
+| `VITE_VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | 빌드+서버리스 | 선택 | 웹푸시(리마인더·주간 성적표). 미설정 시 푸시 기능 비활성 |
+| `CRON_SECRET` | 서버리스 | 선택 | 크론 엔드포인트 보호 (Vercel이 헤더 자동 첨부) |
+| `FIREBASE_WEB_API_KEY` | 서버리스 | 선택 | push-sync ID 토큰 검증용. 미설정 시 코드의 공개 웹 키 사용 |
+| `VITE_OWNER_EMAIL` | 프론트(빌드) | 선택 | 운영자 이메일 교체 시(기본 하드코딩). **firestore.rules의 isOwner()도 함께 수정** |
 | `PRODUCTION_ORIGIN` | 서버리스 | ✅ | API origin 화이트리스트(콤마로 여러 개). 미설정 시 프로덕션 도메인의 API 호출이 403 |
 | `KV_REST_API_URL` / `KV_REST_API_TOKEN` | 서버리스 | 선택 | IP별 rate limit. 미설정 시 rate limit이 **fail-open(통과)** — AI 비용 남용 위험 |
 | `UPSTASH_REDIS_REST_URL` / `_TOKEN` | 서버리스 | 선택 | 위 KV 대신 사용 가능한 대체 키 |
