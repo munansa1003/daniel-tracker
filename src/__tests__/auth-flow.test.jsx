@@ -73,6 +73,33 @@ describe("인증 상태 기계 (경로 B)", () => {
     await act(async () => { root.unmount(); });
   });
 
+  it("카카오톡 인앱 브라우저 → 로그인 차단 안내 배너 + 탈출 버튼", async () => {
+    // Google OAuth의 WebView 차단(403 disallowed_useragent) 대응 배너 — UA를 카톡으로 위장
+    const desc = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(window.navigator), "userAgent");
+    Object.defineProperty(window.navigator, "userAgent", {
+      value: "Mozilla/5.0 (Linux; Android 14; SM-S921N) AppleWebKit/537.36 KAKAOTALK/25.1.0",
+      configurable: true,
+    });
+    try {
+      const { div, root } = await render();
+      expect(div.textContent).toContain("Google 로그인이 차단");
+      expect(div.textContent).toContain("기본 브라우저로 열기");
+      expect(div.textContent).toContain("주소 복사");
+      await act(async () => { root.unmount(); });
+    } finally {
+      delete window.navigator.userAgent; // 인스턴스 섀도 제거 → 프로토타입 getter 복원
+      if (!("userAgent" in window.navigator) && desc) {
+        Object.defineProperty(Object.getPrototypeOf(window.navigator), "userAgent", desc);
+      }
+    }
+  });
+
+  it("일반 브라우저 → 인앱 배너 없음", async () => {
+    const { div, root } = await render();
+    expect(div.textContent).not.toContain("Google 로그인이 차단");
+    await act(async () => { root.unmount(); });
+  });
+
   it("로그인 + 비멤버(일반 계정) → 초대 코드 게이트", async () => {
     holder.user = { uid: "u-friend", email: "friend@example.com", displayName: "친구" };
     const { div, root } = await render();
