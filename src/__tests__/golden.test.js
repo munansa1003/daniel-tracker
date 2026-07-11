@@ -1,6 +1,6 @@
 // 골든셋 — 표준 시료를 순수 계산 계층에 통과시켜 출력 전체를 고정한다.
 // 시료: fixtures/golden-sample.json — 실제 백업 파일 형식(BACKUP_SCHEMA) 그대로,
-// 결정적으로 생성된 28일치 기록(24일 기록·10회 측정·감량 추세).
+// 결정적으로 생성된 기록 38일치(2026-05-15~06-30)·체성분 10회 측정·감량 추세.
 // 이 값들이 바뀌는 것은 계산 로직이 바뀌었다는 뜻이다. 의도된 변경이라면
 // 왜 바뀌는지 확인하고 골든 값을 갱신하되, 의도가 없다면 회귀다.
 import { describe, it, expect } from "vitest";
@@ -87,7 +87,8 @@ describe("골든셋: 기간 차트 시리즈", () => {
         { k: 1586, ok: true }, { k: 1578, ok: true }, { k: 1586, ok: true },
         { k: 1741, ok: false }, { k: 1423, ok: true }, { k: 1586, ok: true },
         { k: 1578, ok: true }, { k: 1586, ok: true },
-        // 마지막 날만 maintain 모드(목표 1784) → 같은 1741이어도 적정 판정
+        // 마지막 날(06-30)만 maintain 모드가 판정을 뒤집는다(목표 1784 → 같은 1741도 적정).
+        // 다른 maintain일(06-09·06-16)은 값이 cut 목표(1609) 이하라 모드와 무관하게 적정.
         { k: 1741, ok: true },
       ],
       targetK: 1609, min: 1423, max: 1741, overCount: 4, n: 24,
@@ -116,5 +117,85 @@ describe("골든셋: 기간 차트 시리즈", () => {
       ],
       targetK: 1609, min: 1423, max: 1901, overCount: 5, n: 30,
     });
+  });
+});
+
+// 무결성 게이트 — 기대값 동결(위)과 별개로, 시료 자체가 물리적·구조적으로
+// 정상 범위인지 검증한다. 시료를 손댈 때 오염(NaN·범위 이탈·날짜 역전·필드 누락)이
+// 몰래 들어오는 것을 막는 안전망. 현재 시료는 전부 통과하며, 이 경계가 깨지면
+// 시료가 손상된 것이다.
+describe("골든셋: 시료 무결성 (스키마·물리 범위·단조·NaN)", () => {
+  it("백업 JSON 필수 필드가 모두 존재한다 (스키마 체크)", () => {
+    expect(fixture.app).toBe("daniel-tracker");
+    expect(fixture.schema).toBe(1);
+    expect(typeof fixture.exportedAt).toBe("string");
+    expect(typeof fixture.data).toBe("object");
+    for (const key of ["days", "bodylog", "goals", "customFoods", "customExercises"]) {
+      expect(fixture.data, `data.${key} 누락`).toHaveProperty(key);
+    }
+    for (const b of bodylog) {
+      for (const key of ["date", "weight", "muscle", "fatPct", "score"]) {
+        expect(b, `bodylog ${b.date} — ${key} 누락`).toHaveProperty(key);
+      }
+    }
+  });
+
+  it("행 수 > 0 (기록·측정이 비어 있지 않다)", () => {
+    expect(Object.keys(days).length).toBeGreaterThan(0);
+    expect(bodylog.length).toBeGreaterThan(0);
+  });
+
+  it("체성분 측정값이 물리적 범위 안에 있다 (체중 40~150 · 체지방 3~60 · 골격근 < 체중)", () => {
+    for (const b of bodylog) {
+      expect(b.weight, `${b.date} 체중`).toBeGreaterThanOrEqual(40);
+      expect(b.weight, `${b.date} 체중`).toBeLessThanOrEqual(150);
+      expect(b.fatPct, `${b.date} 체지방률`).toBeGreaterThanOrEqual(3);
+      expect(b.fatPct, `${b.date} 체지방률`).toBeLessThanOrEqual(60);
+      expect(b.muscle, `${b.date} 골격근량 < 체중`).toBeLessThan(b.weight);
+    }
+  });
+
+  it("bodylog 측정일이 순증가하고, days 키가 모두 실재 날짜다", () => {
+    // bodylog은 순서가 의미 있는 배열 → 측정일이 strict 순증가해야 한다(역전·중복 차단).
+    for (let i = 1; i < bodylog.length; i++) {
+      expect(
+        bodylog[i].date > bodylog[i - 1].date,
+        `bodylog 날짜 역전: ${bodylog[i - 1].date} → ${bodylog[i].date}`
+      ).toBe(true);
+    }
+    // days는 맵이라 키 순서엔 검증 가능한 불변식이 없다(키는 유일 → 정렬하면 항상 순증가 = 공허).
+    // 대신 각 키가 형식·달력상 실재하는 날짜인지 본다(2026-02-30·2026-13-99 같은 오염 차단).
+    for (const key of Object.keys(days)) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
+      expect(m, `days 키가 YYYY-MM-DD 형식이 아님: ${key}`).not.toBeNull();
+      const [, y, mo, d] = m.map(Number);
+      const dt = new Date(Date.UTC(y, mo - 1, d));
+      expect(
+        dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d,
+        `days 키가 실재하지 않는 날짜(롤오버): ${key}`
+      ).toBe(true);
+    }
+  });
+
+  it("파생 지표·합산·시리즈에 NaN이 없다", () => {
+    const allFinite = (obj) =>
+      Object.values(obj).every((v) => v === null || typeof v !== "number" || Number.isFinite(v));
+    // 원시 측정값 자체가 유한수여야 한다 (weight/muscle/fatPct/score 오염 → 파생 NaN 전파 차단).
+    for (const b of bodylog) {
+      for (const key of ["weight", "muscle", "fatPct", "score"]) {
+        expect(Number.isFinite(b[key]), `bodylog ${b.date}.${key} 비유한수: ${b[key]}`).toBe(true);
+      }
+    }
+    const bmr = bodyMetrics(latest, prev, PROFILE).bmr;
+    expect(allFinite(bodyMetrics(latest, prev, PROFILE))).toBe(true);
+    expect(allFinite(calcTargets(latest.weight, PROFILE.height, PROFILE.age, "cut", 0))).toBe(true);
+    expect(allFinite(estimateTDEE(bodylog, days, TODAY, bmr, 28))).toBe(true);
+    for (const ds of Object.keys(days)) {
+      expect(allFinite(aggregateDay(days[ds])), `aggregateDay(${ds})`).toBe(true);
+    }
+    const series = buildCalorieSeries(days, { cut: { k: 1609 }, maintain: { k: 1784 } }, "cut", "3m", TODAY);
+    expect(series.points.every((p) => Number.isFinite(p.k))).toBe(true);
+    expect([series.targetK, series.min, series.max, series.overCount, series.n].every(Number.isFinite)).toBe(true);
+    expect(buildWeekdayTotals(days, "1m", TODAY).every(Number.isFinite)).toBe(true);
   });
 });
