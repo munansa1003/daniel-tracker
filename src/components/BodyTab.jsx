@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, ReferenceLine } from "recharts";
 import store, { getCurrentUserId } from "../store.js";
 import { isCompletedDay } from "../utils.js";
+import { bodyMetrics } from "../bodyMetrics.js";
 import { useLongPress } from "../hooks/useLongPress.js";
 import { LongPressActionBar } from "./LongPressActionBar.jsx";
 import { ProgressPhotos } from "./ProgressPhotos.jsx";
@@ -66,21 +67,9 @@ export function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user
   const age = user?.age || 35;
   const is = { width: "100%", padding: "10px 12px", background: "#252525", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, color: "#f5f5f0", fontSize: 14, boxSizing: "border-box", marginBottom: 8 };
 
-  const bmi = latest ? Math.round(latest.weight / ((ht / 100) ** 2) * 10) / 10 : 0;
-  const bmr = latest ? Math.round(10 * latest.weight + 6.25 * ht - 5 * age + 5) : 0;
-  const fatMass = latest ? Math.round(latest.weight * latest.fatPct / 100 * 10) / 10 : 0;
-  const leanMass = latest ? Math.round((latest.weight - fatMass) * 10) / 10 : 0;
-  const idealWeight = Math.round(22 * (ht / 100) ** 2 * 10) / 10;
-  const weightAdj = latest ? Math.round((idealWeight - latest.weight) * 10) / 10 : 0;
-
-  const stdWeight = idealWeight;
-  const stdMuscle = Math.round(ht * 0.195 * 10) / 10;
-  const stdFatPct = 15;
-
-  const dW = prev && latest ? Math.round((latest.weight - prev.weight) * 10) / 10 : null;
-  const dM = prev && latest ? Math.round((latest.muscle - prev.muscle) * 10) / 10 : null;
-  const dF = prev && latest ? Math.round((latest.fatPct - prev.fatPct) * 10) / 10 : null;
-  const dS = prev && latest ? (latest.score || 0) - (prev.score || 0) : null;
+  // 체성분 파생 지표 — 순수 함수로 추출됨(bodyMetrics.js), 골든셋이 값을 고정
+  const { bmi, bmr, fatMass, leanMass, weightAdj, stdWeight, stdMuscle, stdFatPct, dW, dM, dF, dS } =
+    bodyMetrics(latest, prev, { height: ht, age });
 
   // 차트 데이터 — 기간(일) 기준 필터 + 날짜 비례 X축(ts: epoch ms)
   const chartData = useMemo(() => {
