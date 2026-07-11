@@ -2,19 +2,23 @@
 
 ## 품질 게이트
 
-이 저장소는 Claude Code 훅 기반 품질 게이트를 사용한다. **1단계(정적 검사)**가 설치되어 있다.
+이 저장소는 Claude Code 훅 기반 품질 게이트를 사용한다. **1단계(정적 검사)**와
+**2단계(테스트)**가 설치되어 있다.
 
 ### 목적
 
-`.js`/`.jsx` 파일을 수정할 때마다 정적 검사를 자동 실행해, 미정의 변수·누락된 import·훅 규칙
-위반 같은 크래시성 오류가 커밋 전에 걸러지도록 한다. 빌드(Vite)는 이런 오류를 잡지 못한다.
+`.js`/`.jsx` 파일을 수정할 때마다 정적 검사와 테스트를 자동 실행해, 미정의 변수·누락된
+import·훅 규칙 위반 같은 크래시성 오류와 기존 동작의 회귀가 커밋 전에 걸러지도록 한다.
+빌드(Vite)는 이런 오류를 잡지 못한다.
 
 ### 동작 방식
 
 - **훅**: `PostToolUse` (matcher `Write|Edit`) → `node .claude/hooks/check.mjs` (timeout 90초)
-- **검사 명령**: `npx eslint src --max-warnings=0`
-  (이 프로젝트는 JavaScript다 — tsconfig.json 없음, src 전체가 .js/.jsx.
-  ESLint 설정은 `eslint.config.js`의 최소 규칙 3개를 그대로 따른다)
+- **검사 명령** (순차 실행, 하나라도 실패하면 게이트 실패):
+  1. `npx eslint src --max-warnings=0` — 정적 검사
+     (이 프로젝트는 JavaScript다 — tsconfig.json 없음, src 전체가 .js/.jsx.
+     ESLint 설정은 `eslint.config.js`의 최소 규칙 3개를 그대로 따른다)
+  2. `npx vitest run` — 전체 테스트 스위트 (약 5초)
 - **대상 확장자**: `.ts` `.tsx` `.js` `.jsx` — 그 외 파일 편집은 검사 없이 통과
 - **exit 규약**:
   - 통과 → `exit 0` (조용히 진행)
