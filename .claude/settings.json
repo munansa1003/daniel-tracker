@@ -11,6 +11,29 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/test-gate.mjs",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/ensure-deps.mjs",
+            "timeout": 300
+          }
+        ]
+      }
     ]
   }
 }
