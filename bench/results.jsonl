@@ -1,0 +1,2 @@
+{"timestamp":"2026-07-11T14:37:29.563Z","cliVersion":"2.1.201 (Claude Code)","model":"(default)","task":"task-01","run":1,"pass":true,"durationSec":173,"error":null}
+{"timestamp":"2026-07-11T14:37:29.564Z","event":"summary","task":"task-01","cliVersion":"2.1.201 (Claude Code)","model":"(default)","startedAt":"2026-07-11T14:34:36.131Z","endedAt":"2026-07-11T14:37:29.564Z","completed":1,"passed":1,"aborted":false}
