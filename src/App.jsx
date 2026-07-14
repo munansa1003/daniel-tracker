@@ -1138,14 +1138,18 @@ function MainApp({ user, onLogout }) {
           </div>
         </div>)}
 
-        {/* DIET — 가로모드: 콘텐츠 폭 캡(입력 UI가 과도하게 늘어나지 않게) */}
-        {tab === "diet" && (<div style={landscape ? { maxWidth: 640, margin: "0 auto" } : undefined}>
+        {/* DIET — 가로: [인사이트 위젯 | 입력+오늘 기록] 2컬럼. 트리 고정(DOM=세로 순서), 스타일만 분기 */}
+        {tab === "diet" && (<div style={landscape ? { maxWidth: 960, margin: "0 auto" } : undefined}>
+          <div style={landscape ? { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, alignItems: "start" } : undefined}>
+          <div>
           {/* 입력 화면 상단 통계 (맨 위 고정): 다음 끼니 → 구성비 → 시간대 리듬 */}
           <NextMealTip totals={totals} meals={meals} nowHour={nowHour()} tP={TARGETS.p} tC={adjustedC} tK={effectiveTargetK} />
           <MacroRatioBar totals={totals} targets={TARGETS} />
           <IntakeRhythm meals={meals} />
           {/* 기간 통계(D1): 칼로리 vs 목표 밴드 라인 */}
           <CalorieBandChart allDays={allDays} targetsByMode={targetsByMode} mode={mode} />
+          </div>
+          <div>
           {/* 시간 선택 (먼저) */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "8px 12px", background: "#1e1e1e", borderRadius: 8, border: "1px solid rgba(255,255,255,0.06)" }}>
             <span style={{ fontSize: 13, color: "#707070" }}>식사 시간</span>
@@ -1428,15 +1432,21 @@ function MainApp({ user, onLogout }) {
               </div>
             );
           })}
+          </div>
+          </div>
         </div>)}
 
-        {/* EXERCISE — 가로모드: 콘텐츠 폭 캡 */}
-        {tab === "exercise" && (<div style={landscape ? { maxWidth: 640, margin: "0 auto" } : undefined}>
+        {/* EXERCISE — 가로: [도장·리듬·레이더 | 입력+오늘 기록] 2컬럼. 트리 고정, 스타일만 분기 */}
+        {tab === "exercise" && (<div style={landscape ? { maxWidth: 960, margin: "0 auto" } : undefined}>
+          <div style={landscape ? { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, alignItems: "start" } : undefined}>
+          <div>
           {/* 입력 화면 상단 통계: 오늘 운동 도장 & 스트릭 → 시간대 분포 */}
           <WorkoutStamp date={date} exercises={exercises} exTotal={exTotal} allDays={allDays} todayStr={today()} />
           <ExerciseRhythm exercises={exercises} />
           {/* 기간 통계(E9): 요일별 운동 밸런스 레이더 */}
           <WeekdayRadar allDays={allDays} />
+          </div>
+          <div>
           {/* 시간 선택 (먼저) */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "8px 12px", background: "#1e1e1e", borderRadius: 8, border: "1px solid rgba(255,255,255,0.06)" }}>
             <span style={{ fontSize: 13, color: "#707070" }}>운동 시간</span>
@@ -1620,6 +1630,8 @@ function MainApp({ user, onLogout }) {
               </div>
             );
           })}
+          </div>
+          </div>
         </div>)}
 
         {/* 가로모드 폭 캡(홈과 동일 960) — 초광폭 창에서 히어로 차트·2컬럼 카드 무제한 확장 방지 */}
