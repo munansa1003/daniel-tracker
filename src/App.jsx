@@ -853,16 +853,23 @@ function MainApp({ user, onLogout }) {
 
   const tabStyle = (t) => ({
     flex: 1, padding: "14px 0", textAlign: "center", fontSize: 13, fontWeight: 500,
-    color: tab === t ? "#d4af37" : "#4a4a4a", background: "none", border: "none",
+    color: tab === t ? "#d4af37" : "#4a4a4a", background: "transparent",
+    WebkitAppearance: "none", appearance: "none", margin: 0,
+    borderRight: "none", borderBottom: "none", borderLeft: "none",
     borderTop: tab === t ? "2px solid #d4af37" : "2px solid transparent", cursor: "pointer",
     fontFamily: "'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif",
     transition: "color 0.15s ease, border-color 0.15s ease"
   });
   // 가로모드 좌측 레일 버튼 (tabStyle의 가로판 — 활성 표시가 borderTop 대신 borderLeft)
+  // ⚠️ border 축약형(border)과 개별형(borderLeft)을 혼용하면 iOS 사파리에서 버튼의
+  //    기본(UA) 테두리가 나머지 변에 되살아나 탭 경계에 밝은 선이 보인다(IMG_2861 버그).
+  //    변별 속성으로만 명시하고 appearance도 꺼서 UA 스타일 개입을 차단한다.
   const railStyle = (t) => ({
     padding: "15px 0", textAlign: "center", fontSize: 12, fontWeight: 500,
     color: tab === t ? "#d4af37" : "#4a4a4a",
-    background: tab === t ? "rgba(212,175,55,0.05)" : "none", border: "none",
+    background: tab === t ? "rgba(212,175,55,0.05)" : "transparent",
+    WebkitAppearance: "none", appearance: "none", margin: 0,
+    borderTop: "none", borderRight: "none", borderBottom: "none",
     borderLeft: tab === t ? "2px solid #d4af37" : "2px solid transparent", cursor: "pointer",
     fontFamily: "'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif",
     transition: "color 0.15s ease, border-color 0.15s ease"
