@@ -1118,15 +1118,12 @@ export function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, tar
   );
 
   // 가로: 2컬럼(왼쪽 배너 / 오른쪽 서브탭 전체) · 세로: 기존 순서 그대로
-  return landscape ? (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, alignItems: "start" }}>
+  // ⚠️ 트리 구조는 두 방향에서 동일 — 회전 시 자식 리마운트(상태 초기화)를 막기 위해
+  //    방향별 트리 스왑 대신 컨테이너 스타일만 분기한다 (BodyTab과 동일 원칙).
+  return (
+    <div style={landscape ? { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, alignItems: "start" } : undefined}>
       <div>{summaryBanner}</div>
       <div>{subTabsSection}</div>
     </div>
-  ) : (
-    <>
-      {summaryBanner}
-      {subTabsSection}
-    </>
   );
 }

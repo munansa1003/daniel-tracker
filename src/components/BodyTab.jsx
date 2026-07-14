@@ -497,38 +497,26 @@ export function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user
     </div>
   );
 
-  // 가로: 전폭(버튼/폼/토스트) → 전폭 히어로 차트 → 2컬럼 그리드 / 세로: 기존 순서 그대로
-  return landscape ? (
-    <>
-      {startButton}
-      {formCard}
-      {toastCard}
-      {chartCard}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, alignItems: "start" }}>
-        <div>
-          {summaryCard}
-          {coachCard}
-          {photosCard}
-        </div>
-        <div>
-          {goalCard}
-          {periodCard}
-          {historyCard}
-        </div>
+  // 가로: 전폭(버튼/폼/토스트) → 전폭 히어로 차트 → 2컬럼 [요약·AI코칭·진행사진 | 목표·측정사이·히스토리]
+  // 세로: 기존 순서 그대로 (래퍼는 무스타일 div — 마진 관통으로 간격 동일)
+  // ⚠️ 트리 구조(부모 체인)는 두 방향에서 동일하게 유지하고 CSS grid 배치로만 위치를 바꾼다.
+  //    방향 분기로 트리를 통째로 스왑하면 회전 시 ProgressPhotos 등 자식 컴포넌트가
+  //    리마운트되어 로컬 상태(펼침·뷰어·로드된 사진)가 초기화되기 때문. DOM 순서 = 세로 순서 고정.
+  const cell = (col, row) => (landscape ? { gridColumn: col, gridRow: row } : undefined);
+  return (
+    <div style={landscape ? { display: "grid", gridTemplateColumns: "1fr 1fr", columnGap: 12, rowGap: 0, alignItems: "start" } : undefined}>
+      <div style={cell("1 / -1", "1")}>
+        {startButton}
+        {formCard}
+        {toastCard}
       </div>
-    </>
-  ) : (
-    <>
-      {startButton}
-      {formCard}
-      {toastCard}
-      {summaryCard}
-      {chartCard}
-      {goalCard}
-      {coachCard}
-      {periodCard}
-      {photosCard}
-      {historyCard}
-    </>
+      <div style={cell("1", "3")}>{summaryCard}</div>
+      <div style={cell("1 / -1", "2")}>{chartCard}</div>
+      <div style={cell("2", "3")}>{goalCard}</div>
+      <div style={cell("1", "4")}>{coachCard}</div>
+      <div style={cell("2", "4")}>{periodCard}</div>
+      <div style={cell("1", "5")}>{photosCard}</div>
+      <div style={cell("2", "5")}>{historyCard}</div>
+    </div>
   );
 }
