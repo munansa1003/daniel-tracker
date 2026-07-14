@@ -1,8 +1,10 @@
 import { useState, useMemo, useCallback } from "react";
 import { THEME } from "../theme.jsx";
 import { today, isCompletedDay, calcTargets, aggregateDay, isCalOk, adjustForDate } from "../utils.js";
+import { useOrientation } from "../hooks/useOrientation.js";
 
 export function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, targetsByMode, mode = "cut", appAdjust = 0, tdeeHistory = [] }) {
+  const landscape = useOrientation(); // 가로모드 여부 — 표시 재배치 전용, 계산과 무관
   const [statsTab, setStatsTab] = useState("report");
   const [summaryPeriod, setSummaryPeriod] = useState("1m");
   const totalDays = Object.keys(allDays).length;
@@ -524,9 +526,9 @@ export function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, tar
 
   const tabBtn = (key, label) => ({ flex: 1, padding: "10px 0", fontSize: 13, fontWeight: 500, background: statsTab === key ? THEME.gold : "transparent", color: statsTab === key ? "#141414" : THEME.sub, border: `1px solid ${THEME.borderLight}`, cursor: "pointer", transition: "all 0.15s" });
 
-  return (
-    <>
-      {/* 기간별 체성분 변화 배너 */}
+  // ── 가로모드 표시 재배치용 블록 추출 — 내부 계산·판정·조건부 렌더 무변경 ──
+  // 기간별 체성분 변화 배너
+  const summaryBanner = (
       <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, overflow: "hidden", marginBottom: 14 }}>
         <div style={{ display: "flex", borderBottom: "0.5px solid rgba(255,255,255,0.06)" }}>
           {[["1w", "1주"], ["1m", "1개월"], ["3m", "3개월"], ["all", "전체"]].map(([k, l]) => (
@@ -575,7 +577,11 @@ export function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, tar
           )}
         </div>
       </div>
+  );
 
+  // 서브탭 바 + 선택된 서브탭 콘텐츠 (주간 성적표 / 나의 인사이트 / 커뮤니티)
+  const subTabsSection = (
+    <>
       {/* 탭 전환 */}
       <div style={{ display: "flex", gap: 0, marginBottom: 14, borderRadius: 8, overflow: "hidden" }}>
         <button onClick={() => setStatsTab("report")} style={{ ...tabBtn("report"), borderRadius: "8px 0 0 8px" }}>주간 성적표</button>
@@ -1109,5 +1115,15 @@ export function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, tar
         <div style={{ textAlign: "center", fontSize: 9, color: "#4a4a4a", marginTop: 4, lineHeight: 1.5 }}>벤치마크는 표준 참고 데이터 기준입니다.<br/>챌린지 리더보드는 데모 데이터입니다.</div>
       </>)}
     </>
+  );
+
+  // 가로: 2컬럼(왼쪽 배너 / 오른쪽 서브탭 전체) · 세로: 기존 순서 그대로
+  // ⚠️ 트리 구조는 두 방향에서 동일 — 회전 시 자식 리마운트(상태 초기화)를 막기 위해
+  //    방향별 트리 스왑 대신 컨테이너 스타일만 분기한다 (BodyTab과 동일 원칙).
+  return (
+    <div style={landscape ? { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, alignItems: "start" } : undefined}>
+      <div>{summaryBanner}</div>
+      <div>{subTabsSection}</div>
+    </div>
   );
 }

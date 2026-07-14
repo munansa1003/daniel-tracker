@@ -11,6 +11,7 @@ import { pushConfigured, enablePush, disablePush, syncPushState } from "./push.j
 import { isExcludedDate, activeEvents, eventsForDate, typeMeta } from "./healthEvents.js";
 import { buildBackup, validateBackup, summarizeBackup } from "./backup.js";
 import { useLongPress } from "./hooks/useLongPress.js";
+import { useOrientation } from "./hooks/useOrientation.js";
 import { LongPressActionBar } from "./components/LongPressActionBar.jsx";
 import { Modal } from "./components/Modal.jsx";
 import { ProgressBar } from "./components/ProgressBar.jsx";
@@ -847,10 +848,22 @@ function MainApp({ user, onLogout }) {
     setExSearch(""); setExMin({});
   };
 
+  // 가로모드 여부 — true면 하단 탭바 대신 좌측 레일 + 넓은 콘텐츠 레이아웃 (세로 UI는 불변)
+  const landscape = useOrientation();
+
   const tabStyle = (t) => ({
     flex: 1, padding: "14px 0", textAlign: "center", fontSize: 13, fontWeight: 500,
     color: tab === t ? "#d4af37" : "#4a4a4a", background: "none", border: "none",
     borderTop: tab === t ? "2px solid #d4af37" : "2px solid transparent", cursor: "pointer",
+    fontFamily: "'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif",
+    transition: "color 0.15s ease, border-color 0.15s ease"
+  });
+  // 가로모드 좌측 레일 버튼 (tabStyle의 가로판 — 활성 표시가 borderTop 대신 borderLeft)
+  const railStyle = (t) => ({
+    padding: "15px 0", textAlign: "center", fontSize: 12, fontWeight: 500,
+    color: tab === t ? "#d4af37" : "#4a4a4a",
+    background: tab === t ? "rgba(212,175,55,0.05)" : "none", border: "none",
+    borderLeft: tab === t ? "2px solid #d4af37" : "2px solid transparent", cursor: "pointer",
     fontFamily: "'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif",
     transition: "color 0.15s ease, border-color 0.15s ease"
   });
@@ -872,12 +885,12 @@ function MainApp({ user, onLogout }) {
   if (!loaded) return <div style={{ color: "#888", padding: 40, textAlign: "center" }}>Loading...</div>;
 
   return (
-    <div style={{ background: THEME.bg, color: THEME.text, minHeight: "100vh", maxWidth: 480, margin: "0 auto" }}>
-      {/* Header */}
-      <div style={{ padding: "16px 20px 12px", borderBottom: `1px solid ${THEME.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div>
-          <div style={{ fontSize: 18, fontWeight: 500, letterSpacing: "-0.3px" }}>{APP_NAME}</div>
-          <div style={{ fontSize: 11, color: THEME.gold, fontFamily: "var(--font-mono, monospace)", opacity: 0.7 }}>체지방 {user.targetFat || 15}% · {mode === "maintain" ? "유지 모드" : "감량 모드"} · {user.name}</div>
+    <div style={{ background: THEME.bg, color: THEME.text, minHeight: "100vh", ...(landscape ? { paddingLeft: 68 } : { maxWidth: 480, margin: "0 auto" }) }}>
+      {/* Header — 가로모드에선 슬림(한 줄) 헤더로 세로 공간 절약 */}
+      <div style={{ padding: landscape ? "9px 20px" : "16px 20px 12px", borderBottom: `1px solid ${THEME.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={landscape ? { display: "flex", alignItems: "baseline", gap: 10 } : undefined}>
+          <div style={{ fontSize: landscape ? 15 : 18, fontWeight: 500, letterSpacing: "-0.3px" }}>{APP_NAME}</div>
+          <div style={{ fontSize: landscape ? 10 : 11, color: THEME.gold, fontFamily: "var(--font-mono, monospace)", opacity: 0.7 }}>체지방 {user.targetFat || 15}% · {mode === "maintain" ? "유지 모드" : "감량 모드"} · {user.name}</div>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <button onClick={() => { setShowCalendar(v => { if (!v) setCalMonth(date.slice(0, 7)); return !v; }); }} style={{ background: showCalendar ? "rgba(212,175,55,0.1)" : THEME.card, border: `1px solid ${showCalendar ? "rgba(212,175,55,0.3)" : THEME.borderLight}`, borderRadius: 8, color: showCalendar ? "#d4af37" : THEME.text, padding: "6px 10px", fontSize: 11, fontFamily: "monospace", cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
@@ -925,6 +938,8 @@ function MainApp({ user, onLogout }) {
         };
         return (
           <div style={{ background: "#1e1e1e", borderBottom: "1px solid rgba(212,175,55,0.15)", padding: "12px 16px 14px" }}>
+          {/* 가로모드에선 달력 셀이 과도하게 늘어나지 않도록 폭 캡 */}
+          <div style={landscape ? { maxWidth: 520, margin: "0 auto" } : undefined}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <span onClick={prevMonth} style={{ fontSize: 14, color: "#707070", cursor: "pointer", padding: "4px 8px" }}>◀</span>
               <span style={{ fontSize: 14, fontWeight: 500, color: "#f5f5f0" }}>{calY}년 {calM}월</span>
@@ -983,12 +998,14 @@ function MainApp({ user, onLogout }) {
               <span style={{ fontSize: 8, color: "#e05252", display: "flex", alignItems: "center", gap: 2 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: "#e05252", display: "inline-block" }} />초과</span>
             </div>
           </div>
+          </div>
         );
       })()}
 
-      <div style={{ padding: "16px 20px 80px" }}>
-        {/* HOME */}
-        {tab === "home" && (<>
+      {/* 하단 여백: 세로=고정 탭바(80) / 가로=레일이라 불필요(40) */}
+      <div style={{ padding: landscape ? "14px 24px 40px" : "16px 20px 80px" }}>
+        {/* HOME — 가로모드: 배너(전폭) 아래 [요약 | 식단·운동 기록] 2컬럼 */}
+        {tab === "home" && (<div style={landscape ? { maxWidth: 960, margin: "0 auto" } : undefined}>
           {/* 리마인더 배너 — 앱 열 때 상태 기반 (기록/체중). 백업은 아래 전용 배너로 처리 */}
           {pendingRmd.filter(r => r.key === "record").map(() => (
             <div key="rmd-record" onClick={() => setTab("diet")} style={{ background: "rgba(212,175,55,0.1)", border: "1px solid rgba(212,175,55,0.25)", borderRadius: 16, padding: 12, marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
@@ -1026,6 +1043,8 @@ function MainApp({ user, onLogout }) {
               <div style={{ background: "#d4af37", borderRadius: 8, padding: "8px 14px", fontSize: 12, color: "#fff", fontWeight: 500 }}>백업</div>
             </div>
           )}
+          <div style={landscape ? { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, alignItems: "start" } : undefined}>
+          <div>
           <div className="dbp-fade dbp-card" style={cs}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -1067,6 +1086,8 @@ function MainApp({ user, onLogout }) {
             </div>
             <NetCalCard intake={totals.k} exercise={exTotal} targetK={effectiveTargetK} mode={mode} />
           </div>
+          </div>
+          <div>
           <div style={cs}>
             <div style={{ fontSize: 13, color: "#707070", marginBottom: 10 }}>오늘 먹은 것 ({meals.length}건)</div>
             {!meals.length && <div style={{ fontSize: 13, color: "#4a4a4a", textAlign: "center", padding: 16 }}>식단 탭에서 기록 추가</div>}
@@ -1113,10 +1134,12 @@ function MainApp({ user, onLogout }) {
               );
             })}
           </div>
-        </>)}
+          </div>
+          </div>
+        </div>)}
 
-        {/* DIET */}
-        {tab === "diet" && (<>
+        {/* DIET — 가로모드: 콘텐츠 폭 캡(입력 UI가 과도하게 늘어나지 않게) */}
+        {tab === "diet" && (<div style={landscape ? { maxWidth: 640, margin: "0 auto" } : undefined}>
           {/* 입력 화면 상단 통계 (맨 위 고정): 다음 끼니 → 구성비 → 시간대 리듬 */}
           <NextMealTip totals={totals} meals={meals} nowHour={nowHour()} tP={TARGETS.p} tC={adjustedC} tK={effectiveTargetK} />
           <MacroRatioBar totals={totals} targets={TARGETS} />
@@ -1405,10 +1428,10 @@ function MainApp({ user, onLogout }) {
               </div>
             );
           })}
-        </>)}
+        </div>)}
 
-        {/* EXERCISE */}
-        {tab === "exercise" && (<>
+        {/* EXERCISE — 가로모드: 콘텐츠 폭 캡 */}
+        {tab === "exercise" && (<div style={landscape ? { maxWidth: 640, margin: "0 auto" } : undefined}>
           {/* 입력 화면 상단 통계: 오늘 운동 도장 & 스트릭 → 시간대 분포 */}
           <WorkoutStamp date={date} exercises={exercises} exTotal={exTotal} allDays={allDays} todayStr={today()} />
           <ExerciseRhythm exercises={exercises} />
@@ -1597,18 +1620,27 @@ function MainApp({ user, onLogout }) {
               </div>
             );
           })}
-        </>)}
+        </div>)}
 
-        {tab === "body" && <BodyTab bodyLog={bodyLog} addBody={addBody} date={date} onEditBody={editBody} onDeleteBody={deleteBody} user={user} goals={goals} onSaveGoals={saveGoals} allDays={allDays} />}
-        {tab === "stats" && <StatsTab bodyLog={bodyLog} allDays={allDays} goals={goals} onSaveGoals={saveGoals} appTargets={TARGETS} targetsByMode={targetsByMode} mode={mode} appAdjust={appAdjust} tdeeHistory={tdeeHistory} />}
+        {/* 가로모드 폭 캡(홈과 동일 960) — 초광폭 창에서 히어로 차트·2컬럼 카드 무제한 확장 방지 */}
+        {tab === "body" && <div style={landscape ? { maxWidth: 960, margin: "0 auto" } : undefined}><BodyTab bodyLog={bodyLog} addBody={addBody} date={date} onEditBody={editBody} onDeleteBody={deleteBody} user={user} goals={goals} onSaveGoals={saveGoals} allDays={allDays} /></div>}
+        {tab === "stats" && <div style={landscape ? { maxWidth: 960, margin: "0 auto" } : undefined}><StatsTab bodyLog={bodyLog} allDays={allDays} goals={goals} onSaveGoals={saveGoals} appTargets={TARGETS} targetsByMode={targetsByMode} mode={mode} appAdjust={appAdjust} tdeeHistory={tdeeHistory} /></div>}
       </div>
 
-      {/* Bottom Nav */}
-      <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 480, background: "rgba(20,20,20,0.95)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", borderTop: `1px solid ${THEME.border}`, display: "flex", zIndex: 10 }}>
-        {[["home", "홈"], ["diet", "식단"], ["exercise", "운동"], ["body", "체성분"], ["stats", "통계"]].map(([k, l]) => (
-          <button key={k} onClick={() => setTab(k)} style={tabStyle(k)}>{l}</button>
-        ))}
-      </div>
+      {/* Nav — 세로: 하단 탭바 / 가로: 좌측 세로 레일 (같은 탭 목록, 표시만 분기) */}
+      {landscape ? (
+        <div style={{ position: "fixed", left: 0, top: 0, bottom: 0, width: 68, background: "rgba(24,24,24,0.95)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", borderRight: `1px solid ${THEME.border}`, display: "flex", flexDirection: "column", justifyContent: "center", gap: 2, zIndex: 10 }}>
+          {[["home", "홈"], ["diet", "식단"], ["exercise", "운동"], ["body", "체성분"], ["stats", "통계"]].map(([k, l]) => (
+            <button key={k} onClick={() => setTab(k)} style={railStyle(k)}>{l}</button>
+          ))}
+        </div>
+      ) : (
+        <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 480, background: "rgba(20,20,20,0.95)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", borderTop: `1px solid ${THEME.border}`, display: "flex", zIndex: 10 }}>
+          {[["home", "홈"], ["diet", "식단"], ["exercise", "운동"], ["body", "체성분"], ["stats", "통계"]].map(([k, l]) => (
+            <button key={k} onClick={() => setTab(k)} style={tabStyle(k)}>{l}</button>
+          ))}
+        </div>
+      )}
 
       {/* Modals */}
       <Modal open={showAddFood} onClose={() => setShowAddFood(false)} title="새 음식 추가">
@@ -1880,7 +1912,7 @@ function MainApp({ user, onLogout }) {
 
       {/* 되돌리기 스낵바 (컨셉 4) — 모달 위에도 보이도록 높은 z-index */}
       {copyUndo && (
-        <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 78, zIndex: 10000, width: "calc(100% - 32px)", maxWidth: 448, background: "#1e2a20", border: "1px solid rgba(90,158,111,0.35)", borderRadius: 12, padding: "12px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", boxShadow: "0 8px 32px rgba(0,0,0,0.6)" }}>
+        <div style={{ position: "fixed", left: landscape ? "calc(50% + 34px)" : "50%", transform: "translateX(-50%)", bottom: landscape ? 24 : 78, zIndex: 10000, width: "calc(100% - 32px)", maxWidth: 448, background: "#1e2a20", border: "1px solid rgba(90,158,111,0.35)", borderRadius: 12, padding: "12px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", boxShadow: "0 8px 32px rgba(0,0,0,0.6)" }}>
           <span style={{ fontSize: 13, color: "#5a9e6f" }}>✓ {copyUndo.text}</span>
           <span onClick={undoCopy} style={{ fontSize: 13, color: "#f5f5f0", fontWeight: 600, textDecoration: "underline", cursor: "pointer" }}>되돌리기</span>
         </div>

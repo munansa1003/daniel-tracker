@@ -15,6 +15,11 @@ vi.mock("../auth.js", () => ({
   getIdToken: async () => null,
 }));
 
+// 세로(portrait) 고정 — happy-dom 기본 창(1024×768)은 가로로 판정되므로,
+// 이 스모크는 기존 세로 레이아웃(하단 탭바) 경로를 결정적으로 검증한다.
+// 가로 레이아웃 경로는 landscape.smoke.test.jsx가 담당.
+vi.mock("../hooks/useOrientation.js", () => ({ useOrientation: () => false }));
+
 vi.mock("../store.js", () => {
   const profile = { name: "Daniel", height: 175, age: 42, targetFat: 15, color: "#4a8fc9", createdAt: "2025-01-01T00:00:00.000Z" };
   return {
