@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>가로모드 B+C 결합안 — Body Plan</title>
+<style>
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css');
+:root {
+  --bg:#141414; --card:#1e1e1e; --inner:#252525; --surface:#2a2a2a;
+  --text:#f5f5f0; --muted:#8a8a8a; --sub:#707070; --hint:#4a4a4a;
+  --gold:#d4af37; --green:#5a9e6f; --blue:#4a8fc9; --red:#e05252;
+  --border:rgba(255,255,255,0.06); --borderL:rgba(255,255,255,0.08);
+  --mono:'SF Mono',Menlo,Consolas,monospace;
+  --s:0.39;
+}
+@media (min-width:420px){ :root{ --s:0.46; } }
+@media (min-width:500px){ :root{ --s:0.55; } }
+@media (min-width:640px){ :root{ --s:0.72; } }
+@media (min-width:780px){ :root{ --s:0.88; } }
+@media (min-width:900px){ :root{ --s:1; } }
+*{ box-sizing:border-box; font-family:'Pretendard',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; -webkit-tap-highlight-color:transparent; }
+body{ margin:0; background:#0f0f0f; color:var(--text); padding:22px 12px 60px; }
+.wrap{ max-width:900px; margin:0 auto; }
+h1{ font-size:19px; font-weight:600; letter-spacing:-0.3px; margin:0 0 6px; }
+h1 .gold{ color:var(--gold); }
+.lead{ font-size:12.5px; color:var(--muted); line-height:1.75; margin:0 0 10px; }
+.rule{ background:var(--card); border:1px solid var(--border); border-radius:14px; padding:13px 16px; margin:14px 0 4px; }
+.rule ul{ margin:0; padding-left:2px; list-style:none; font-size:12px; color:#c8c8c0; line-height:1.9; }
+.rule li::before{ content:"▸"; color:var(--gold); margin-right:7px; font-size:10px; }
+section{ margin-top:34px; }
+h2{ font-size:15px; font-weight:600; margin:0 0 8px; display:flex; align-items:center; gap:8px; }
+.tag{ font-size:10px; font-weight:700; padding:2px 9px; border-radius:20px; letter-spacing:.3px;
+  color:var(--gold); background:rgba(212,175,55,.12); border:1px solid rgba(212,175,55,.3); }
+.desc{ font-size:12px; color:var(--muted); line-height:1.7; margin:0 0 12px; }
+.notes{ margin:12px 0 0; padding:0 0 0 2px; list-style:none; font-size:11.5px; color:var(--sub); line-height:1.8; }
+.notes li::before{ content:"·"; margin-right:6px; color:var(--hint); }
+.notes b{ color:#c8c8c0; font-weight:500; }
+
+/* ── 프레임 스케일러: iPhone 가로 844×390 ── */
+.fw{ margin:14px auto 4px; width:calc(844px * var(--s)); height:calc(392px * var(--s)); }
+.frame{ width:844px; height:390px; transform:scale(var(--s)); transform-origin:0 0;
+  background:var(--bg); border:1px solid rgba(255,255,255,0.14); border-radius:18px;
+  overflow:hidden; position:relative; box-shadow:0 14px 44px rgba(0,0,0,.55); display:flex; }
+.cap{ text-align:center; font-size:10.5px; color:var(--hint); margin:6px 0 0; }
+.chip{ position:absolute; font-size:11px; font-weight:600; padding:3px 9px; border-radius:99px; white-space:nowrap; z-index:5;
+  color:#ecd693; background:rgba(70,56,14,.88); border:1px solid rgba(212,175,55,.4); }
+
+/* ── 앱 공통 재현 ── */
+.mono{ font-family:var(--mono); }
+.appcard{ background:var(--card); border:1px solid var(--border); border-radius:16px; padding:14px;
+  box-shadow:0 4px 24px rgba(0,0,0,.4),0 1px 6px rgba(0,0,0,.2); }
+.hdr{ display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding:9px 20px; }
+.hdr .t1{ font-size:15px; font-weight:500; letter-spacing:-.3px; }
+.hdr .t2{ font-size:10px; color:var(--gold); font-family:var(--mono); opacity:.7; }
+.datebtn{ background:var(--card); border:1px solid var(--borderL); border-radius:8px; color:var(--text);
+  padding:6px 10px; font-size:11px; font-family:var(--mono); display:inline-flex; align-items:center; gap:4px; }
+.datebtn .cr{ font-size:9px; color:var(--sub); }
+.dots3{ width:28px; height:28px; border-radius:6px; display:inline-flex; align-items:center; justify-content:center; font-size:16px; color:var(--sub); }
+.pill{ font-size:10px; font-weight:600; border-radius:20px; padding:2px 9px;
+  color:var(--gold); background:rgba(212,175,55,.12); border:1px solid rgba(212,175,55,.3); }
+.rail{ width:68px; height:100%; border-right:1px solid var(--border); background:rgba(24,24,24,.95);
+  display:flex; flex-direction:column; justify-content:center; gap:2px; flex-shrink:0; }
+.rail button{ padding:15px 0; text-align:center; font-size:12px; font-weight:500; color:var(--hint);
+  background:none; border:none; border-left:2px solid transparent; }
+.rail button.on{ color:var(--gold); border-left-color:var(--gold); background:rgba(212,175,55,.05); }
+.main{ flex:1; display:flex; flex-direction:column; min-width:0; }
+.content{ flex:1; overflow:hidden; padding:12px 20px 0; }
+.grp{ display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--borderL); }
+.grp .gl{ font-size:13px; font-weight:500; }
+.grp .gr{ font-size:11px; font-family:var(--mono); color:var(--sub); }
+.item{ display:flex; justify-content:space-between; padding:5px 0 5px 8px; border-bottom:1px solid rgba(255,255,255,.02); font-size:13px; }
+.item .hh{ color:var(--blue); font-size:11px; margin-right:6px; font-family:var(--mono); }
+.item .kc{ color:var(--sub); font-family:var(--mono); font-size:12px; }
+.dot{ width:12px; height:12px; border-radius:3px; display:inline-block; }
+.impl{ margin-top:16px; font-size:11px; color:var(--sub); line-height:1.8; border-top:1px solid var(--border); padding-top:12px; }
+.reco{ background:rgba(212,175,55,.06); border:1px solid rgba(212,175,55,.25); border-radius:14px; padding:14px 16px; margin-top:18px; }
+.reco h3{ margin:0 0 6px; font-size:13.5px; color:var(--gold); }
+.reco p{ margin:0; font-size:12px; color:#cfc9b0; line-height:1.75; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1><span class="gold">가로모드 B+C 결합안</span> — 최종 컨셉</h1>
+<p class="lead">
+  앞서 보신 B안과 C안을 하나로 합친 설계입니다. 프레임은 <b style="color:#c8c8c0">아이폰 가로(844×390)</b> 기준이며
+  화면이 좁으면 자동 축소됩니다(핀치줌 가능). <b style="color:#c8c8c0">세로 UI는 변경 없음</b>.
+</p>
+<div class="rule">
+  <ul>
+    <li><b>공통 셸</b> — 가로 회전 시 하단 탭바 → 좌측 레일, 슬림 헤더 (모든 탭 동일)</li>
+    <li><b>홈·식단·운동</b> — 카드 2컬럼 재배치 (B)</li>
+    <li><b>체성분·통계</b> — 주 차트/배너가 <b>콘텐츠 전폭 히어로</b>로 확장 (C), 나머지 카드는 그 아래 2컬럼</li>
+    <li>C의 "회전 시 화면 탈취" 대신 B 셸 안의 히어로 카드로 녹여 <b>놀람 없이</b> 차트 확대 효과를 얻음</li>
+  </ul>
+</div>
+
+<!-- ════════════════ ① 홈 탭 ════════════════ -->
+<section>
+  <h2><span class="tag">①</span>홈 탭 — 카드 2컬럼 (B)</h2>
+  <p class="desc">좌측 요약(도넛·섭취바·NetCalCard) / 우측 오늘 기록(식단·운동). 스크롤 없이 한 화면.</p>
+  <div class="fw"><div class="frame">
+    <nav class="rail">
+      <button class="on">홈</button><button>식단</button><button>운동</button><button>체성분</button><button>통계</button>
+    </nav>
+    <div class="main">
+      <div class="hdr">
+        <div style="display:flex; align-items:baseline; gap:10px;">
+          <div class="t1">Body Plan</div>
+          <div class="t2">체지방 15% · 감량 모드 · Daniel</div>
+        </div>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <span class="datebtn">07.14 <span class="cr">▼</span></span>
+          <span class="dots3">⋮</span>
+        </div>
+      </div>
+      <div class="content">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+          <!-- 좌: 오늘의 요약 -->
+          <div class="appcard">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+              <div style="display:flex; align-items:center; gap:7px;">
+                <span style="font-size:13px; color:var(--sub);">오늘의 요약</span>
+                <span class="pill">감량</span>
+              </div>
+              <span class="mono" style="font-size:11px; color:var(--green);">섭취 1620 kcal</span>
+            </div>
+            <div style="display:flex; gap:18px; justify-content:center; margin-bottom:10px;">
+              <div style="text-align:center;">
+                <svg width="56" height="56"><circle cx="28" cy="28" r="23.5" fill="none" stroke="#2a2a2a" stroke-width="9"/><circle cx="28" cy="28" r="23.5" fill="none" stroke="#4a8fc9" stroke-width="9" stroke-dasharray="128.5 147.7" transform="rotate(-90 28 28)"/></svg>
+                <div style="font-size:10px; color:var(--sub); margin-top:2px;">단백질</div>
+                <div class="mono" style="font-size:12px; font-weight:500;">148g<span style="font-size:9px; color:var(--hint); font-weight:400;"> /170</span></div>
+              </div>
+              <div style="text-align:center;">
+                <svg width="56" height="56"><circle cx="28" cy="28" r="23.5" fill="none" stroke="#2a2a2a" stroke-width="9"/><circle cx="28" cy="28" r="23.5" fill="none" stroke="#d4af37" stroke-width="9" stroke-dasharray="139.3 147.7" transform="rotate(-90 28 28)"/></svg>
+                <div style="font-size:10px; color:var(--sub); margin-top:2px;">탄수</div>
+                <div class="mono" style="font-size:12px; font-weight:500;">150g<span style="font-size:9px; color:var(--hint); font-weight:400;"> /159</span></div>
+              </div>
+              <div style="text-align:center;">
+                <svg width="56" height="56"><circle cx="28" cy="28" r="23.5" fill="none" stroke="#2a2a2a" stroke-width="9"/><circle cx="28" cy="28" r="23.5" fill="none" stroke="#e05252" stroke-width="9" stroke-dasharray="134.8 147.7" transform="rotate(-90 28 28)"/></svg>
+                <div style="font-size:10px; color:var(--sub); margin-top:2px;">지방</div>
+                <div class="mono" style="font-size:12px; font-weight:500;">42g<span style="font-size:9px; color:var(--hint); font-weight:400;"> /46</span></div>
+              </div>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;">
+              <span style="color:var(--muted);">섭취 칼로리</span>
+              <span class="mono" style="font-size:12px;">1620 / 1730kcal</span>
+            </div>
+            <div style="height:8px; background:#2a2a2a; border-radius:4px; overflow:hidden; margin-bottom:10px;">
+              <div style="width:94%; height:100%; background:var(--green);"></div>
+            </div>
+            <div style="background:rgba(90,158,111,.07); border:1px solid rgba(90,158,111,.2); border-radius:12px; padding:10px 12px; display:flex; justify-content:space-between;">
+              <div>
+                <div style="font-size:10px; color:var(--sub);">보정 섭취 <span style="color:var(--green);">🟢 적정</span></div>
+                <div class="mono" style="font-size:19px; font-weight:500; color:var(--green);">1,460 <span style="font-size:11px; color:var(--sub);">kcal</span></div>
+              </div>
+              <div style="text-align:right; font-size:10px; color:var(--sub); line-height:1.5;">섭취 1,620<br>− 운동50% 160</div>
+            </div>
+          </div>
+          <!-- 우: 오늘 먹은 것 + 오늘 운동 -->
+          <div>
+            <div class="appcard" style="margin-bottom:10px;">
+              <div style="font-size:13px; color:var(--sub); margin-bottom:8px;">오늘 먹은 것 (6건)</div>
+              <div class="grp"><span class="gl">아침 (3건)</span><span class="gr">P38 C45 F13 · 403kcal</span></div>
+              <div class="item"><div><span class="hh">07시</span>그릭요거트 200g(무가당)</div><span class="kc">140kcal</span></div>
+              <div class="item"><div><span class="hh">07시</span>삶은달걀 <span style="color:var(--sub);">×2</span></div><span class="kc">158kcal</span></div>
+              <div class="item"><div><span class="hh">08시</span>바나나 1개(중)</div><span class="kc">105kcal</span></div>
+              <div class="grp" style="margin-top:6px;"><span class="gl">점심 (1건)</span><span class="gr">P35 C100 F25 · 750kcal</span></div>
+              <div class="item"><div><span class="hh">12시</span>구내식당 1끼</div><span class="kc">750kcal</span></div>
+            </div>
+            <div class="appcard">
+              <div style="font-size:13px; color:var(--sub); margin-bottom:8px;">오늘 운동 (1건)</div>
+              <div class="grp"><span class="gl">아침 (1건)</span><span class="gr">60분 · -320kcal</span></div>
+              <div class="item"><div><span class="hh">06시</span>걷기 · 60분</div><span class="kc" style="color:var(--blue);">-320kcal</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="chip" style="left:50%; transform:translateX(-50%); top:50px;">요약 + 오늘 기록, 스크롤 없이 한 화면</div>
+  </div></div>
+  <p class="cap">① 홈 · 좌: 요약 / 우: 식단·운동 — 식단·운동 탭도 같은 원리로 2컬럼</p>
+</section>
+
+<!-- ════════════════ ② 체성분 탭 ════════════════ -->
+<section>
+  <h2><span class="tag">②</span>체성분 탭 — 전폭 히어로 차트 (C) + 2컬럼 (B)</h2>
+  <p class="desc">추이 차트가 콘텐츠 전폭(736px)으로 확장 — 세로 모드(≈410px) 대비 X축 1.8배 + 가로 화면 고정 노출.
+  요약·목표·히스토리 카드는 차트 아래 2컬럼으로 이어집니다(스크롤).</p>
+  <div class="fw"><div class="frame">
+    <nav class="rail">
+      <button>홈</button><button>식단</button><button>운동</button><button class="on">체성분</button><button>통계</button>
+    </nav>
+    <div class="main">
+      <div class="hdr">
+        <div style="display:flex; align-items:baseline; gap:10px;">
+          <div class="t1">Body Plan</div>
+          <div class="t2">체지방 15% · 감량 모드 · Daniel</div>
+        </div>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <span class="datebtn">07.14 <span class="cr">▼</span></span>
+          <span class="dots3">⋮</span>
+        </div>
+      </div>
+      <div class="content">
+        <!-- 히어로 차트 카드 (전폭) -->
+        <div class="appcard" style="border-radius:14px; padding:12px; margin-bottom:12px;">
+          <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px;">
+            <div style="display:flex; gap:4px;">
+              <span style="padding:5px 13px; border-radius:6px; font-size:11px; background:var(--blue); color:#fff; font-weight:500;">체중</span>
+              <span style="padding:5px 13px; border-radius:6px; font-size:11px; background:var(--inner); color:var(--sub);">골격근</span>
+              <span style="padding:5px 13px; border-radius:6px; font-size:11px; background:var(--inner); color:var(--sub);">체지방</span>
+            </div>
+            <div style="flex:1;"></div>
+            <div style="display:flex; gap:4px;">
+              <span style="padding:4px 10px; border-radius:6px; font-size:10px; border:1px solid rgba(255,255,255,.04); color:var(--sub);">1주</span>
+              <span style="padding:4px 10px; border-radius:6px; font-size:10px; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.15); color:var(--text); font-weight:500;">1개월</span>
+              <span style="padding:4px 10px; border-radius:6px; font-size:10px; border:1px solid rgba(255,255,255,.04); color:var(--sub);">3개월</span>
+              <span style="padding:4px 10px; border-radius:6px; font-size:10px; border:1px solid rgba(255,255,255,.04); color:var(--sub);">전체</span>
+            </div>
+          </div>
+          <svg width="712" height="170" viewBox="0 0 712 170" style="display:block;">
+            <text x="36" y="37" fill="#4a4a4a" font-size="9" text-anchor="end" font-family="monospace">78.5</text>
+            <text x="36" y="73" fill="#4a4a4a" font-size="9" text-anchor="end" font-family="monospace">78.0</text>
+            <text x="36" y="109" fill="#4a4a4a" font-size="9" text-anchor="end" font-family="monospace">77.5</text>
+            <text x="36" y="146" fill="#4a4a4a" font-size="9" text-anchor="end" font-family="monospace">77.0</text>
+            <polyline points="44,41 126,27 208,63 290,77 372,70 454,99 536,114 618,136 700,114"
+              fill="none" stroke="#4a8fc9" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+            <circle cx="700" cy="114" r="4" fill="#4a8fc9"/>
+            <text x="44" y="165" fill="#4a4a4a" font-size="9" font-family="monospace">6/14</text>
+            <text x="208" y="165" fill="#4a4a4a" font-size="9" text-anchor="middle" font-family="monospace">6/21</text>
+            <text x="372" y="165" fill="#4a4a4a" font-size="9" text-anchor="middle" font-family="monospace">6/28</text>
+            <text x="536" y="165" fill="#4a4a4a" font-size="9" text-anchor="middle" font-family="monospace">7/05</text>
+            <text x="700" y="165" fill="#4a4a4a" font-size="9" text-anchor="end" font-family="monospace">7/12</text>
+          </svg>
+          <div style="display:flex; justify-content:space-between; margin-top:2px;">
+            <span class="mono" style="font-size:9px; color:var(--hint);">최고 78.6 · 최저 77.1</span>
+            <span class="mono" style="font-size:9px; color:var(--hint);">평균 77.8kg · 측정 9회</span>
+          </div>
+        </div>
+        <!-- 아래 2컬럼 (스크롤로 이어짐) -->
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+          <div class="appcard" style="border-radius:16px;">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+              <div>
+                <div style="font-size:10px; color:var(--sub);">2026-07-12</div>
+                <div style="display:flex; align-items:baseline; gap:6px; margin-top:2px;">
+                  <span style="font-size:28px; font-weight:500; color:var(--gold);">78</span>
+                  <span style="font-size:11px; color:var(--sub);">점</span>
+                  <span style="font-size:10px; padding:1px 6px; border-radius:4px; background:rgba(90,158,111,.15); color:var(--green);">+2</span>
+                </div>
+              </div>
+              <div style="display:flex; gap:4px;">
+                <div style="background:var(--inner); border-radius:8px; padding:6px 10px; text-align:center;">
+                  <div style="font-size:8px; color:var(--sub);">BMI</div>
+                  <div style="font-size:13px; font-weight:500;">25.3</div>
+                </div>
+                <div style="background:var(--inner); border-radius:8px; padding:6px 10px; text-align:center;">
+                  <div style="font-size:8px; color:var(--sub);">BMR</div>
+                  <div style="font-size:13px; font-weight:500;">1,698</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="appcard" style="border-radius:12px; padding:12px;">
+            <div style="font-size:11px; color:var(--sub); margin-bottom:10px;">목표 설정</div>
+            <div style="display:flex; justify-content:space-between; align-items:baseline;">
+              <div><span style="font-size:10px; color:var(--blue);">체중 </span><span class="mono" style="font-size:16px; font-weight:600;">77.4</span><span style="font-size:10px; color:var(--hint);">kg</span></div>
+              <div style="font-size:11px; color:var(--sub);">− <span style="font-size:11px;">목표</span> <span class="mono" style="color:var(--blue); font-weight:500; font-size:12px;">72</span> +</div>
+            </div>
+            <div style="position:relative; height:10px; border-radius:5px; margin-top:8px; display:flex; overflow:visible;">
+              <div style="width:40%; background:rgba(90,158,111,.2); border-radius:5px 0 0 5px;"></div>
+              <div style="width:35%; background:rgba(212,175,55,.2);"></div>
+              <div style="width:25%; background:rgba(224,82,82,.2); border-radius:0 5px 5px 0;"></div>
+              <div style="position:absolute; left:37.8%; top:-1px; width:2px; height:12px; background:var(--blue);"></div>
+              <div style="position:absolute; left:49.8%; top:-3px; width:14px; height:14px; border-radius:50%; background:var(--red); border:2px solid var(--card);"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="chip" style="left:88px; top:50px;">차트 = 전폭 히어로 (C)</div>
+    <div class="chip" style="right:16px; bottom:14px;">아래는 2컬럼 카드 (B) ↓ 스크롤</div>
+  </div></div>
+  <p class="cap">② 체성분 · 위: 히어로 차트 / 아래: 최신 측정 요약·목표 설정 (이하 AI 코칭·진행 사진·히스토리 2컬럼 계속)</p>
+</section>
+
+<!-- ════════════════ ③ 통계 탭 ════════════════ -->
+<section>
+  <h2><span class="tag">③</span>통계 탭 — 변화 배너 + 주간 성적표 나란히</h2>
+  <p class="desc">세로에서 위아래로 쌓이던 "기간별 체성분 변화"와 "주간 성적표"를 좌우로.
+  스파크라인 3종과 등급·달성률 도트를 한 시야에서 비교할 수 있습니다.</p>
+  <div class="fw"><div class="frame">
+    <nav class="rail">
+      <button>홈</button><button>식단</button><button>운동</button><button>체성분</button><button class="on">통계</button>
+    </nav>
+    <div class="main">
+      <div class="hdr">
+        <div style="display:flex; align-items:baseline; gap:10px;">
+          <div class="t1">Body Plan</div>
+          <div class="t2">체지방 15% · 감량 모드 · Daniel</div>
+        </div>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <span class="datebtn">07.14 <span class="cr">▼</span></span>
+          <span class="dots3">⋮</span>
+        </div>
+      </div>
+      <div class="content">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+          <!-- 좌: 기간별 체성분 변화 배너 -->
+          <div style="background:var(--card); border:1px solid var(--border); border-radius:16px; overflow:hidden;">
+            <div style="display:flex; border-bottom:0.5px solid var(--border);">
+              <span style="flex:1; padding:8px 0; text-align:center; font-size:11px; color:var(--sub); border-bottom:2px solid transparent;">1주</span>
+              <span style="flex:1; padding:8px 0; text-align:center; font-size:11px; color:var(--gold); font-weight:500; border-bottom:2px solid var(--gold);">1개월</span>
+              <span style="flex:1; padding:8px 0; text-align:center; font-size:11px; color:var(--sub); border-bottom:2px solid transparent;">3개월</span>
+              <span style="flex:1; padding:8px 0; text-align:center; font-size:11px; color:var(--sub); border-bottom:2px solid transparent;">전체</span>
+            </div>
+            <div style="padding:12px 14px;">
+              <div style="text-align:right; font-size:10px; color:var(--hint); margin-bottom:8px;">06-14 → 07-14 · 측정 9회</div>
+              <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px;">
+                <div style="background:var(--inner); border-radius:10px; padding:9px; text-align:center;">
+                  <div style="font-size:9px; color:var(--sub); margin-bottom:3px;">체중</div>
+                  <div class="mono" style="font-size:20px; font-weight:600; color:var(--green);">-1.2</div>
+                  <div style="font-size:9px; color:var(--hint); margin:2px 0;">kg</div>
+                  <svg width="60" height="22" viewBox="0 0 60 22" style="display:block; margin:4px auto 0;">
+                    <polyline points="2,5 10,3 18,8 26,10 34,9 42,13 50,16 58,15" fill="none" stroke="rgba(74,143,201,.25)" stroke-width="1.5" stroke-linecap="round"/>
+                    <polyline points="34,9 42,13 50,16 58,15" fill="none" stroke="#4a8fc9" stroke-width="2"/>
+                    <circle cx="58" cy="15" r="2" fill="#4a8fc9"/>
+                  </svg>
+                  <div style="display:flex; justify-content:space-between; margin-top:3px;">
+                    <span style="font-size:9px; color:var(--hint);">78.4</span>
+                    <span style="font-size:9px; color:var(--blue); font-weight:500;">77.2</span>
+                  </div>
+                </div>
+                <div style="background:var(--inner); border-radius:10px; padding:9px; text-align:center;">
+                  <div style="font-size:9px; color:var(--sub); margin-bottom:3px;">체지방률</div>
+                  <div class="mono" style="font-size:20px; font-weight:600; color:var(--green);">-0.8</div>
+                  <div style="font-size:9px; color:var(--hint); margin:2px 0;">%p</div>
+                  <svg width="60" height="22" viewBox="0 0 60 22" style="display:block; margin:4px auto 0;">
+                    <polyline points="2,4 10,6 18,5 26,9 34,11 42,12 50,15 58,17" fill="none" stroke="rgba(224,82,82,.25)" stroke-width="1.5" stroke-linecap="round"/>
+                    <polyline points="34,11 42,12 50,15 58,17" fill="none" stroke="#e05252" stroke-width="2"/>
+                    <circle cx="58" cy="17" r="2" fill="#e05252"/>
+                  </svg>
+                  <div style="display:flex; justify-content:space-between; margin-top:3px;">
+                    <span style="font-size:9px; color:var(--hint);">23.1</span>
+                    <span style="font-size:9px; color:var(--red); font-weight:500;">22.3</span>
+                  </div>
+                </div>
+                <div style="background:var(--inner); border-radius:10px; padding:9px; text-align:center;">
+                  <div style="font-size:9px; color:var(--sub); margin-bottom:3px;">골격근</div>
+                  <div class="mono" style="font-size:20px; font-weight:600; color:var(--green);">+0.3</div>
+                  <div style="font-size:9px; color:var(--hint); margin:2px 0;">kg</div>
+                  <svg width="60" height="22" viewBox="0 0 60 22" style="display:block; margin:4px auto 0;">
+                    <polyline points="2,16 10,15 18,17 26,14 34,13 42,14 50,11 58,9" fill="none" stroke="rgba(90,158,111,.25)" stroke-width="1.5" stroke-linecap="round"/>
+                    <polyline points="34,13 42,14 50,11 58,9" fill="none" stroke="#5a9e6f" stroke-width="2"/>
+                    <circle cx="58" cy="9" r="2" fill="#5a9e6f"/>
+                  </svg>
+                  <div style="display:flex; justify-content:space-between; margin-top:3px;">
+                    <span style="font-size:9px; color:var(--hint);">33.2</span>
+                    <span style="font-size:9px; color:var(--green); font-weight:500;">33.5</span>
+                  </div>
+                </div>
+              </div>
+              <div style="margin-top:10px; background:rgba(90,158,111,.06); border:0.5px solid rgba(90,158,111,.15); border-radius:8px; padding:9px 11px;">
+                <span style="font-size:11px; color:var(--green); line-height:1.6;">1개월 리컴프 진행 중 💪 — 체중 -1.2kg · 체지방 -0.8%p · 골격근 +0.3kg. 지금 페이스가 이상적이에요!</span>
+              </div>
+            </div>
+          </div>
+          <!-- 우: 주간 성적표 -->
+          <div>
+            <div class="appcard" style="border-radius:16px; padding:14px; margin-bottom:10px;">
+              <div style="display:flex; justify-content:space-between;">
+                <div>
+                  <div style="font-size:11px; color:var(--sub);">07-13 ~ 07-19</div>
+                  <div style="font-size:16px; font-weight:600; margin-top:2px;">주간 성적표</div>
+                  <div style="font-size:10px; color:var(--blue); margin-top:4px;">진행 중 · 2/7일</div>
+                </div>
+                <div style="display:flex; gap:10px;">
+                  <div style="text-align:center;">
+                    <div style="font-size:9px; color:#555; margin-bottom:2px;">지난 주</div>
+                    <div style="width:36px; height:36px; border-radius:50%; border:2px solid rgba(90,158,111,.35); display:flex; align-items:center; justify-content:center;">
+                      <span class="mono" style="font-size:16px; font-weight:600; color:var(--green);">A</span>
+                    </div>
+                  </div>
+                  <div style="text-align:center;">
+                    <div style="font-size:9px; color:#555; margin-bottom:2px;">이번 주</div>
+                    <div style="width:48px; height:48px; border-radius:50%; border:2px dashed var(--hint); display:flex; align-items:center; justify-content:center;">
+                      <span style="font-size:18px; font-weight:600; color:var(--hint);">?</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="appcard" style="border-radius:16px; padding:14px;">
+              <div style="font-size:13px; color:var(--sub); margin-bottom:10px;">핵심 지표 달성률</div>
+              <div style="font-size:11.5px; margin-bottom:6px;">단백질 목표 <span style="color:var(--sub);">(170g+)</span></div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="min-width:52px; font-size:10px; color:var(--sub);">이번 주</span>
+                <span style="display:flex; gap:3px;">
+                  <i class="dot" style="background:var(--green);"></i>
+                  <i class="dot" style="background:rgba(90,158,111,.1); outline:1px dashed rgba(90,158,111,.6); outline-offset:-1px;"></i>
+                  <i class="dot" style="background:var(--surface);"></i>
+                  <i class="dot" style="background:var(--surface);"></i>
+                  <i class="dot" style="background:var(--surface);"></i>
+                  <i class="dot" style="background:var(--surface);"></i>
+                  <i class="dot" style="background:var(--surface);"></i>
+                </span>
+                <span class="mono" style="font-size:12px; font-weight:500; color:var(--green); min-width:28px; text-align:right;">1/1</span>
+              </div>
+              <div style="display:flex; align-items:center; gap:8px; margin-top:4px;">
+                <span style="min-width:52px; font-size:10px; color:var(--hint);">지난 주</span>
+                <span style="display:flex; gap:3px;">
+                  <i class="dot" style="background:rgba(90,158,111,.33);"></i>
+                  <i class="dot" style="background:rgba(90,158,111,.33);"></i>
+                  <i class="dot" style="background:rgba(90,158,111,.08);"></i>
+                  <i class="dot" style="background:rgba(90,158,111,.33);"></i>
+                  <i class="dot" style="background:rgba(90,158,111,.33);"></i>
+                  <i class="dot" style="background:rgba(90,158,111,.33);"></i>
+                  <i class="dot" style="background:rgba(90,158,111,.08);"></i>
+                </span>
+                <span class="mono" style="font-size:12px; color:var(--hint); min-width:28px; text-align:right;">5/7</span>
+              </div>
+              <div style="display:flex; gap:3px; margin-left:60px; margin-top:2px;">
+                <span style="width:12px; font-size:8px; color:var(--hint); text-align:center;">월</span>
+                <span style="width:12px; font-size:8px; color:var(--hint); text-align:center;">화</span>
+                <span style="width:12px; font-size:8px; color:var(--hint); text-align:center;">수</span>
+                <span style="width:12px; font-size:8px; color:var(--hint); text-align:center;">목</span>
+                <span style="width:12px; font-size:8px; color:var(--hint); text-align:center;">금</span>
+                <span style="width:12px; font-size:8px; color:var(--hint); text-align:center;">토</span>
+                <span style="width:12px; font-size:8px; color:var(--hint); text-align:center;">일</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="chip" style="left:50%; transform:translateX(-50%); top:50px;">변화 추이(좌) ↔ 이번 주 성적(우) 동시 비교</div>
+  </div></div>
+  <p class="cap">③ 통계 · 좌: 기간별 변화+코칭 / 우: 성적표+달성률 (이하 주간 평균·주차 선택 등 2컬럼 계속)</p>
+</section>
+
+<!-- ════════════════ 정리 ════════════════ -->
+<section>
+  <h2>정리 & 구현 순서</h2>
+  <div class="reco">
+    <h3>B+C 결합 = "B 셸 + 차트 히어로"</h3>
+    <p>
+      C안의 차트 확대를 별도 모드가 아니라 B 레이아웃 안의 <b>전폭 히어로 카드</b>로 녹였습니다.
+      회전해도 레일·헤더가 유지되어 놀람이 없고, 체성분·통계에서는 차트가 세로 대비 약 1.8배 넓게 고정 노출됩니다.
+    </p>
+  </div>
+  <ul class="notes" style="margin-top:14px;">
+    <li><b>1단계 (셸)</b> — useOrientation 훅 + 탭바→레일 + 슬림 헤더. 이것만으로 A안 효과.</li>
+    <li><b>2단계 (홈 2컬럼)</b> — 홈 탭 카드 그리드 분기. 이후 식단·운동 탭 동일 패턴.</li>
+    <li><b>3단계 (히어로 차트)</b> — 체성분 추이 차트·통계 배너 전폭 배치 + 나머지 2컬럼.</li>
+    <li>각 단계가 독립 PR 가능한 크기라, 단계마다 실기기 확인 후 진행할 수 있습니다.</li>
+  </ul>
+  <div class="impl">
+    구현 메모 — matchMedia('(orientation: landscape)') 훅 1개 + 조건부 인라인 스타일.
+    recharts는 ResponsiveContainer라 폭 확장에 자동 대응. 계산 로직(utils.js)·판정·데이터 불변, 세로 UI 불변.
+    렌더 스모크 테스트는 세로(기본) 유지 + 가로 분기 훅 mock 스모크 추가 예정.
+  </div>
+</section>
+
+</div>
+</body>
+</html>
