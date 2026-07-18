@@ -1096,7 +1096,10 @@ function MainApp({ user, onLogout }) {
           </div>
           <div>
           <div style={cs}>
-            <div style={{ fontSize: 13, color: "#707070", marginBottom: 10 }}>오늘 먹은 것 ({meals.length}건)</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, marginBottom: 10 }}>
+              <span style={{ fontSize: 13, color: "#707070" }}>오늘 먹은 것 ({meals.length}건)</span>
+              {meals.length > 0 && <span style={{ fontSize: 12, fontFamily: "monospace", color: "#5a9e6f" }}>{Math.round(totals.k).toLocaleString()}kcal</span>}
+            </div>
             {!meals.length && <div style={{ fontSize: 13, color: "#4a4a4a", textAlign: "center", padding: 16 }}>식단 탭에서 기록 추가</div>}
             {groupMealsByTime(meals).map((group) => {
               const gP = Math.round(group.meals.reduce((s, m) => s + m.p * m.serving, 0));
@@ -1120,7 +1123,10 @@ function MainApp({ user, onLogout }) {
             })}
           </div>
           <div style={cs}>
-            <div style={{ fontSize: 13, color: "#707070", marginBottom: 10 }}>오늘 운동 ({exercises.length}건)</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, marginBottom: 10 }}>
+              <span style={{ fontSize: 13, color: "#707070" }}>오늘 운동 ({exercises.length}건)</span>
+              {exercises.length > 0 && <span style={{ fontSize: 12, fontFamily: "monospace", color: "#4a8fc9" }}>{exercises.reduce((s, e) => s + (e.duration || 0), 0)}분 · -{exTotal.toLocaleString()}kcal</span>}
+            </div>
             {!exercises.length && <div style={{ fontSize: 13, color: "#4a4a4a", textAlign: "center", padding: 16 }}>운동 탭에서 기록 추가</div>}
             {groupExercisesByTime(exercises).map((group) => {
               const gKcal = Math.round(group.items.reduce((s, e) => s + (e.kcal || 0), 0));
