@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildAnalysisPackage, resolvePeriod, packageMeta, PERIODS } from "../analysisExport.js";
+import { buildAnalysisPackage, resolvePeriod, packageMeta, PERIODS, exCategory } from "../analysisExport.js";
 
 const TODAY = "2026-07-18";
 const targetsByMode = {
@@ -109,20 +109,76 @@ describe("packageMeta", () => {
   });
 });
 
-describe("상세 내용 포함 (식단·운동·빈도)", () => {
+describe("2단계화 — 코치 요약본(기본) vs 정밀 상세본", () => {
+  const range = { start: "2026-07-14", end: "2026-07-18" };
+  const summary = buildAnalysisPackage(state(), range, "2026-07-18");
+  const detail = buildAnalysisPackage(state(), range, "2026-07-18", { detail: true });
+
+  it("요약본(기본)엔 끼니별 상세 없음 — 문서 비대화 방지", () => {
+    expect(summary).not.toContain("식단: ");
+    expect(summary).not.toContain("운동: 00시");
+  });
+  it("상세본엔 끼니별 식단·운동 세션 포함", () => {
+    expect(detail).toContain("식단: 00시 닭 1570");
+    expect(detail).toContain("운동: 00시 조깅 30분 300");
+    expect(detail).toContain("치킨 2500"); // 07-16 상세
+  });
+  it("빈도 집계는 양쪽 모두 포함", () => {
+    for (const pkg of [summary, detail]) {
+      expect(pkg).toContain("## 자주 먹은 음식 TOP");
+      expect(pkg).toContain("## 운동 종목별 집계");
+      expect(pkg).toContain("- 조깅: 1회 · 총 30분 · 300kcal");
+    }
+  });
+});
+
+describe("P0~P1 신규 섹션", () => {
   const range = { start: "2026-07-14", end: "2026-07-18" };
   const pkg = buildAnalysisPackage(state(), range, "2026-07-18");
 
-  it("일별 상세 — 음식명·서빙·시간·kcal, 운동명·분", () => {
-    expect(pkg).toContain("식단: 00시 닭 1570");
-    expect(pkg).toContain("운동: 00시 조깅 30분 300");
-    expect(pkg).toContain("치킨 2500"); // 07-16 상세
+  it("설정 변경 이력 — 적응형 보정 전후값 + 모드 전환(운동반영률 연동)", () => {
+    expect(pkg).toContain("## 설정 변경 이력");
+    expect(pkg).toContain("- 2026-06-01 적응형 보정 0→-55kcal");
+    expect(pkg).toContain("- 2026-07-17 모드 감량→유지 (운동반영 50%→100%)");
+    expect(pkg).toContain("- 2026-07-18 모드 유지→감량 (운동반영 100%→50%)");
+    expect(pkg).toContain("변경 이력으로 저장되지 않음"); // 목표 kcal 절대값 한계 명시
   });
-  it("빈도 집계 — 자주 먹은 음식 TOP + 운동 종목별", () => {
-    expect(pkg).toContain("## 자주 먹은 음식 TOP");
-    expect(pkg).toMatch(/닭 1회|치킨 1회/);
-    expect(pkg).toContain("## 운동 종목별 집계");
-    expect(pkg).toContain("- 조깅: 1회 · 총 30분 · 300kcal");
+
+  it("초과폭 — ✗에 기준 대비 +N 표기 (isCalOk와 동일 산식)", () => {
+    expect(pkg).toContain("✗(+930)"); // 2500 - 1570
+    expect(pkg).toContain("✗(+N) = 초과폭"); // 범례
+  });
+
+  it("운동 구성 (주간) — 유형 %·운동일·휴식일 (조깅=유산소)", () => {
+    expect(pkg).toContain("## 운동 구성 (주간)");
+    expect(pkg).toMatch(/07\/13주\s+100\s+0\s+0\s+0\s+0\s+\| 운동 1일 · 휴식 4일/);
+  });
+
+  it("월별 집계에 평균C·평균F 열 (2개월 이상일 때)", () => {
+    const s = state();
+    s.allDays["2026-06-20"] = { mode: "cut", meals: [{ n: "유월", k: 1500, p: 150, c: 100, f: 40, serving: 1 }], exercises: [] };
+    const wide = buildAnalysisPackage(s, { start: "2026-06-15", end: "2026-07-18" }, "2026-07-18");
+    expect(wide).toContain("평균C");
+    expect(wide).toContain("평균F");
+    expect(wide).toMatch(/2026-06\s+1500\s+150\s+100\s+40/); // 6월 한 건 = 그대로 평균
+  });
+
+  it("기록 공백 — 3일 이상 무기록 구간 명시 (오늘 제외)", () => {
+    const s = state();
+    // 07-01~07-13 공백(13일), 07-14는 기록 없음이지만 기간 시작 이후 첫 기록 07-15 전까지 공백
+    const wide = buildAnalysisPackage(s, { start: "2026-07-01", end: "2026-07-18" }, "2026-07-18");
+    expect(wide).toContain("기록 공백: 07-01~07-14 (14일)");
+  });
+
+  it("운동 유형 분류기 — 대표 종목 스팟체크", () => {
+    expect(exCategory("러닝 5분")).toBe("유산소");
+    expect(exCategory("계단 오르기")).toBe("유산소");
+    expect(exCategory("행잉 레그 레이즈")).toBe("코어"); // 코어가 하체(레그)보다 우선
+    expect(exCategory("루마니안 데드리프트")).toBe("하체");
+    expect(exCategory("벤치프레스(중강도)")).toBe("상체");
+    expect(exCategory("투암 덤벨 로우")).toBe("상체");
+    expect(exCategory("농사일")).toBe("기타");
+    expect(exCategory("품롤러")).toBe("기타");
   });
 });
 
