@@ -1,7 +1,7 @@
 // 클로드 분석용 패키지 생성(순수) — CSV 원자료 대신 "지시문 + 맥락(목표·규칙·컨디션) + 집계"를
 // 한 덩어리 마크다운으로 만들어, claude.ai에 붙여넣자마자 매달 같은 품질의 분석이 시작되게 한다.
 // UI(복사/공유/저장)는 App 쪽 — 이 모듈은 문자열만 만든다(테스트 대상).
-import { aggregateDay, isCalOk, adjustForDate } from "./utils.js";
+import { aggregateDay, isCalOk, adjustForDate, exFeedback } from "./utils.js";
 import { dateInEvent, typeMeta } from "./healthEvents.js";
 
 const MS_DAY = 86400000;
@@ -111,18 +111,24 @@ export function buildAnalysisPackage(state, { start, end }, todayStr) {
     L.push("");
   }
 
-  // 일별 요약
-  L.push(`## 일별 요약 (기록 ${recorded.length}일 / 기간 ${totalDays}일 — 날짜 kcal P C F 운동 판정)`);
+  // 일별 요약 — 유효목표 병기(판정 검증 가능) + 직전일 동일총량 플래그(일괄 입력 감지)
+  L.push(`## 일별 요약 (기록 ${recorded.length}일 / 기간 ${totalDays}일 — 날짜 kcal P C F 운동 유효목표 판정)`);
+  L.push("(유효목표 = 그날 목표kcal + 운동반영분 → ✓/✗의 기준값 · ≈ = 직전 기록일과 총량 동일, 일괄 입력 가능성)");
+  let prevSig = null;
   for (const ds of recorded) {
     const day = allDays[ds];
     const a = aggregateDay(day);
     const dM = day.mode || "cut";
+    const effTarget = Math.round(dayTargetK(dM, ds) + a.ex * exFeedback(dM));
     let mark;
     if (ds === todayStr) mark = "(오늘, 진행중)";
     else if (a.k <= 0) mark = "(식단 기록 없음)";
     else mark = isCalOk(a.k, a.ex, dayTargetK(dM, ds), dM) ? "✓" : "✗";
+    const sig = a.k > 0 ? `${Math.round(a.k)}|${Math.round(a.p)}|${Math.round(a.c)}|${Math.round(a.f)}` : null;
+    const repeat = sig !== null && sig === prevSig;
+    prevSig = sig;
     const inEvent = events.find((ev) => dateInEvent(ds, ev));
-    L.push(`${ds.slice(5)}  ${String(Math.round(a.k)).padStart(5)}  ${String(Math.round(a.p)).padStart(3)}  ${String(Math.round(a.c)).padStart(3)}  ${String(Math.round(a.f)).padStart(3)}  ${String(a.ex ? "-" + Math.round(a.ex) : "0").padStart(5)}  ${mark}${inEvent ? ` [${inEvent.label || typeMeta(inEvent.type).name}]` : ""}`);
+    L.push(`${ds.slice(5)}  ${String(Math.round(a.k)).padStart(5)}  ${String(Math.round(a.p)).padStart(3)}  ${String(Math.round(a.c)).padStart(3)}  ${String(Math.round(a.f)).padStart(3)}  ${String(a.ex ? "-" + Math.round(a.ex) : "0").padStart(5)}  ${String(effTarget).padStart(5)}  ${mark}${repeat ? " ≈" : ""}${inEvent ? ` [${inEvent.label || typeMeta(inEvent.type).name}]` : ""}`);
     // 상세 — 무엇을 먹고 어떤 운동을 했는지(시간·수량·kcal). 식사 패턴·종목 분석의 근거.
     const meals = [...(day.meals || [])].sort((x, y) => (x.hour || 0) - (y.hour || 0));
     if (meals.length) L.push(`      식단: ${meals.map((m) => `${String(m.hour || 0).padStart(2, "0")}시 ${m.n}${m.serving !== 1 ? `×${m.serving}` : ""} ${Math.round((m.k || 0) * (m.serving || 1))}`).join(" · ")}`);
@@ -159,14 +165,24 @@ export function buildAnalysisPackage(state, { start, end }, todayStr) {
     L.push("");
   }
 
-  // 체중
-  L.push(`## 체중 기록 (${weighs.length}건)`);
+  // 체성분 — 체중만이 아니라 골격근·체지방률·체지방량(진짜 지표)까지
+  L.push(`## 체성분 기록 (${weighs.length}건)`);
   if (weighs.length) {
-    const chunks = [];
-    for (let i = 0; i < weighs.length; i += 5) {
-      chunks.push(weighs.slice(i, i + 5).map((b) => `${b.date.slice(5)} ${b.weight}kg`).join(" · "));
+    const fatKg = (b) => Math.round(b.weight * b.fatPct / 100 * 10) / 10;
+    const withComp = weighs.filter((b) => b.fatPct > 0);
+    if (withComp.length >= 2) {
+      const f0 = withComp[0], f1 = withComp[withComp.length - 1];
+      const dFat = Math.round((fatKg(f1) - fatKg(f0)) * 10) / 10;
+      const dMus = f0.muscle > 0 && f1.muscle > 0 ? Math.round((f1.muscle - f0.muscle) * 10) / 10 : null;
+      L.push(`기간 변화: 체지방량 ${fatKg(f0)}→${fatKg(f1)}kg (${dFat > 0 ? "+" : ""}${dFat})${dMus !== null ? ` · 골격근 ${f0.muscle}→${f1.muscle}kg (${dMus > 0 ? "+" : ""}${dMus})` : ""}`);
     }
-    L.push(...chunks);
+    for (const b of weighs) {
+      const parts = [`${b.date.slice(5)} ${b.weight}kg`];
+      if (b.muscle > 0) parts.push(`골격근 ${b.muscle}kg`);
+      if (b.fatPct > 0) parts.push(`체지방 ${b.fatPct}% = ${fatKg(b)}kg`);
+      if (b.score > 0) parts.push(`점수 ${b.score}`);
+      L.push(parts.join(" · "));
+    }
   } else {
     L.push("(기간 내 측정 없음)");
   }
