@@ -39,7 +39,22 @@ export function packageMeta(pkg, { allDays, bodyLog, healthEvents }, { start, en
 }
 
 // 본체 — 마크다운 패키지 생성
-export function buildAnalysisPackage(state, { start, end }, todayStr) {
+// 운동 유형 분류(키워드) — 종목↔체성분 연결 분석용. 미분류는 '기타'로 정직하게.
+// 코어를 하체보다 먼저 검사(예: '행잉 레그 레이즈'는 코어).
+const EX_CATS = [
+  ["유산소", ["걷", "러닝", "런닝", "달리", "조깅", "자전거", "사이클", "수영", "축구", "풋살", "등산", "계단", "줄넘기", "인터벌", "유산소", "테니스", "배드민턴", "농구", "하이킹", "트레드밀"]],
+  ["코어", ["코어", "플랭크", "복근", "크런치", "싯업", "레그 레이즈", "레그레이즈"]],
+  ["하체", ["스쿼트", "런지", "레그", "데드리프트", "카프", "힙"]],
+  ["상체", ["벤치", "푸시업", "팔굽", "풀업", "턱걸이", "로우", "숄더", "프레스", "이/삼두", "이두", "삼두", "컬", "랫", "델트", "체스트", "딥스"]],
+];
+export function exCategory(name) {
+  for (const [cat, kws] of EX_CATS) if (kws.some((k) => (name || "").includes(k))) return cat;
+  return "기타";
+}
+
+// opts.detail: true=정밀 상세본(끼니별 식단·운동 세션 포함), false=코치 요약본(기본 — 문서 비대화 방지)
+export function buildAnalysisPackage(state, { start, end }, todayStr, opts = {}) {
+  const detail = !!opts.detail;
   const { allDays = {}, bodyLog = [], goals = {}, user = {}, mode = "cut", targets = {}, targetsByMode = {}, appAdjust = 0, tdeeHistory = [], healthEvents = [] } = state;
   const dayTargetK = (m, ds) => ((targetsByMode[m] || targetsByMode.cut || targets).k || 0) - appAdjust + adjustForDate(tdeeHistory, ds);
 
@@ -72,6 +87,34 @@ export function buildAnalysisPackage(state, { start, end }, todayStr) {
   L.push("- 아래 판정(✓/✗)은 그 날의 모드·보정 기준 적정 여부");
   L.push("");
 
+  // 설정 변경 이력 — 변곡점(감량 속도 변화)의 원인 추적용.
+  // 적응형 보정은 tdeeHistory에, 모드 전환은 그날 스탬프에 남아 있어 재구성 가능.
+  // 목표 kcal 절대값은 월평균 체중 따라 자동 산출이라 이력이 없다 — 그 사실을 명시.
+  const settingLines = [];
+  const hist = [...(tdeeHistory || [])].filter((h) => h && h.from).sort((a, b) => a.from.localeCompare(b.from));
+  let prevAdj = 0;
+  for (const h of hist) {
+    if (h.from <= end) settingLines.push(`- ${h.from} 적응형 보정 ${prevAdj}→${h.adjust || 0}kcal`);
+    prevAdj = h.adjust || 0;
+  }
+  const modeName = (m) => (m === "maintain" ? "유지" : "감량");
+  const modeFb = (m) => (m === "maintain" ? "100%" : "50%");
+  let prevMode = null;
+  for (const ds of recorded) {
+    const m = allDays[ds].mode || "cut";
+    if (prevMode !== null && m !== prevMode) {
+      settingLines.push(`- ${ds} 모드 ${modeName(prevMode)}→${modeName(m)} (운동반영 ${modeFb(prevMode)}→${modeFb(m)})`);
+    }
+    prevMode = m;
+  }
+  if (settingLines.length) {
+    L.push("## 설정 변경 이력");
+    settingLines.sort((a, b) => a.slice(2, 12).localeCompare(b.slice(2, 12)));
+    L.push(...settingLines);
+    L.push("(목표 kcal·매크로 절대값은 월평균 체중에 따라 자동 산출 — 변경 이력으로 저장되지 않음)");
+    L.push("");
+  }
+
   // 컨디션
   if (events.length) {
     L.push("## 컨디션 이력 (분석 시 감안할 것)");
@@ -91,12 +134,12 @@ export function buildAnalysisPackage(state, { start, end }, todayStr) {
   }
   if (byMonth.size > 1) {
     L.push("## 월별 집계");
-    L.push("월        평균kcal  평균P  적정일  운동회수  체중변화");
+    L.push("월        평균kcal  평균P  평균C  평균F  적정일  운동회수  체중변화");
     for (const [m, dsList] of [...byMonth.entries()].sort()) {
-      let k = 0, p = 0, ok = 0, judged = 0, exCnt = 0;
+      let k = 0, p = 0, c = 0, f = 0, ok = 0, judged = 0, exCnt = 0;
       for (const ds of dsList) {
         const a = aggregateDay(allDays[ds]);
-        k += a.k; p += a.p;
+        k += a.k; p += a.p; c += a.c; f += a.f;
         if ((allDays[ds].exercises || []).length) exCnt++;
         if (ds !== todayStr && a.k > 0) {
           judged++;
@@ -106,35 +149,79 @@ export function buildAnalysisPackage(state, { start, end }, todayStr) {
       }
       const mw = weighs.filter((b) => b.date.startsWith(m));
       const wd = mw.length >= 2 ? Math.round((mw[mw.length - 1].weight - mw[0].weight) * 10) / 10 : null;
-      L.push(`${m}   ${String(Math.round(k / dsList.length)).padStart(6)}  ${String(Math.round(p / dsList.length)).padStart(4)}  ${String(ok).padStart(3)}/${judged}  ${String(exCnt).padStart(5)}   ${wd === null ? "  —" : (wd > 0 ? "+" : "") + wd + "kg"}`);
+      const n = dsList.length;
+      L.push(`${m}   ${String(Math.round(k / n)).padStart(6)}  ${String(Math.round(p / n)).padStart(4)}  ${String(Math.round(c / n)).padStart(4)}  ${String(Math.round(f / n)).padStart(4)}  ${String(ok).padStart(3)}/${judged}  ${String(exCnt).padStart(5)}   ${wd === null ? "  —" : (wd > 0 ? "+" : "") + wd + "kg"}`);
     }
     L.push("");
   }
 
-  // 일별 요약 — 유효목표 병기(판정 검증 가능) + 직전일 동일총량 플래그(일괄 입력 감지)
+  // 운동 구성 (주간) — 유형 비중(kcal 기준 %)과 운동/휴식일. 구조 진단(편중·하체 빈도)용.
+  const hasAnyEx = recorded.some((ds) => (allDays[ds].exercises || []).length);
+  if (hasAnyEx) {
+    const mondayOf = (ds) => { const dow = toDate(ds).getDay(); return shiftDays(ds, dow === 0 ? -6 : 1 - dow); };
+    const weeks = new Map(); // 월요일 → 그 주에 속한 기간 내 날짜들
+    for (let ds = start; ds <= end; ds = shiftDays(ds, 1)) {
+      const wk = mondayOf(ds);
+      if (!weeks.has(wk)) weeks.set(wk, []);
+      weeks.get(wk).push(ds);
+    }
+    L.push("## 운동 구성 (주간)");
+    L.push("주(월요일)   유산소  상체  하체  코어  기타(%) | 운동일·휴식일");
+    for (const [wk, dates] of [...weeks.entries()].sort()) {
+      const cats = { 유산소: 0, 상체: 0, 하체: 0, 코어: 0, 기타: 0 };
+      let exDays = 0;
+      for (const ds of dates) {
+        const exs = allDays[ds]?.exercises || [];
+        if (exs.length) exDays++;
+        for (const e of exs) cats[exCategory(e.n)] += e.kcal || 0;
+      }
+      const total = Object.values(cats).reduce((s, v) => s + v, 0);
+      const pct = (v) => String(total > 0 ? Math.round((v / total) * 100) : 0).padStart(4);
+      L.push(`${wk.slice(5).replace("-", "/")}주    ${pct(cats.유산소)}  ${pct(cats.상체)}  ${pct(cats.하체)}  ${pct(cats.코어)}  ${pct(cats.기타)}   | 운동 ${exDays}일 · 휴식 ${dates.length - exDays}일`);
+    }
+    L.push("");
+  }
+
+  // 일별 요약 — 유효목표 병기(판정 검증 가능) + 초과폭 + 직전일 동일총량 플래그(일괄 입력 감지)
   L.push(`## 일별 요약 (기록 ${recorded.length}일 / 기간 ${totalDays}일 — 날짜 kcal P C F 운동 유효목표 판정)`);
-  L.push("(유효목표 = 그날 목표kcal + 운동반영분 → ✓/✗의 기준값 · ≈ = 직전 기록일과 총량 동일, 일괄 입력 가능성)");
+  L.push("(유효목표 = 그날 목표kcal + 운동반영분 → ✓/✗의 기준값 · ✗(+N) = 초과폭 · ≈ = 직전 기록일과 총량 동일, 일괄 입력 가능성)");
   let prevSig = null;
   for (const ds of recorded) {
     const day = allDays[ds];
     const a = aggregateDay(day);
     const dM = day.mode || "cut";
-    const effTarget = Math.round(dayTargetK(dM, ds) + a.ex * exFeedback(dM));
+    // isCalOk와 동일 산식: round(섭취) ≤ 목표 + round(운동×반영률) — 표시값도 그 기준값 그대로
+    const effTarget = dayTargetK(dM, ds) + Math.round(a.ex * exFeedback(dM));
     let mark;
     if (ds === todayStr) mark = "(오늘, 진행중)";
     else if (a.k <= 0) mark = "(식단 기록 없음)";
-    else mark = isCalOk(a.k, a.ex, dayTargetK(dM, ds), dM) ? "✓" : "✗";
+    else if (isCalOk(a.k, a.ex, dayTargetK(dM, ds), dM)) mark = "✓";
+    else mark = `✗(+${Math.round(a.k) - effTarget})`;
     const sig = a.k > 0 ? `${Math.round(a.k)}|${Math.round(a.p)}|${Math.round(a.c)}|${Math.round(a.f)}` : null;
     const repeat = sig !== null && sig === prevSig;
     prevSig = sig;
     const inEvent = events.find((ev) => dateInEvent(ds, ev));
     L.push(`${ds.slice(5)}  ${String(Math.round(a.k)).padStart(5)}  ${String(Math.round(a.p)).padStart(3)}  ${String(Math.round(a.c)).padStart(3)}  ${String(Math.round(a.f)).padStart(3)}  ${String(a.ex ? "-" + Math.round(a.ex) : "0").padStart(5)}  ${String(effTarget).padStart(5)}  ${mark}${repeat ? " ≈" : ""}${inEvent ? ` [${inEvent.label || typeMeta(inEvent.type).name}]` : ""}`);
-    // 상세 — 무엇을 먹고 어떤 운동을 했는지(시간·수량·kcal). 식사 패턴·종목 분석의 근거.
-    const meals = [...(day.meals || [])].sort((x, y) => (x.hour || 0) - (y.hour || 0));
-    if (meals.length) L.push(`      식단: ${meals.map((m) => `${String(m.hour || 0).padStart(2, "0")}시 ${m.n}${m.serving !== 1 ? `×${m.serving}` : ""} ${Math.round((m.k || 0) * (m.serving || 1))}`).join(" · ")}`);
-    const exs = [...(day.exercises || [])].sort((x, y) => (x.hour || 0) - (y.hour || 0));
-    if (exs.length) L.push(`      운동: ${exs.map((e) => `${String(e.hour || 0).padStart(2, "0")}시 ${e.n} ${e.duration || 0}분 ${Math.round(e.kcal || 0)}`).join(" · ")}`);
+    if (detail) {
+      // 정밀 상세본 — 무엇을 먹고 어떤 운동을 했는지(시간·수량·kcal). 구간 심층 분석용.
+      const meals = [...(day.meals || [])].sort((x, y) => (x.hour || 0) - (y.hour || 0));
+      if (meals.length) L.push(`      식단: ${meals.map((m) => `${String(m.hour || 0).padStart(2, "0")}시 ${m.n}${m.serving !== 1 ? `×${m.serving}` : ""} ${Math.round((m.k || 0) * (m.serving || 1))}`).join(" · ")}`);
+      const exs = [...(day.exercises || [])].sort((x, y) => (x.hour || 0) - (y.hour || 0));
+      if (exs.length) L.push(`      운동: ${exs.map((e) => `${String(e.hour || 0).padStart(2, "0")}시 ${e.n} ${e.duration || 0}분 ${Math.round(e.kcal || 0)}`).join(" · ")}`);
+    }
   }
+  // 기록 공백(3일 이상 연속 무기록) — "공백 = 체중 증가" 패턴 감지용. 오늘은 진행중이라 제외.
+  const gaps = [];
+  const recSet = new Set(recorded);
+  const gapEnd = end === todayStr ? shiftDays(todayStr, -1) : end;
+  let gapStart = null;
+  for (let ds = start; ds <= gapEnd; ds = shiftDays(ds, 1)) {
+    if (!recSet.has(ds)) { if (!gapStart) gapStart = ds; }
+    else if (gapStart) { gaps.push([gapStart, shiftDays(ds, -1)]); gapStart = null; }
+  }
+  if (gapStart) gaps.push([gapStart, gapEnd]);
+  const bigGaps = gaps.map(([s, e]) => [s, e, Math.round((toDate(e) - toDate(s)) / MS_DAY) + 1]).filter(([, , n]) => n >= 3);
+  if (bigGaps.length) L.push(`기록 공백: ${bigGaps.map(([s, e, n]) => `${s.slice(5)}~${e.slice(5)} (${n}일)`).join(" · ")}`);
   L.push("");
 
   // 빈도 집계 — 반복 패턴(주식·루틴)을 클로드가 바로 보게

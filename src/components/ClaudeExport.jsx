@@ -7,10 +7,11 @@ export function ClaudeExport({ state, todayStr }) {
   const [open, setOpen] = useState(false);
   const [period, setPeriod] = useState("3m"); // 기본 3개월
   const [custom, setCustom] = useState({ start: shiftDays(todayStr, -30), end: todayStr });
+  const [detail, setDetail] = useState(false); // 기본 코치 요약본 (문서 비대화 방지)
   const [done, setDone] = useState(""); // 복사/저장 완료 피드백
 
   const range = useMemo(() => resolvePeriod(period, todayStr, state.allDays, custom), [period, todayStr, state.allDays, custom]);
-  const pkg = useMemo(() => (open ? buildAnalysisPackage(state, range, todayStr) : ""), [open, state, range, todayStr]);
+  const pkg = useMemo(() => (open ? buildAnalysisPackage(state, range, todayStr, { detail }) : ""), [open, state, range, todayStr, detail]);
   const meta = useMemo(() => (open ? packageMeta(pkg, state, range) : null), [open, pkg, state, range]);
 
   const flash = (msg) => { setDone(msg); setTimeout(() => setDone(""), 2500); };
@@ -70,6 +71,22 @@ export function ClaudeExport({ state, todayStr }) {
               <input type="date" value={custom.end} max={todayStr} onChange={(e) => setCustom({ ...custom, end: e.target.value })} style={dateStyle} />
             </div>
           )}
+
+          <div style={{ fontSize: 11, color: "#8a8a8a", fontWeight: 500, margin: "12px 0 8px" }}>문서 형식</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            {[{ v: false, l: "코치 요약본" }, { v: true, l: "정밀 상세본" }].map((o) => {
+              const on = detail === o.v;
+              return (
+                <span key={o.l} onClick={() => setDetail(o.v)}
+                  style={{ padding: "7px 12px", borderRadius: 18, fontSize: 12, cursor: "pointer", background: on ? "#5a9e6f" : "#2a2a2a", color: on ? "#141414" : "#8a8a8a", fontWeight: on ? 600 : 400, border: `1px solid ${on ? "#5a9e6f" : "rgba(255,255,255,0.08)"}` }}>
+                  {o.l}
+                </span>
+              );
+            })}
+          </div>
+          <div style={{ fontSize: 9.5, color: "#4a4a4a", marginTop: 6, lineHeight: 1.5 }}>
+            {detail ? "상세본 = 요약본 + 날짜별 끼니·운동 세션 전체 (구간 심층 분석용, 용량 큼)" : "요약본 = 집계·판정 중심 (권장 — 문서가 짧아 분석 품질이 좋아요)"}
+          </div>
 
           {meta && (
             <div style={{ display: "flex", gap: 12, marginTop: 11, fontSize: 10.5, fontFamily: "monospace", color: "#707070", flexWrap: "wrap" }}>
