@@ -1,0 +1,171 @@
+<title>내보내기 v2 (P0~P1) — 프리뷰</title>
+<style>
+  :root{
+    --bg:#141414; --card:#1e1e1e; --inner:#252525; --surface:#2a2a2a;
+    --line6:rgba(255,255,255,.06); --line8:rgba(255,255,255,.08);
+    --text:#f5f5f0; --sub:#707070; --hint:#4a4a4a; --muted:#8a8a8a;
+    --blue:#4a8fc9; --gold:#d4af37; --green:#5a9e6f; --red:#e05252;
+    --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:'Pretendard',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:#0c0e11;color:var(--text);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:460px;margin:0 auto;padding:26px 14px 70px;}
+  h1{font-size:20px;font-weight:650;margin:0 0 6px;letter-spacing:-.01em;}
+  .lede{font-size:12.5px;color:var(--muted);margin:0 0 20px;line-height:1.6;}
+  .lede b{color:var(--gold);}
+  .sec{font-size:11px;color:var(--hint);font-family:var(--mono);letter-spacing:.3px;margin:24px 4px 9px;}
+  .stage{background:var(--bg);border:1px solid var(--line6);border-radius:16px;padding:13px;}
+
+  /* 반영 현황 표 */
+  table{width:100%;border-collapse:collapse;font-size:11.5px;}
+  th{font-size:10px;color:var(--sub);text-align:left;padding:6px 8px;border-bottom:1px solid var(--line8);font-weight:600;}
+  td{padding:7px 8px;border-bottom:1px solid rgba(255,255,255,.04);vertical-align:top;line-height:1.5;}
+  td:first-child{white-space:nowrap;color:var(--muted);}
+  .ok{color:var(--green);font-weight:600;}
+  .done{color:var(--blue);font-weight:600;}
+  .no{color:var(--sub);font-weight:600;}
+
+  /* 패키지 실물 */
+  .pkg{background:#101010;border:1px solid var(--line8);border-radius:12px;padding:13px;max-height:520px;overflow:auto;font-family:var(--mono);font-size:10.4px;line-height:1.62;color:#c9c9c2;white-space:pre;}
+  .pkg::-webkit-scrollbar{width:4px;} .pkg::-webkit-scrollbar-thumb{background:#2a2a2a;border-radius:2px;}
+  .pkg .h{color:var(--gold);font-weight:700;}
+  .pkg .h2{color:#e8d48b;font-weight:600;}
+  .pkg .okc{color:var(--green);} .pkg .bad{color:var(--red);}
+  .pkg .dim{color:#5a5a5a;} .pkg .cy{color:var(--blue);}
+  .pkg .new{background:rgba(90,158,111,.13);display:inline-block;width:100%;}
+  .legend{display:flex;gap:14px;font-size:10px;color:var(--sub);margin-top:8px;}
+  .legend .sw{display:inline-block;width:10px;height:10px;border-radius:3px;background:rgba(90,158,111,.35);margin-right:4px;vertical-align:-1px;}
+
+  /* BodyTab 폼 목업 */
+  .form{background:var(--card);border:1px solid rgba(74,143,201,.2);border-radius:16px;padding:14px;}
+  .ftitle{font-size:12px;color:var(--sub);margin-bottom:10px;}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;}
+  .inp{background:var(--inner);border:1px solid rgba(255,255,255,.08);border-radius:6px;color:#8a8a8a;font-size:13px;padding:10px 12px;}
+  .inp.newf{border-color:rgba(90,158,111,.5);background:rgba(90,158,111,.08);color:var(--green);}
+  .btns{display:flex;gap:6px;}
+  .btn{flex:1;padding:10px;border-radius:8px;font-size:13px;text-align:center;}
+  .btn.c{background:var(--surface);color:var(--muted);}
+  .btn.s{flex:2;background:var(--blue);color:#fff;font-weight:500;}
+
+  /* 패널 토글 목업 */
+  .panel{background:var(--card);border:1px solid rgba(212,175,55,.25);border-radius:14px;padding:14px;}
+  .plabel{font-size:11px;color:var(--muted);font-weight:500;margin-bottom:8px;}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;}
+  .chip{padding:7px 12px;border-radius:18px;font-size:12px;background:var(--surface);color:var(--muted);border:1px solid rgba(255,255,255,.08);}
+  .chip.on{background:var(--gold);color:#141414;font-weight:600;border-color:var(--gold);}
+  .chip.gr{background:var(--green);color:#141414;font-weight:600;border-color:var(--green);}
+  .phint{font-size:10px;color:var(--hint);margin-top:8px;line-height:1.55;}
+
+  .foot{margin-top:24px;padding:16px 18px;background:rgba(90,158,111,.05);border:1px solid rgba(90,158,111,.16);border-radius:14px;font-size:12.5px;color:var(--muted);line-height:1.75;}
+  .foot b{color:var(--green);}
+</style>
+
+<div class="wrap">
+  <h1>📋 내보내기 v2 — P0~P1 반영 프리뷰</h1>
+  <p class="lede">클로드 스펙 중 <b>P0(필수)~P1(권장)</b>을 반영한 새 패키지 모습입니다. <span style="background:rgba(90,158,111,.25);padding:1px 5px;border-radius:4px;">초록 하이라이트</span> = 새로 추가되는 부분.</p>
+
+  <div class="sec">① 반영 현황 (스펙 항목별)</div>
+  <div class="stage">
+    <table>
+      <tr><th>항목</th><th>상태</th></tr>
+      <tr><td>P0-1 체성분 섹션</td><td><span class="done">이미 반영됨</span> (지난 머지 #60 — 골격근·체지방률·체지방량·점수)</td></tr>
+      <tr><td>P0-2 설정 변경 이력</td><td><span class="ok">신규 반영</span> — 적응형 보정 변경(날짜·전후값) + 모드 전환(감량↔유지, 운동반영률 연동). <span style="color:#8a8a8a">단, 목표 kcal 절대값 이력은 앱이 저장하지 않아(월평균 체중 따라 자동 산출) 그 사실을 패키지에 명시</span></td></tr>
+      <tr><td>P0-3 운동 유형(주간)</td><td><span class="ok">신규 반영</span> — 종목명 키워드 분류(유산소/상체/하체/코어/기타) kcal 비중 % + 운동일·휴식일. 분류 불가 종목은 '기타'로 정직하게</td></tr>
+      <tr><td>P0-4 월별 C·F 열</td><td><span class="ok">신규 반영</span></td></tr>
+      <tr><td>P1-5 유효목표+초과폭</td><td><span class="ok">신규 반영</span> — 유효목표는 #60에 있음, ✗에 초과폭 <b style="color:#e05252">✗(+930)</b> 추가. <span style="color:#8a8a8a">판정 규칙이 상한만 검사하므로(미달은 ✗ 아님) 초과폭만 표기</span></td></tr>
+      <tr><td>P1-6 허리둘레</td><td><span class="ok">신규 반영</span> — 체성분 입력폼에 선택 필드 추가 + 패키지 표기</td></tr>
+      <tr><td>P1-7 공백·추정 플래그</td><td><span class="ok">신규 반영</span> — 공백 구간(3일↑) 목록 + 동일값 반복 ≈ 태그(기존)</td></tr>
+      <tr><td>P1-8 걸음수/NEAT</td><td><span class="no">제외</span> — 워치·폰 연동 인프라가 없음(별도 대형 작업). 추후 검토</td></tr>
+      <tr><td>설계원칙 · 2단계화</td><td><span class="ok">신규 반영</span> — <b>코치 요약본(기본)</b> = 끼니 상세 제외 / <b>정밀 상세본</b> = 전부 포함. 아래 ④ 토글</td></tr>
+    </table>
+  </div>
+
+  <div class="sec">② 새 패키지 실물 (코치 요약본 기준 — 스크롤)</div>
+  <div class="stage">
+    <div class="pkg"><span class="h"># Body Plan 분석 요청 (2026-04-19 ~ 2026-07-18, 3개월)</span>
+
+너는 나의 영양·운동 코치다. 아래 실측 데이터를 근거로 분석해줘. <span class="dim">(지시문 동일)</span>
+
+<span class="h2">## 내 프로필·규칙 (앱 자동 첨부)</span>
+- 키 175cm · 나이 42 · 현재 77.5kg (기간 -1.9kg)
+- 모드: 감량(cut) · 목표 1,570kcal · P170 C119 F46
+- 적응형 보정: -55kcal 적용 중 · 규칙: 운동 소모의 50% 반영
+
+<span class="new"><span class="h2">## 설정 변경 이력</span>  <span class="dim">← P0-2 신규</span></span>
+<span class="new">- 05-28 적응형 보정 0→-55kcal</span>
+<span class="new">- 06-14 모드 감량→유지 (운동반영 50%→100%)</span>
+<span class="new">- 06-28 모드 유지→감량 (운동반영 100%→50%)</span>
+<span class="new"><span class="dim">(목표 kcal·매크로 절대값은 월평균 체중 따라 자동 산출 — 변경 이력 미저장)</span></span>
+
+<span class="h2">## 컨디션 이력 (분석 시 감안할 것)</span>
+- 2026-07-04 ~ 2026-07-09 손목·다리 부상 · 자전거 낙상
+
+<span class="h2">## 월별 집계</span>
+월        평균kcal  평균P  <span class="new">평균C  평균F</span>  적정일  운동회수  체중변화   <span class="dim">← P0-4 C·F 추가</span>
+2026-05    1585    166   <span class="new">132    58</span>   22/28    17    -0.7kg
+2026-06    1552    171   <span class="new">128    61</span>   24/30    19    -0.6kg
+2026-07    1540    169   <span class="new">121    54</span>   14/17     7    -0.2kg
+
+<span class="new"><span class="h2">## 운동 구성 (주간)</span>  <span class="dim">← P0-3 신규</span></span>
+<span class="new">주(월요일)   유산소  상체  하체  코어  기타(%) | 운동일·휴식일</span>
+<span class="new">06/29        62    21    13     4     0   |  5일 · 2일</span>
+<span class="new">07/06        88     0     0    12     0   |  2일 · 5일 <span class="dim">[부상]</span></span>
+<span class="new">07/13        58    22    16     4     0   |  6일 · 1일</span>
+
+<span class="h2">## 일별 요약 (기록 84일 / 기간 91일)</span>
+(유효목표 = 그날 목표+운동반영 · ✗(+N) = 초과폭 · ≈ = 직전과 동일, 일괄 입력 가능성)
+07-15   1570  170  119   46   -300   1720  <span class="okc">✓</span>
+07-16   2500  100  200   90      0   1570  <span class="bad">✗<span class="new">(+930)</span></span>   <span class="dim">← P1-5 초과폭</span>
+07-17   1548  171  118   45   -180   1660  <span class="okc">✓</span>
+<span class="dim">… (중략) …</span>
+<span class="new">기록 공백: 04-26~04-29 (4일) · 06-02~06-05 (4일)  <span class="dim">← P1-7 공백 명시</span></span>
+
+<span class="h2">## 자주 먹은 음식 TOP 15</span>
+닭가슴살 42회 · 오트밀 38회 · 현미밥 35회 · …
+
+<span class="h2">## 운동 종목별 집계</span>
+- 러닝 5분: 17회 · 총 510분 · 5,100kcal
+- 스쿼트: 8회 · 총 320분 · 1,440kcal
+
+<span class="h2">## 체성분 기록 (13건)</span>
+기간 변화: 체지방량 17.6→16.7kg (-0.9) · 골격근 39.0→39.2kg (+0.2)
+07-17 77.5kg · 골격근 39.2kg · 체지방 21.5% = 16.7kg<span class="new"> · 허리 84cm</span> · 점수 88   <span class="dim">← P1-6</span>
+
+<span class="h2">## 직접 추가 메모</span>
+(특별히 물어보고 싶은 것이 있으면 여기에 이어서 쓰세요)</div>
+    <div class="legend"><span><span class="sw"></span>신규 추가</span><span style="color:#5a5a5a">나머지는 현재와 동일</span></div>
+  </div>
+
+  <div class="sec">③ 체성분 입력폼 — 허리둘레 필드 추가 (P1-6)</div>
+  <div class="stage">
+    <div class="form">
+      <div class="ftitle">체성분 기록 (2026-07-21)</div>
+      <div class="grid">
+        <div class="inp">체중 (kg)</div>
+        <div class="inp">골격근량 (kg)</div>
+        <div class="inp">체지방률 (%)</div>
+        <div class="inp">인바디 점수</div>
+        <div class="inp newf">허리둘레 (cm) · 선택</div>
+      </div>
+      <div class="btns"><div class="btn c">취소</div><div class="btn s">저장</div></div>
+    </div>
+    <div class="phint">주 1회 정도 입력하면 인바디 오차와 무관한 내장지방 지표로 교차검증에 쓰입니다. 안 적어도 됩니다(선택).</div>
+  </div>
+
+  <div class="sec">④ 내보내기 2단계화 — 문서 형식 토글 (설계원칙)</div>
+  <div class="stage">
+    <div class="panel">
+      <div class="plabel">분석 기간</div>
+      <div class="chips" style="margin-bottom:11px;"><span class="chip">격주</span><span class="chip">1개월</span><span class="chip on">3개월</span><span class="chip">전체</span><span class="chip">직접</span></div>
+      <div class="plabel">문서 형식</div>
+      <div class="chips"><span class="chip gr">코치 요약본</span><span class="chip">정밀 상세본</span></div>
+      <div class="phint"><b style="color:#8a8a8a">코치 요약본(기본)</b> = 위 ②의 구성 — 끼니별 상세 없이 집계·판정 중심(문서 비대화 방지).<br><b style="color:#8a8a8a">정밀 상세본</b> = 요약본 + 날짜마다 끼니별 식단·운동 세션 전체(구간 심층 분석용).</div>
+    </div>
+  </div>
+
+  <div class="foot">
+    이대로 구현하면: analysisExport 확장(순수 로직+테스트) + 체성분 폼 허리둘레(선택) + 패널 토글. 계산 로직 무변경.<br>
+    <span style="color:var(--sub)">→ 괜찮으면 <b style="color:var(--text)">"진행해"</b> — 구현·검증 후 머지합니다. 항목별 조정(예: "운동 분류에 축구는 유산소로", "공백 기준 5일로")도 말씀해주세요. P1-8(걸음수)과 P2(수면·검진·주관컨디션·이동평균)는 이번 범위 밖 — P2는 원하시면 다음 라운드로.</span>
+  </div>
+</div>
