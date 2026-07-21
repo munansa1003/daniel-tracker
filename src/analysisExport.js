@@ -166,7 +166,7 @@ export function buildAnalysisPackage(state, { start, end }, todayStr, opts = {})
       weeks.get(wk).push(ds);
     }
     L.push("## 운동 구성 (주간)");
-    L.push("주(월요일)   유산소  상체  하체  코어  기타(%) | 운동일·휴식일");
+    L.push("주(월요일)   유산소  상체  하체  코어  기타(%) | 주간 총kcal | 운동일·휴식일");
     for (const [wk, dates] of [...weeks.entries()].sort()) {
       const cats = { 유산소: 0, 상체: 0, 하체: 0, 코어: 0, 기타: 0 };
       let exDays = 0;
@@ -177,7 +177,8 @@ export function buildAnalysisPackage(state, { start, end }, todayStr, opts = {})
       }
       const total = Object.values(cats).reduce((s, v) => s + v, 0);
       const pct = (v) => String(total > 0 ? Math.round((v / total) * 100) : 0).padStart(4);
-      L.push(`${wk.slice(5).replace("-", "/")}주    ${pct(cats.유산소)}  ${pct(cats.상체)}  ${pct(cats.하체)}  ${pct(cats.코어)}  ${pct(cats.기타)}   | 운동 ${exDays}일 · 휴식 ${dates.length - exDays}일`);
+      // 총kcal 병기 — "하체 21%가 몇 kcal 규모인지" 볼륨 감각까지 (분석 클로드 제안)
+      L.push(`${wk.slice(5).replace("-", "/")}주    ${pct(cats.유산소)}  ${pct(cats.상체)}  ${pct(cats.하체)}  ${pct(cats.코어)}  ${pct(cats.기타)}   | 총 ${String(Math.round(total).toLocaleString()).padStart(6)}kcal | 운동 ${exDays}일 · 휴식 ${dates.length - exDays}일`);
     }
     L.push("");
   }
