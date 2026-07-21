@@ -105,3 +105,20 @@ describe("packageMeta", () => {
     expect(m.kb).toBeGreaterThan(0);
   });
 });
+
+describe("상세 내용 포함 (식단·운동·빈도)", () => {
+  const range = { start: "2026-07-14", end: "2026-07-18" };
+  const pkg = buildAnalysisPackage(state(), range, "2026-07-18");
+
+  it("일별 상세 — 음식명·서빙·시간·kcal, 운동명·분", () => {
+    expect(pkg).toContain("식단: 00시 닭 1570");
+    expect(pkg).toContain("운동: 00시 조깅 30분 300");
+    expect(pkg).toContain("치킨 2500"); // 07-16 상세
+  });
+  it("빈도 집계 — 자주 먹은 음식 TOP + 운동 종목별", () => {
+    expect(pkg).toContain("## 자주 먹은 음식 TOP");
+    expect(pkg).toMatch(/닭 1회|치킨 1회/);
+    expect(pkg).toContain("## 운동 종목별 집계");
+    expect(pkg).toContain("- 조깅: 1회 · 총 30분 · 300kcal");
+  });
+});
