@@ -123,8 +123,41 @@ export function buildAnalysisPackage(state, { start, end }, todayStr) {
     else mark = isCalOk(a.k, a.ex, dayTargetK(dM, ds), dM) ? "✓" : "✗";
     const inEvent = events.find((ev) => dateInEvent(ds, ev));
     L.push(`${ds.slice(5)}  ${String(Math.round(a.k)).padStart(5)}  ${String(Math.round(a.p)).padStart(3)}  ${String(Math.round(a.c)).padStart(3)}  ${String(Math.round(a.f)).padStart(3)}  ${String(a.ex ? "-" + Math.round(a.ex) : "0").padStart(5)}  ${mark}${inEvent ? ` [${inEvent.label || typeMeta(inEvent.type).name}]` : ""}`);
+    // 상세 — 무엇을 먹고 어떤 운동을 했는지(시간·수량·kcal). 식사 패턴·종목 분석의 근거.
+    const meals = [...(day.meals || [])].sort((x, y) => (x.hour || 0) - (y.hour || 0));
+    if (meals.length) L.push(`      식단: ${meals.map((m) => `${String(m.hour || 0).padStart(2, "0")}시 ${m.n}${m.serving !== 1 ? `×${m.serving}` : ""} ${Math.round((m.k || 0) * (m.serving || 1))}`).join(" · ")}`);
+    const exs = [...(day.exercises || [])].sort((x, y) => (x.hour || 0) - (y.hour || 0));
+    if (exs.length) L.push(`      운동: ${exs.map((e) => `${String(e.hour || 0).padStart(2, "0")}시 ${e.n} ${e.duration || 0}분 ${Math.round(e.kcal || 0)}`).join(" · ")}`);
   }
   L.push("");
+
+  // 빈도 집계 — 반복 패턴(주식·루틴)을 클로드가 바로 보게
+  const foodFreq = new Map(), exFreq = new Map();
+  for (const ds of recorded) {
+    for (const m of (allDays[ds].meals || [])) {
+      const f = foodFreq.get(m.n) || { n: 0, k: 0 };
+      f.n++; f.k += (m.k || 0) * (m.serving || 1);
+      foodFreq.set(m.n, f);
+    }
+    for (const e of (allDays[ds].exercises || [])) {
+      const x = exFreq.get(e.n) || { n: 0, min: 0, k: 0 };
+      x.n++; x.min += e.duration || 0; x.k += e.kcal || 0;
+      exFreq.set(e.n, x);
+    }
+  }
+  if (foodFreq.size) {
+    const top = [...foodFreq.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, 15);
+    L.push(`## 자주 먹은 음식 TOP ${top.length}`);
+    L.push(top.map(([name, f]) => `${name} ${f.n}회`).join(" · "));
+    L.push("");
+  }
+  if (exFreq.size) {
+    L.push("## 운동 종목별 집계");
+    for (const [name, x] of [...exFreq.entries()].sort((a, b) => b[1].n - a[1].n)) {
+      L.push(`- ${name}: ${x.n}회 · 총 ${x.min}분 · ${Math.round(x.k).toLocaleString()}kcal`);
+    }
+    L.push("");
+  }
 
   // 체중
   L.push(`## 체중 기록 (${weighs.length}건)`);
