@@ -219,23 +219,25 @@ function MainApp({ user, onLogout }) {
 
     // Phase 2: 오프라인 대기분을 먼저 밀어올린 뒤(순서 필수 — getAllData가 Firestore 옛값으로
     // localStorage/state를 덮기 전에 최신 로컬 값을 서버에 반영), 전체 동기화 (ONE getDocs)
-    Promise.resolve()
-      .then(() => store.flushPendingSync?.())
-      .catch(() => {}) // flush 실패는 동기화를 막지 않음 — 큐에 남아 다음 기회에 재시도
-      .then(() => Promise.all([store.getAllData(), getSharedFoods(), getSharedExercises()]))
-      .then(([remote, sf, se]) => {
-        if (sf) setSharedFoods(sf);
-        if (se) setSharedExercises(se);
-        if (!remote || Object.keys(remote).length === 0) return;
-        if (remote["custom-foods"]) setCustomFoods(remote["custom-foods"]);
-        if (remote["custom-exercises"]) setCustomEx(remote["custom-exercises"]);
-        if (remote["bodylog"]) setBodyLog([...remote["bodylog"]].sort((a, b) => a.date.localeCompare(b.date)));
-        if (remote["lastBackup"]) setLastBackup(remote["lastBackup"]);
-        if (remote["goals"]) setGoals(remote["goals"]);
-        const remoteDays = {};
-        for (const k in remote) { if (k.startsWith("day:")) remoteDays[k.slice(4)] = remote[k]; }
-        if (Object.keys(remoteDays).length > 0) setAllDays(remoteDays);
-      }).catch(e => console.error("Sync error:", e));
+    resyncAll().catch(e => console.error("Sync error:", e));
+  }, []);
+
+  // 전체 재동기화 — 시작 시 + 클로드 내보내기 패널을 열 때(오래된 로컬 스냅샷으로
+  // 패키지가 만들어지는 것 방지: 다른 기기 기록·미완 동기화가 빠진 채 복사되는 사고).
+  const resyncAll = useCallback(async () => {
+    try { await store.flushPendingSync?.(); } catch { /* flush 실패는 동기화를 막지 않음 — 큐에 남아 재시도 */ }
+    const [remote, sf, se] = await Promise.all([store.getAllData(), getSharedFoods(), getSharedExercises()]);
+    if (sf) setSharedFoods(sf);
+    if (se) setSharedExercises(se);
+    if (!remote || Object.keys(remote).length === 0) return;
+    if (remote["custom-foods"]) setCustomFoods(remote["custom-foods"]);
+    if (remote["custom-exercises"]) setCustomEx(remote["custom-exercises"]);
+    if (remote["bodylog"]) setBodyLog([...remote["bodylog"]].sort((a, b) => a.date.localeCompare(b.date)));
+    if (remote["lastBackup"]) setLastBackup(remote["lastBackup"]);
+    if (remote["goals"]) setGoals(remote["goals"]);
+    const remoteDays = {};
+    for (const k in remote) { if (k.startsWith("day:")) remoteDays[k.slice(4)] = remote[k]; }
+    if (Object.keys(remoteDays).length > 0) setAllDays(remoteDays);
   }, []);
 
   // 온라인 복귀 시 오프라인 대기분 재전송 (세션 중에는 localStorage가 항상 최신이라 순서 무관)
@@ -1862,7 +1864,7 @@ function MainApp({ user, onLogout }) {
               </div>
               <span style={{ fontSize: 12, color: "#4a8fc9" }}>📥</span>
             </div>
-            <ClaudeExport todayStr={today()} state={{ allDays, bodyLog, goals, user, mode, targets: TARGETS, targetsByMode, appAdjust, tdeeHistory, healthEvents }} />
+            <ClaudeExport todayStr={today()} onResync={resyncAll} state={{ allDays, bodyLog, goals, user, mode, targets: TARGETS, targetsByMode, appAdjust, tdeeHistory, healthEvents }} />
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px" }}>
               <div>
                 <div style={{ fontSize: 12, color: "#f5f5f0" }}>마지막 백업</div>
