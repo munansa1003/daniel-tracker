@@ -1,0 +1,57 @@
+// api/export-view.js — Vercel Serverless Function (공유 뷰 Phase 1)
+// AI 리더(Claude 웹)가 URL만으로 읽을 수 있는 SSR 텍스트 뷰. 현재는 가상 데이터 검증용.
+//
+// ⚠️ checkOrigin을 적용하지 않는다(의도적):
+//   이 라우트는 브라우저 앱(fetch)이 아니라 **외부 리더·주소창 직접 방문**이 Origin 헤더
+//   없이 GET 하는 공개 읽기 경로다. checkOrigin은 화이트리스트에 없는 origin을 403으로
+//   막으므로(빈 origin 포함) 여기 걸면 정상 요청이 전부 실패한다.
+//   대신 (1) 토큰 일치 시에만 본문 응답 (2) 불일치·누락은 404 (3) rateLimit(분당 30)
+//   (4) noindex·no-store 로 노출을 통제한다.
+import { buildAnalysisPackage, resolvePeriod } from "../src/analysisExport.js";
+import { sampleState } from "./_lib/sample-state.js";
+import { rateLimit } from "./_lib/security.js";
+
+const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+function todayStr() {
+  const d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+
+export default async function handler(req, res) {
+  if (req.method !== "GET") return res.status(405).json({ error: "GET only" });
+
+  // 공개 경로라 관대하게(분당 30) — 리더가 재시도해도 막히지 않을 수준
+  if (!(await rateLimit(req, res, { key: "export-view", max: 30, windowSec: 60 }))) return;
+
+  // 토큰 불일치·누락은 404(존재 자체를 숨김) + 어떤 데이터도 싣지 않음
+  const expected = process.env.SHARE_TEST_TOKEN;
+  const token = req.query?.token;
+  if (!expected || token !== expected) {
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(404).send("Not found");
+  }
+
+  const today = todayStr();
+  const range = resolvePeriod("2w", today, {}); // 최근 14일
+  const pkg = buildAnalysisPackage(sampleState(today), range, today); // 코치 요약본(기본)
+
+  const html = `<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Body Plan 공유 뷰</title>
+</head>
+<body>
+<p>Body Plan 공유 뷰 · Phase 1 테스트(가상 데이터) · 생성: ${esc(today)}</p>
+<pre>${esc(pkg)}</pre>
+</body>
+</html>`;
+
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("X-Robots-Tag", "noindex, nofollow");
+  return res.status(200).send(html);
+}
