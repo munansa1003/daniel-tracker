@@ -34,7 +34,7 @@ export default defineConfig({
         skipWaiting: true,
         // 오프라인 네비게이션 시 precache된 앱 셸 제공 (/api/* 는 SW 우회)
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/api\//],
+        navigateFallbackDenylist: [/^\/api\//, /^\/export\//],
         runtimeCaching: [{
           urlPattern: /^https:\/\/fonts/,
           handler: 'CacheFirst',
