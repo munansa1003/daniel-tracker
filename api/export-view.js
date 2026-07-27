@@ -11,7 +11,7 @@ import { buildAnalysisPackage, resolvePeriod } from "../src/analysisExport.js";
 import { sampleState } from "./_lib/sample-state.js";
 import { rateLimit } from "./_lib/security.js";
 import { kvConfigured } from "./_lib/kv.js";
-import { getShare, isValidToken } from "./_lib/share-store.js";
+import { getShare, touchShare, isValidToken } from "./_lib/share-store.js";
 
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
@@ -89,7 +89,20 @@ export default async function handler(req, res) {
     }
     try {
       const rec = await getShare(share);
-      if (!rec || typeof rec.pkg !== "string") return notFound("expired");
+      if (!rec) return notFound("expired"); // KV에 없음 = 만료로 자동 소멸했거나 존재한 적 없음
+      // 폐기 흔적(tombstone) 또는 만료 경계(TTL 정리 직전) → 410 Gone으로 명확히 안내
+      if (rec.revoked || typeof rec.pkg !== "string" || (rec.expiresAt && rec.expiresAt <= Date.now())) {
+        noStore();
+        res.setHeader("X-Share-View", rec.revoked ? "revoked" : "expired");
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.setHeader("X-Robots-Tag", "noindex, nofollow");
+        return res.status(410).send(`<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="robots" content="noindex, nofollow">
+<title>링크 만료</title></head>
+<body><p>이 링크는 만료되었거나 폐기되었습니다. 앱에서 새 공유 링크를 만들어 주세요.</p></body></html>`);
+      }
+      // 접근 통계 — 렌더를 막지 않게 fire-and-forget (KEEPTTL로 만료 시각 보존)
+      touchShare(share, rec).catch(() => {});
       const created = new Date(rec.createdAt || Date.now()).toISOString().slice(0, 16).replace("T", " ");
       const expires = new Date(rec.expiresAt || Date.now()).toISOString().slice(0, 16).replace("T", " ");
       return render(`Body Plan 공유 뷰 · 공유 시점 스냅샷 · 생성: ${created} UTC · 만료: ${expires} UTC`, rec.pkg);

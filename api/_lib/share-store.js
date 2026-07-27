@@ -46,3 +46,18 @@ export async function delShare(token) {
   await kv("DEL", shareKey(token));
   return true;
 }
+
+// 폐기 — DEL 대신 7일짜리 흔적(tombstone)을 남긴다.
+// 이유: 완전 삭제하면 "폐기된 링크"와 "존재한 적 없는 링크"를 구분 못해 404만 가능.
+// 흔적이 있으면 410 Gone("폐기됨")으로 정확히 안내할 수 있다(스냅샷 본문은 즉시 소멸).
+export async function revokeShare(token, uid) {
+  if (!isValidToken(token)) return false;
+  await kv("SET", shareKey(token), JSON.stringify({ revoked: true, uid, revokedAt: Date.now() }), "EX", String(7 * 24 * 3600));
+  return true;
+}
+
+// 접근 통계 갱신 — KEEPTTL로 만료 시각을 건드리지 않고 카운트만 올린다(뷰에서 fire-and-forget)
+export async function touchShare(token, rec) {
+  const updated = { ...rec, accessCount: (rec.accessCount || 0) + 1, lastAccessedAt: Date.now() };
+  await kv("SET", shareKey(token), JSON.stringify(updated), "KEEPTTL");
+}

@@ -73,8 +73,8 @@ const kvStore = new Map();
 beforeEach(() => {
   kvStore.clear();
   vi.resetModules();
-  vi.stubEnv("KV_REST_API_URL", "https://kv.test");
-  vi.stubEnv("KV_REST_API_TOKEN", "kv-token");
+  // KV env는 일부러 비워둔다 — rateLimit(env 직접 참조)은 skip되어 소음이 없고,
+  // 핸들러의 kvConfigured/kv는 아래 mock 모듈이 대신한다.
   vi.doMock("../../api/_lib/kv.js", () => ({
     kvConfigured: () => true,
     kv: async (...args) => {
@@ -142,7 +142,7 @@ describe("share-create", () => {
 });
 
 describe("share-revoke", () => {
-  it("소유자만 폐기 가능 — 남의 링크는 403, 내 링크는 삭제", async () => {
+  it("소유자만 폐기 가능 — 남의 링크는 403, 내 링크는 tombstone으로 전환", async () => {
     const create = await loadCreate();
     const cRes = makeRes();
     await create(makeReq({ idToken: "good-token", pkg: "x".repeat(200) }), cRes);
@@ -157,7 +157,16 @@ describe("share-revoke", () => {
     const mine = makeRes();
     await revoke(makeReq({ idToken: "good-token", token }), mine);
     expect(mine.statusCode).toBe(200);
-    expect(kvStore.has(`share:${token}`)).toBe(false); // 삭제됨
+    // DEL이 아니라 폐기 흔적(tombstone) — 뷰가 410으로 안내할 수 있게 스냅샷 본문은 소멸
+    const tomb = JSON.parse(kvStore.get(`share:${token}`));
+    expect(tomb.revoked).toBe(true);
+    expect(tomb.pkg).toBeUndefined();
+
+    // 재폐기는 멱등 성공
+    const again = makeRes();
+    await revoke(makeReq({ idToken: "good-token", token }), again);
+    expect(again.statusCode).toBe(200);
+    expect(JSON.parse(again.body).alreadyGone).toBe(true);
   });
 
   it("이미 없는 토큰도 200(멱등)", async () => {
@@ -190,7 +199,7 @@ describe("export-view — 공유 링크(?t=)", () => {
     expect(res.body).toContain('content="noindex, nofollow"');
   });
 
-  it("폐기된 토큰 → 404 (X-Share-View: expired)", async () => {
+  it("폐기된 토큰 → 410 Gone (X-Share-View: revoked, 본문 데이터 없음)", async () => {
     const create = await loadCreate();
     const cRes = makeRes();
     await create(makeReq({ idToken: "good-token", pkg: "x".repeat(200) }), cRes);
@@ -201,9 +210,36 @@ describe("export-view — 공유 링크(?t=)", () => {
     const view = await loadView();
     const res = makeRes();
     await view(viewReq({ t: token }), res);
-    expect(res.statusCode).toBe(404);
-    expect(res.headers["x-share-view"]).toBe("expired");
+    expect(res.statusCode).toBe(410);
+    expect(res.headers["x-share-view"]).toBe("revoked");
+    expect(res.body).toContain("만료되었거나 폐기");
     expect(res.body).not.toContain("Body Plan 분석 요청");
+  });
+
+  it("만료 경계(TTL 정리 직전, expiresAt 경과) → 410 expired", async () => {
+    const token = "b".repeat(32);
+    kvStore.set(`share:${token}`, JSON.stringify({ uid: "uid-1", pkg: "x".repeat(200), createdAt: 1, expiresAt: Date.now() - 1000 }));
+    const view = await loadView();
+    const res = makeRes();
+    await view(viewReq({ t: token }), res);
+    expect(res.statusCode).toBe(410);
+    expect(res.headers["x-share-view"]).toBe("expired");
+  });
+
+  it("정상 조회 시 접근 통계 갱신 (accessCount·lastAccessedAt, TTL 보존)", async () => {
+    const create = await loadCreate();
+    const cRes = makeRes();
+    await create(makeReq({ idToken: "good-token", pkg: "x".repeat(200) }), cRes);
+    const token = JSON.parse(cRes.body).token;
+
+    const view = await loadView();
+    await view(viewReq({ t: token }), makeRes());
+    await view(viewReq({ t: token }), makeRes());
+    // touchShare는 fire-and-forget — mock KV는 동기라 즉시 반영됨
+    const rec = JSON.parse(kvStore.get(`share:${token}`));
+    expect(rec.accessCount).toBe(2);
+    expect(rec.lastAccessedAt).toBeGreaterThan(0);
+    expect(rec.pkg.length).toBe(200); // 본문 보존
   });
 
   it("형식이 틀린 토큰 → 404 (KV 조회 안 함)", async () => {
