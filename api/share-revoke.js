@@ -3,7 +3,7 @@
 import { checkOrigin, rateLimit } from "./_lib/security.js";
 import { kvConfigured } from "./_lib/kv.js";
 import { verifyIdToken } from "./_lib/verify-auth.js";
-import { getShare, delShare, isValidToken } from "./_lib/share-store.js";
+import { getShare, revokeShare, isValidToken } from "./_lib/share-store.js";
 
 export default async function handler(req, res) {
   if (!checkOrigin(req, res)) return;
@@ -20,11 +20,11 @@ export default async function handler(req, res) {
 
   try {
     const rec = await getShare(token);
-    // 이미 만료·삭제된 경우도 성공으로 취급(멱등) — 앱은 어차피 상태를 지운다
-    if (!rec) return res.status(200).json({ ok: true, alreadyGone: true });
+    // 이미 만료·삭제·폐기된 경우도 성공으로 취급(멱등) — 앱은 어차피 상태를 지운다
+    if (!rec || rec.revoked) return res.status(200).json({ ok: true, alreadyGone: true });
     if (rec.uid !== uid) return res.status(403).json({ error: "not owner" });
 
-    await delShare(token);
+    await revokeShare(token, uid); // 흔적을 남겨 뷰가 410(폐기됨)으로 안내 가능
     return res.status(200).json({ ok: true });
   } catch (e) {
     console.error("[share-revoke]", e);
