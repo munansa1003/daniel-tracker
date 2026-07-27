@@ -38,20 +38,34 @@ export function ClaudeExport({ state, todayStr, onResync }) {
 
   const flash = (msg) => { setDone(msg); setTimeout(() => setDone(""), 2500); };
 
+  // 빈/깨진 패키지의 침묵 배포 방지 — 어떤 경로로든 내용 없는 결과가 나가지 않게
+  const pkgOk = () => {
+    if (pkg && pkg.length > 200) return true;
+    alert("패키지 생성에 문제가 있어요. 앱을 새로고침한 뒤 다시 시도해주세요.");
+    return false;
+  };
+
   const copyPkg = async () => {
+    if (!pkgOk()) return;
     try {
       await navigator.clipboard.writeText(pkg);
       flash("복사 완료 — claude.ai에 붙여넣으세요 ✓");
     } catch {
-      // 클립보드 실패(권한 등) → 파일 저장 폴백
-      savePkg();
+      // 클립보드 실패(권한 등) → 파일 저장 폴백을 명시적으로 안내
+      flash("클립보드 실패 — .md 파일로 대신 저장했어요");
+      savePkg(true);
     }
   };
   const sharePkg = async () => {
+    if (!pkgOk()) return;
     try { await navigator.share({ title: "Body Plan 분석 요청", text: pkg }); }
-    catch { /* 사용자 취소 — 무시 */ }
+    catch (e) {
+      // 사용자 취소(AbortError)는 무시, 그 외(용량 초과 등)는 안내 — 침묵 실패 금지
+      if (!e || e.name !== "AbortError") flash("공유 실패 — '복사'를 사용해보세요");
+    }
   };
-  const savePkg = () => {
+  const savePkg = (skipCheck) => {
+    if (!skipCheck && !pkgOk()) return;
     const blob = new Blob([pkg], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob); const a = document.createElement("a");
     a.href = url; a.download = `bodyplan_analysis_${range.start}_${range.end}.md`;
@@ -132,7 +146,7 @@ export function ClaudeExport({ state, todayStr, onResync }) {
           <div style={{ display: "flex", gap: 7, marginTop: 12, opacity: syncing ? 0.45 : 1 }}>
             <button onClick={copyPkg} disabled={syncing} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "10px 4px", borderRadius: 10, fontSize: 11.5, fontWeight: 600, background: "#d4af37", color: "#141414", border: "none", cursor: syncing ? "default" : "pointer" }}><span style={{ fontSize: 15 }}>📋</span>복사</button>
             {canShare && <button onClick={sharePkg} disabled={syncing} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "10px 4px", borderRadius: 10, fontSize: 11.5, fontWeight: 600, background: "#2a2a2a", color: "#8a8a8a", border: "1px solid rgba(255,255,255,0.09)", cursor: syncing ? "default" : "pointer" }}><span style={{ fontSize: 15 }}>📤</span>공유</button>}
-            <button onClick={savePkg} disabled={syncing} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "10px 4px", borderRadius: 10, fontSize: 11.5, fontWeight: 600, background: "#2a2a2a", color: "#8a8a8a", border: "1px solid rgba(255,255,255,0.09)", cursor: syncing ? "default" : "pointer" }}><span style={{ fontSize: 15 }}>💾</span>.md 저장</button>
+            <button onClick={() => savePkg()} disabled={syncing} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "10px 4px", borderRadius: 10, fontSize: 11.5, fontWeight: 600, background: "#2a2a2a", color: "#8a8a8a", border: "1px solid rgba(255,255,255,0.09)", cursor: syncing ? "default" : "pointer" }}><span style={{ fontSize: 15 }}>💾</span>.md 저장</button>
           </div>
           <div style={{ fontSize: 9.5, color: done ? "#5a9e6f" : "#4a4a4a", marginTop: 8, textAlign: "center", lineHeight: 1.5, fontWeight: done ? 600 : 400 }}>
             {done || "복사 후 claude.ai에 붙여넣기 · 공유 = 공유 시트로 클로드 앱에 바로 전달"}

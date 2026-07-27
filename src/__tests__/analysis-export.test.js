@@ -195,3 +195,40 @@ describe("반복 입력 플래그 (≈)", () => {
     expect(pkg).toContain("일괄 입력 가능성"); // 범례
   });
 });
+
+describe("내결함성 — 오염 데이터에도 절대 빈 문서를 반환하지 않음", () => {
+  it("정상 데이터엔 실패 마커가 없고 생성정보 footer가 붙음", () => {
+    const pkg = buildAnalysisPackage(state(), { start: "2026-07-14", end: TODAY }, TODAY);
+    expect(pkg).not.toContain("[생성 실패");
+    expect(pkg).toContain("(생성정보: 내보내기 v2.1");
+    expect(pkg).toContain("코치 요약본");
+  });
+
+  it("meals가 배열이 아닌 날(오염) → 그 날짜만 실패 마커, 다른 날·다른 섹션은 생존", () => {
+    const s = state();
+    s.allDays["2026-07-16"] = { mode: "cut", meals: {}, exercises: [{ n: "조깅", kcal: 100, duration: 10 }] }; // 오염
+    const pkg = buildAnalysisPackage(s, { start: "2026-07-14", end: TODAY }, TODAY);
+    expect(pkg.length).toBeGreaterThan(500);          // 빈 문서 아님
+    expect(pkg).toContain("07-16  [생성 실패:");       // 오염된 날짜만 마커
+    expect(pkg).toMatch(/07-15\s+1570.*✓/);           // 이전 날짜 정상
+    expect(pkg).toMatch(/07-17\s+2000.*✓/);           // 이후 날짜도 계속 생성 (뒤가 안 막힘)
+    expect(pkg).toContain("## 체성분 기록");           // 뒤 섹션 생존
+    expect(pkg).toContain("(생성정보:");
+  });
+
+  it("healthEvents/bodyLog의 null 필드(오염) → throw 없이 필터로 걸러짐", () => {
+    const s = state();
+    s.healthEvents = [{ id: 9, type: "illness", start: null, end: null }, ...s.healthEvents];
+    s.bodyLog = [{ date: null, weight: 70 }, ...s.bodyLog];
+    const pkg = buildAnalysisPackage(s, { start: "2026-07-14", end: TODAY }, TODAY);
+    expect(pkg).not.toContain("[생성 실패");
+    expect(pkg).toContain("장염"); // 정상 이벤트는 유지
+  });
+
+  it("state 자체가 비정상이어도 빈 문자열은 반환하지 않음 (최후 방어)", () => {
+    const pkg = buildAnalysisPackage(null, { start: "2026-07-14", end: TODAY }, TODAY);
+    expect(typeof pkg).toBe("string");
+    expect(pkg.length).toBeGreaterThan(50);
+    expect(pkg).toContain("(생성정보:");
+  });
+});
