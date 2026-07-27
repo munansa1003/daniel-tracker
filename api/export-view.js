@@ -46,6 +46,21 @@ export default async function handler(req, res) {
   }
 
   const noStore = () => { res.setHeader("Cache-Control", "no-store"); };
+  // 사람이 읽을 수 있는 404 — 빈 "Not found"는 "라우트 자체가 없다"로 오해되기 쉽다(실제 오진 사례).
+  // 만료/미발급/폐기를 구분해 알려주지 않으므로(같은 문구) 토큰 존재 여부는 여전히 노출되지 않는다.
+  const notFound = (reason) => {
+    noStore();
+    res.setHeader("X-Share-View", reason);
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("X-Robots-Tag", "noindex, nofollow");
+    return res.status(404).send(`<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="robots" content="noindex, nofollow">
+<title>링크를 찾을 수 없음</title></head>
+<body>
+<p>이 링크는 만료되었거나 존재하지 않습니다.</p>
+<p>앱에서 새 공유 링크를 만들어 주세요. (로그인은 필요하지 않으며, 링크 자체가 유효해야 합니다)</p>
+</body></html>`);
+  };
   const render = (metaLine, pkg) => {
     const html = `<!doctype html>
 <html lang="ko">
@@ -69,35 +84,25 @@ export default async function handler(req, res) {
   // ── Phase 2: 앱이 발급한 공유 링크 (?t=) ──
   // 저장된 스냅샷을 그대로 렌더. 만료·폐기된 토큰은 KV에서 사라져 자동으로 404.
   if (share !== undefined) {
-    noStore();
     if (!isValidToken(share) || !kvConfigured()) {
-      res.setHeader("X-Share-View", kvConfigured() ? "denied" : "unconfigured");
-      return res.status(404).send("Not found");
+      return notFound(kvConfigured() ? "denied" : "unconfigured");
     }
     try {
       const rec = await getShare(share);
-      if (!rec || typeof rec.pkg !== "string") {
-        res.setHeader("X-Share-View", "expired");
-        return res.status(404).send("Not found");
-      }
+      if (!rec || typeof rec.pkg !== "string") return notFound("expired");
       const created = new Date(rec.createdAt || Date.now()).toISOString().slice(0, 16).replace("T", " ");
       const expires = new Date(rec.expiresAt || Date.now()).toISOString().slice(0, 16).replace("T", " ");
       return render(`Body Plan 공유 뷰 · 공유 시점 스냅샷 · 생성: ${created} UTC · 만료: ${expires} UTC`, rec.pkg);
     } catch (e) {
       console.error("[export-view] share read error:", e);
-      res.setHeader("X-Share-View", "error");
-      return res.status(404).send("Not found");
+      return notFound("error");
     }
   }
 
   // ── Phase 1: 환경변수 토큰 (?token=) → 가상 샘플 ──
   // 토큰 불일치·누락은 404(존재 자체를 숨김) + 어떤 데이터도 싣지 않음
-  if (!expected || token !== expected) {
-    noStore();
-    // 본문엔 데이터를 싣지 않되, 원인 구분은 헤더로만(설정 누락 vs 값 불일치)
-    res.setHeader("X-Share-View", expected ? "denied" : "unconfigured");
-    return res.status(404).send("Not found");
-  }
+  // 본문엔 데이터를 싣지 않되, 원인 구분은 헤더로만(설정 누락 vs 값 불일치)
+  if (!expected || token !== expected) return notFound(expected ? "denied" : "unconfigured");
 
   const today = todayStr();
   const range = resolvePeriod("2w", today, {}); // 최근 14일
