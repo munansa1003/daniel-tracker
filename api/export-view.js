@@ -24,11 +24,28 @@ export default async function handler(req, res) {
   // 공개 경로라 관대하게(분당 30) — 리더가 재시도해도 막히지 않을 수준
   if (!(await rateLimit(req, res, { key: "export-view", max: 30, windowSec: 60 }))) return;
 
-  // 토큰 불일치·누락은 404(존재 자체를 숨김) + 어떤 데이터도 싣지 않음
   const expected = process.env.SHARE_TEST_TOKEN;
   const token = req.query?.token;
+
+  // 진단 모드(?diag=1) — 배포/설정 문제를 토큰 없이 구분하기 위한 최소 정보.
+  // 토큰 값·사용자 데이터는 절대 싣지 않는다(설정 여부·커밋·환경만).
+  if (req.query?.diag === "1") {
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(200).json({
+      route: "export-view",
+      tokenConfigured: !!expected,          // 환경변수가 이 배포에 주입됐는지
+      tokenLength: expected ? expected.length : 0, // 값 자체는 노출하지 않음(길이만)
+      vercelEnv: process.env.VERCEL_ENV || "unknown",
+      commit: (process.env.VERCEL_GIT_COMMIT_SHA || "").slice(0, 7) || "unknown",
+      branch: process.env.VERCEL_GIT_COMMIT_REF || "unknown",
+    });
+  }
+
+  // 토큰 불일치·누락은 404(존재 자체를 숨김) + 어떤 데이터도 싣지 않음
   if (!expected || token !== expected) {
     res.setHeader("Cache-Control", "no-store");
+    // 본문엔 데이터를 싣지 않되, 원인 구분은 헤더로만(설정 누락 vs 값 불일치)
+    res.setHeader("X-Share-View", expected ? "denied" : "unconfigured");
     return res.status(404).send("Not found");
   }
 

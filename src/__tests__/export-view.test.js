@@ -108,3 +108,41 @@ describe("export-view — HTML 이스케이프", () => {
     expect(res.body).not.toContain("<script>alert"); // 원문 태그가 살아 있으면 안 됨
   });
 });
+
+describe("export-view — 진단 모드(?diag=1)", () => {
+  it("토큰 없이도 200 · 설정 여부/커밋만 · 토큰 값과 사용자 데이터는 미노출", async () => {
+    const handler = await loadHandler();
+    const res = makeRes();
+    await handler(makeReq({ diag: "1" }), res);
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.route).toBe("export-view");
+    expect(body.tokenConfigured).toBe(true);
+    expect(body.tokenLength).toBe(TOKEN.length);
+    expect(res.body).not.toContain(TOKEN);              // 값 자체는 절대 노출 안 함
+    expect(res.body).not.toContain("Body Plan 분석 요청"); // 데이터도 없음
+  });
+
+  it("서버에 토큰 미설정이면 tokenConfigured=false (원인 구분 가능)", async () => {
+    vi.stubEnv("SHARE_TEST_TOKEN", "");
+    const handler = await loadHandler();
+    const res = makeRes();
+    await handler(makeReq({ diag: "1" }), res);
+    expect(JSON.parse(res.body).tokenConfigured).toBe(false);
+  });
+
+  it("404 응답의 X-Share-View 헤더로 설정누락/값불일치 구분", async () => {
+    const handler = await loadHandler();
+    const res1 = makeRes();
+    await handler(makeReq({ token: "wrong" }), res1);
+    expect(res1.headers["x-share-view"]).toBe("denied");
+
+    vi.stubEnv("SHARE_TEST_TOKEN", "");
+    vi.resetModules();
+    const handler2 = await loadHandler();
+    const res2 = makeRes();
+    await handler2(makeReq({ token: "anything" }), res2);
+    expect(res2.headers["x-share-view"]).toBe("unconfigured");
+  });
+});
