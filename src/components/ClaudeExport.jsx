@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
 import { PERIODS, resolvePeriod, buildAnalysisPackage, packageMeta, shiftDays } from "../analysisExport.js";
+import { TTL_CHOICES, shareUrlOf, remainingText, isExpired, createShareLink, revokeShareLink } from "../shareLink.js";
 
 // 클로드 분석용 내보내기 — 데이터 탭 행 + 펼침 패널(기간 선택 → 복사/공유/.md).
 // 패널을 열 때 onResync로 Firestore 최신본을 강제로 당겨온다 — 앱은 localStorage-first라
 // 콜드 스타트 직후·다른 기기에서 열면 오래된 스냅샷으로 패키지가 만들어질 수 있기 때문.
-export function ClaudeExport({ state, todayStr, onResync }) {
+export function ClaudeExport({ state, todayStr, onResync, shareLink, onShareLinkChange }) {
   const [open, setOpen] = useState(false);
   const [period, setPeriod] = useState("3m"); // 기본 3개월
   const [custom, setCustom] = useState({ start: shiftDays(todayStr, -30), end: todayStr });
@@ -12,6 +13,13 @@ export function ClaudeExport({ state, todayStr, onResync }) {
   const [done, setDone] = useState(""); // 복사/저장 완료 피드백
   const [syncing, setSyncing] = useState(false);
   const [offline, setOffline] = useState(false);
+  // 🔗 공유 링크 — 발급된 링크는 goals에 저장돼 기기 간 공유(폐기도 어느 기기서나)
+  const [linkMode, setLinkMode] = useState(false);
+  const [ttl, setTtl] = useState("24h");
+  const [busyLink, setBusyLink] = useState(false);
+  const [linkErr, setLinkErr] = useState("");
+  const activeLink = !isExpired(shareLink) ? shareLink : null;
+  const expiredLink = shareLink && isExpired(shareLink);
 
   const toggleOpen = () => {
     const next = !open;
@@ -64,6 +72,48 @@ export function ClaudeExport({ state, todayStr, onResync }) {
       if (!e || e.name !== "AbortError") flash("공유 실패 — '복사'를 사용해보세요");
     }
   };
+  // ── 🔗 공유 링크 ──
+  const openLinkMode = () => { setLinkErr(""); setLinkMode((v) => !v); };
+
+  const makeLink = async () => {
+    if (!pkgOk()) return;
+    setBusyLink(true); setLinkErr("");
+    try {
+      const link = await createShareLink(pkg, ttl);
+      onShareLinkChange?.(link);   // goals에 저장(기기 간 동기화)
+      setLinkMode(false);
+      flash("링크 생성 완료 — URL을 복사해 클로드에 전달하세요 ✓");
+    } catch (e) {
+      setLinkErr(e.message || "링크를 만들지 못했어요");
+    }
+    setBusyLink(false);
+  };
+
+  const dropLink = async () => {
+    if (busyLink || !activeLink) return;
+    if (!confirm("이 링크를 폐기할까요? 즉시 열람이 차단됩니다.")) return;
+    setBusyLink(true); setLinkErr("");
+    try {
+      await revokeShareLink(activeLink.token);
+      onShareLinkChange?.(null);
+      flash("링크를 폐기했어요 ✓");
+    } catch (e) {
+      setLinkErr(e.message || "폐기하지 못했어요");
+    }
+    setBusyLink(false);
+  };
+
+  const copyLink = async () => {
+    const url = shareUrlOf(activeLink.token);
+    try { await navigator.clipboard.writeText(url); flash("URL 복사 완료 — 클로드에 붙여넣으세요 ✓"); }
+    catch { setLinkErr("복사 실패 — 주소를 길게 눌러 직접 복사해주세요"); }
+  };
+
+  const shareLinkUrl = async () => {
+    try { await navigator.share({ title: "Body Plan 분석 링크", url: shareUrlOf(activeLink.token) }); }
+    catch (e) { if (!e || e.name !== "AbortError") setLinkErr("공유 실패 — 'URL 복사'를 사용해보세요"); }
+  };
+
   const savePkg = (skipCheck) => {
     if (!skipCheck && !pkgOk()) return;
     const blob = new Blob([pkg], { type: "text/markdown;charset=utf-8" });
@@ -147,10 +197,66 @@ export function ClaudeExport({ state, todayStr, onResync }) {
             <button onClick={copyPkg} disabled={syncing} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "10px 4px", borderRadius: 10, fontSize: 11.5, fontWeight: 600, background: "#d4af37", color: "#141414", border: "none", cursor: syncing ? "default" : "pointer" }}><span style={{ fontSize: 15 }}>📋</span>복사</button>
             {canShare && <button onClick={sharePkg} disabled={syncing} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "10px 4px", borderRadius: 10, fontSize: 11.5, fontWeight: 600, background: "#2a2a2a", color: "#8a8a8a", border: "1px solid rgba(255,255,255,0.09)", cursor: syncing ? "default" : "pointer" }}><span style={{ fontSize: 15 }}>📤</span>공유</button>}
             <button onClick={() => savePkg()} disabled={syncing} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "10px 4px", borderRadius: 10, fontSize: 11.5, fontWeight: 600, background: "#2a2a2a", color: "#8a8a8a", border: "1px solid rgba(255,255,255,0.09)", cursor: syncing ? "default" : "pointer" }}><span style={{ fontSize: 15 }}>💾</span>.md 저장</button>
+            <button onClick={openLinkMode} disabled={syncing} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "10px 4px", borderRadius: 10, fontSize: 11.5, fontWeight: 600, background: "rgba(74,143,201,0.16)", color: "#4a8fc9", border: "1px solid rgba(74,143,201,0.45)", cursor: syncing ? "default" : "pointer" }}><span style={{ fontSize: 15 }}>🔗</span>링크</button>
           </div>
           <div style={{ fontSize: 9.5, color: done ? "#5a9e6f" : "#4a4a4a", marginTop: 8, textAlign: "center", lineHeight: 1.5, fontWeight: done ? 600 : 400 }}>
-            {done || "복사 후 claude.ai에 붙여넣기 · 공유 = 공유 시트로 클로드 앱에 바로 전달"}
+            {done || "복사 후 claude.ai에 붙여넣기 · 🔗 링크 = 클로드가 직접 읽는 주소"}
           </div>
+
+          {/* 🔗 AI 공유 링크 — 유효기간 선택 → 발급 → URL 복사·폐기 */}
+          {linkMode && !activeLink && (
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+              <div style={{ fontSize: 11, color: "#8a8a8a", fontWeight: 500, marginBottom: 8 }}>링크 유효기간</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {TTL_CHOICES.map((o) => {
+                  const on = ttl === o.key;
+                  return (
+                    <span key={o.key} onClick={() => setTtl(o.key)}
+                      style={{ padding: "7px 12px", borderRadius: 18, fontSize: 12, cursor: "pointer", background: on ? "#4a8fc9" : "#2a2a2a", color: on ? "#fff" : "#8a8a8a", fontWeight: on ? 600 : 400, border: `1px solid ${on ? "#4a8fc9" : "rgba(255,255,255,0.08)"}` }}>
+                      {o.label}
+                    </span>
+                  );
+                })}
+              </div>
+              <button onClick={makeLink} disabled={busyLink}
+                style={{ width: "100%", marginTop: 11, padding: 11, borderRadius: 10, fontSize: 12.5, fontWeight: 600, background: "#4a8fc9", color: "#fff", border: "none", cursor: busyLink ? "default" : "pointer", opacity: busyLink ? 0.6 : 1 }}>
+                {busyLink ? "만드는 중…" : "🔗 링크 만들기"}
+              </button>
+              <div style={{ fontSize: 9.5, color: "#4a4a4a", marginTop: 7, lineHeight: 1.5 }}>
+                지금 설정(기간·문서 형식)으로 만든 <b style={{ color: "#8a8a8a" }}>공유 시점 스냅샷</b>이 저장됩니다. 이후 기록을 추가하면 새 링크를 만들면 돼요.
+              </div>
+              {linkErr && <div style={{ fontSize: 10.5, color: "#e05252", marginTop: 7 }}>{linkErr}</div>}
+            </div>
+          )}
+
+          {activeLink && (
+            <div style={{ marginTop: 12, background: "#1e1e1e", border: "1px solid rgba(90,158,111,0.35)", borderRadius: 11, padding: "11px 12px" }}>
+              <div style={{ fontFamily: "monospace", fontSize: 10.5, color: "#cfe0f0", wordBreak: "break-all", lineHeight: 1.5, background: "#101010", borderRadius: 7, padding: "8px 9px", border: "1px solid rgba(255,255,255,0.06)" }}>
+                {shareUrlOf(activeLink.token)}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 9, fontSize: 10.5, gap: 6, flexWrap: "wrap" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, color: "#5a9e6f", fontWeight: 600 }}>
+                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#5a9e6f", display: "inline-block" }} />
+                  활성 · {remainingText(activeLink.expiresAt) || "곧 만료"}
+                </span>
+                <span onClick={dropLink} style={{ fontSize: 11, color: "#e05252", textDecoration: "underline", cursor: busyLink ? "default" : "pointer" }}>
+                  {busyLink ? "처리 중…" : "링크 폐기"}
+                </span>
+              </div>
+              <div style={{ display: "flex", gap: 7, marginTop: 11 }}>
+                <button onClick={copyLink} style={{ flex: 1, padding: 10, borderRadius: 10, fontSize: 12, fontWeight: 600, background: "#4a8fc9", color: "#fff", border: "none", cursor: "pointer" }}>📋 URL 복사</button>
+                {canShare && <button onClick={shareLinkUrl} style={{ flex: 1, padding: 10, borderRadius: 10, fontSize: 12, fontWeight: 600, background: "#2a2a2a", color: "#8a8a8a", border: "1px solid rgba(255,255,255,0.09)", cursor: "pointer" }}>📤 공유</button>}
+              </div>
+              <div style={{ fontSize: 9.5, color: "#d4af37", marginTop: 9, lineHeight: 1.5, background: "rgba(212,175,55,0.07)", border: "1px solid rgba(212,175,55,0.22)", borderRadius: 8, padding: "7px 9px" }}>
+                ⚠️ 이 주소를 아는 사람은 <b>로그인 없이</b> 내 기록 요약을 볼 수 있어요. 클로드 대화에만 붙여넣고, 끝나면 <b>폐기</b>하세요. 진행 사진·이름은 포함되지 않습니다.
+              </div>
+              {linkErr && <div style={{ fontSize: 10.5, color: "#e05252", marginTop: 7 }}>{linkErr}</div>}
+            </div>
+          )}
+
+          {linkMode && !activeLink && expiredLink && (
+            <div style={{ marginTop: 8, fontSize: 10.5, color: "#707070" }}>이전 링크는 만료됐어요 — 위에서 새로 만들 수 있습니다.</div>
+          )}
         </div>
       )}
     </>

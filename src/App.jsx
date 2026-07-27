@@ -1864,7 +1864,10 @@ function MainApp({ user, onLogout }) {
               </div>
               <span style={{ fontSize: 12, color: "#4a8fc9" }}>📥</span>
             </div>
-            <ClaudeExport todayStr={today()} onResync={resyncAll} state={{ allDays, bodyLog, goals, user, mode, targets: TARGETS, targetsByMode, appAdjust, tdeeHistory, healthEvents }} />
+            <ClaudeExport todayStr={today()} onResync={resyncAll}
+              shareLink={goals.shareLink || null}
+              onShareLinkChange={(link) => saveGoals({ ...goals, shareLink: link })}
+              state={{ allDays, bodyLog, goals, user, mode, targets: TARGETS, targetsByMode, appAdjust, tdeeHistory, healthEvents }} />
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px" }}>
               <div>
                 <div style={{ fontSize: 12, color: "#f5f5f0" }}>마지막 백업</div>
