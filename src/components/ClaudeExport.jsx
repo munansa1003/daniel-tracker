@@ -2,17 +2,39 @@ import { useMemo, useState } from "react";
 import { PERIODS, resolvePeriod, buildAnalysisPackage, packageMeta, shiftDays } from "../analysisExport.js";
 
 // 클로드 분석용 내보내기 — 데이터 탭 행 + 펼침 패널(기간 선택 → 복사/공유/.md).
-// 데이터는 이미 브라우저에 있으므로 서버·API 비용 0, 오프라인 동작.
-export function ClaudeExport({ state, todayStr }) {
+// 패널을 열 때 onResync로 Firestore 최신본을 강제로 당겨온다 — 앱은 localStorage-first라
+// 콜드 스타트 직후·다른 기기에서 열면 오래된 스냅샷으로 패키지가 만들어질 수 있기 때문.
+export function ClaudeExport({ state, todayStr, onResync }) {
   const [open, setOpen] = useState(false);
   const [period, setPeriod] = useState("3m"); // 기본 3개월
   const [custom, setCustom] = useState({ start: shiftDays(todayStr, -30), end: todayStr });
   const [detail, setDetail] = useState(false); // 기본 코치 요약본 (문서 비대화 방지)
   const [done, setDone] = useState(""); // 복사/저장 완료 피드백
+  const [syncing, setSyncing] = useState(false);
+  const [offline, setOffline] = useState(false);
+
+  const toggleOpen = () => {
+    const next = !open;
+    setOpen(next);
+    if (next) {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) { setOffline(true); return; }
+      setOffline(false);
+      if (onResync) {
+        setSyncing(true);
+        Promise.resolve(onResync()).catch(() => {}).then(() => setSyncing(false));
+      }
+    }
+  };
 
   const range = useMemo(() => resolvePeriod(period, todayStr, state.allDays, custom), [period, todayStr, state.allDays, custom]);
   const pkg = useMemo(() => (open ? buildAnalysisPackage(state, range, todayStr, { detail }) : ""), [open, state, range, todayStr, detail]);
   const meta = useMemo(() => (open ? packageMeta(pkg, state, range) : null), [open, pkg, state, range]);
+  // 최근 기록일 — 오래된 스냅샷 경고용(전체 데이터 기준, 기간 무관)
+  const lastRecord = useMemo(() => {
+    const ds = Object.keys(state.allDays || {}).filter((d) => d <= todayStr && (state.allDays[d]?.meals?.length || state.allDays[d]?.exercises?.length)).sort();
+    return ds.length ? ds[ds.length - 1] : null;
+  }, [state.allDays, todayStr]);
+  const staleDays = lastRecord ? Math.round((new Date(todayStr + "T12:00:00") - new Date(lastRecord + "T12:00:00")) / 86400000) : null;
 
   const flash = (msg) => { setDone(msg); setTimeout(() => setDone(""), 2500); };
 
@@ -42,7 +64,7 @@ export function ClaudeExport({ state, todayStr }) {
 
   return (
     <>
-      <div onClick={() => setOpen(!open)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", borderBottom: "0.5px solid rgba(255,255,255,0.04)", cursor: "pointer", background: open ? "rgba(212,175,55,0.06)" : "transparent" }}>
+      <div onClick={toggleOpen} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", borderBottom: "0.5px solid rgba(255,255,255,0.04)", cursor: "pointer", background: open ? "rgba(212,175,55,0.06)" : "transparent" }}>
         <div>
           <div style={{ fontSize: 12, color: open ? "#d4af37" : "#f5f5f0", fontWeight: open ? 600 : 400 }}>클로드 분석용 내보내기</div>
           <div style={{ fontSize: 10, color: "#707070", marginTop: 2 }}>기간 요약+분석 프롬프트를 한 번에 — 붙여넣으면 끝</div>
@@ -88,19 +110,29 @@ export function ClaudeExport({ state, todayStr }) {
             {detail ? "상세본 = 요약본 + 날짜별 끼니·운동 세션 전체 (구간 심층 분석용, 용량 큼)" : "요약본 = 집계·판정 중심 (권장 — 문서가 짧아 분석 품질이 좋아요)"}
           </div>
 
+          {syncing && (
+            <div style={{ marginTop: 11, fontSize: 11, color: "#4a8fc9", fontWeight: 500 }}>⟳ 최신 데이터 동기화 중… (다른 기기 기록까지 반영)</div>
+          )}
+          {offline && (
+            <div style={{ marginTop: 11, fontSize: 10.5, color: "#d4af37", lineHeight: 1.5 }}>⚠️ 오프라인 — 이 기기에 저장된 데이터 기준입니다. 다른 기기 기록이 빠질 수 있어요.</div>
+          )}
           {meta && (
             <div style={{ display: "flex", gap: 12, marginTop: 11, fontSize: 10.5, fontFamily: "monospace", color: "#707070", flexWrap: "wrap" }}>
               <span>기록 <b style={{ color: "#8a8a8a" }}>{meta.days}일</b></span>
               <span>체중 <b style={{ color: "#8a8a8a" }}>{meta.weighs}건</b></span>
               <span>컨디션 <b style={{ color: "#8a8a8a" }}>{meta.conds}건</b></span>
               <span>약 <b style={{ color: "#8a8a8a" }}>{meta.kb}KB</b></span>
+              {lastRecord && <span>최근기록 <b style={{ color: staleDays >= 2 ? "#e05252" : "#8a8a8a" }}>{lastRecord.slice(5)}</b></span>}
             </div>
           )}
+          {!syncing && staleDays !== null && staleDays >= 2 && (
+            <div style={{ marginTop: 8, fontSize: 10.5, color: "#e05252", lineHeight: 1.5 }}>⚠️ 최근 기록이 {staleDays}일 전이에요 — 어제·오늘 기록이 실제로 있는데 여기 안 보이면, 잠시 후 패널을 다시 열어보세요(동기화 재시도).</div>
+          )}
 
-          <div style={{ display: "flex", gap: 7, marginTop: 12 }}>
-            <button onClick={copyPkg} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "10px 4px", borderRadius: 10, fontSize: 11.5, fontWeight: 600, background: "#d4af37", color: "#141414", border: "none", cursor: "pointer" }}><span style={{ fontSize: 15 }}>📋</span>복사</button>
-            {canShare && <button onClick={sharePkg} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "10px 4px", borderRadius: 10, fontSize: 11.5, fontWeight: 600, background: "#2a2a2a", color: "#8a8a8a", border: "1px solid rgba(255,255,255,0.09)", cursor: "pointer" }}><span style={{ fontSize: 15 }}>📤</span>공유</button>}
-            <button onClick={savePkg} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "10px 4px", borderRadius: 10, fontSize: 11.5, fontWeight: 600, background: "#2a2a2a", color: "#8a8a8a", border: "1px solid rgba(255,255,255,0.09)", cursor: "pointer" }}><span style={{ fontSize: 15 }}>💾</span>.md 저장</button>
+          <div style={{ display: "flex", gap: 7, marginTop: 12, opacity: syncing ? 0.45 : 1 }}>
+            <button onClick={copyPkg} disabled={syncing} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "10px 4px", borderRadius: 10, fontSize: 11.5, fontWeight: 600, background: "#d4af37", color: "#141414", border: "none", cursor: syncing ? "default" : "pointer" }}><span style={{ fontSize: 15 }}>📋</span>복사</button>
+            {canShare && <button onClick={sharePkg} disabled={syncing} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "10px 4px", borderRadius: 10, fontSize: 11.5, fontWeight: 600, background: "#2a2a2a", color: "#8a8a8a", border: "1px solid rgba(255,255,255,0.09)", cursor: syncing ? "default" : "pointer" }}><span style={{ fontSize: 15 }}>📤</span>공유</button>}
+            <button onClick={savePkg} disabled={syncing} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "10px 4px", borderRadius: 10, fontSize: 11.5, fontWeight: 600, background: "#2a2a2a", color: "#8a8a8a", border: "1px solid rgba(255,255,255,0.09)", cursor: syncing ? "default" : "pointer" }}><span style={{ fontSize: 15 }}>💾</span>.md 저장</button>
           </div>
           <div style={{ fontSize: 9.5, color: done ? "#5a9e6f" : "#4a4a4a", marginTop: 8, textAlign: "center", lineHeight: 1.5, fontWeight: done ? 600 : 400 }}>
             {done || "복사 후 claude.ai에 붙여넣기 · 공유 = 공유 시트로 클로드 앱에 바로 전달"}
