@@ -10,6 +10,8 @@
 import { buildAnalysisPackage, resolvePeriod } from "../src/analysisExport.js";
 import { sampleState } from "./_lib/sample-state.js";
 import { rateLimit } from "./_lib/security.js";
+import { kvConfigured } from "./_lib/kv.js";
+import { getShare, isValidToken } from "./_lib/share-store.js";
 
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
@@ -25,7 +27,8 @@ export default async function handler(req, res) {
   if (!(await rateLimit(req, res, { key: "export-view", max: 30, windowSec: 60 }))) return;
 
   const expected = process.env.SHARE_TEST_TOKEN;
-  const token = req.query?.token;
+  const token = req.query?.token;   // Phase 1: 환경변수 토큰 → 가상 샘플
+  const share = req.query?.t;       // Phase 2: 앱이 발급한 공유 토큰 → KV 스냅샷
 
   // 진단 모드(?diag=1) — 배포/설정 문제를 토큰 없이 구분하기 위한 최소 정보.
   // 토큰 값·사용자 데이터는 절대 싣지 않는다(설정 여부·커밋·환경만).
@@ -35,25 +38,16 @@ export default async function handler(req, res) {
       route: "export-view",
       tokenConfigured: !!expected,          // 환경변수가 이 배포에 주입됐는지
       tokenLength: expected ? expected.length : 0, // 값 자체는 노출하지 않음(길이만)
+      shareEnabled: kvConfigured(),         // 공유 링크(Phase 2) 사용 가능 여부
       vercelEnv: process.env.VERCEL_ENV || "unknown",
       commit: (process.env.VERCEL_GIT_COMMIT_SHA || "").slice(0, 7) || "unknown",
       branch: process.env.VERCEL_GIT_COMMIT_REF || "unknown",
     });
   }
 
-  // 토큰 불일치·누락은 404(존재 자체를 숨김) + 어떤 데이터도 싣지 않음
-  if (!expected || token !== expected) {
-    res.setHeader("Cache-Control", "no-store");
-    // 본문엔 데이터를 싣지 않되, 원인 구분은 헤더로만(설정 누락 vs 값 불일치)
-    res.setHeader("X-Share-View", expected ? "denied" : "unconfigured");
-    return res.status(404).send("Not found");
-  }
-
-  const today = todayStr();
-  const range = resolvePeriod("2w", today, {}); // 최근 14일
-  const pkg = buildAnalysisPackage(sampleState(today), range, today); // 코치 요약본(기본)
-
-  const html = `<!doctype html>
+  const noStore = () => { res.setHeader("Cache-Control", "no-store"); };
+  const render = (metaLine, pkg) => {
+    const html = `<!doctype html>
 <html lang="ko">
 <head>
 <meta charset="utf-8">
@@ -62,13 +56,51 @@ export default async function handler(req, res) {
 <title>Body Plan 공유 뷰</title>
 </head>
 <body>
-<p>Body Plan 공유 뷰 · Phase 1 테스트(가상 데이터) · 생성: ${esc(today)}</p>
+<p>${esc(metaLine)}</p>
 <pre>${esc(pkg)}</pre>
 </body>
 </html>`;
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("X-Robots-Tag", "noindex, nofollow");
+    return res.status(200).send(html);
+  };
 
-  res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.setHeader("Cache-Control", "no-store");
-  res.setHeader("X-Robots-Tag", "noindex, nofollow");
-  return res.status(200).send(html);
+  // ── Phase 2: 앱이 발급한 공유 링크 (?t=) ──
+  // 저장된 스냅샷을 그대로 렌더. 만료·폐기된 토큰은 KV에서 사라져 자동으로 404.
+  if (share !== undefined) {
+    noStore();
+    if (!isValidToken(share) || !kvConfigured()) {
+      res.setHeader("X-Share-View", kvConfigured() ? "denied" : "unconfigured");
+      return res.status(404).send("Not found");
+    }
+    try {
+      const rec = await getShare(share);
+      if (!rec || typeof rec.pkg !== "string") {
+        res.setHeader("X-Share-View", "expired");
+        return res.status(404).send("Not found");
+      }
+      const created = new Date(rec.createdAt || Date.now()).toISOString().slice(0, 16).replace("T", " ");
+      const expires = new Date(rec.expiresAt || Date.now()).toISOString().slice(0, 16).replace("T", " ");
+      return render(`Body Plan 공유 뷰 · 공유 시점 스냅샷 · 생성: ${created} UTC · 만료: ${expires} UTC`, rec.pkg);
+    } catch (e) {
+      console.error("[export-view] share read error:", e);
+      res.setHeader("X-Share-View", "error");
+      return res.status(404).send("Not found");
+    }
+  }
+
+  // ── Phase 1: 환경변수 토큰 (?token=) → 가상 샘플 ──
+  // 토큰 불일치·누락은 404(존재 자체를 숨김) + 어떤 데이터도 싣지 않음
+  if (!expected || token !== expected) {
+    noStore();
+    // 본문엔 데이터를 싣지 않되, 원인 구분은 헤더로만(설정 누락 vs 값 불일치)
+    res.setHeader("X-Share-View", expected ? "denied" : "unconfigured");
+    return res.status(404).send("Not found");
+  }
+
+  const today = todayStr();
+  const range = resolvePeriod("2w", today, {}); // 최근 14일
+  const pkg = buildAnalysisPackage(sampleState(today), range, today); // 코치 요약본(기본)
+  return render(`Body Plan 공유 뷰 · Phase 1 테스트(가상 데이터) · 생성: ${today}`, pkg);
 }
