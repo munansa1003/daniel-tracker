@@ -109,6 +109,68 @@ describe("export-view — HTML 이스케이프", () => {
   });
 });
 
+describe("export-view — 경로형 URL(/export/view/<token>)", () => {
+  // 일부 외부 리더가 쿼리스트링(?t=)을 유실하는 사례 대응 — 쿼리 없이 경로만으로 렌더돼야 한다.
+  const PATH_TOKEN = "c".repeat(32);
+  const seedKv = () => {
+    vi.doMock("../../api/_lib/kv.js", () => ({
+      kvConfigured: () => true,
+      kv: async (cmd, key) => {
+        if (cmd === "GET" && key === `share:${PATH_TOKEN}`) {
+          return JSON.stringify({
+            uid: "uid-1",
+            pkg: "# Body Plan 분석 요청\n경로형 스냅샷 본문".padEnd(200, " "),
+            createdAt: Date.now() - 1000,
+            expiresAt: Date.now() + 3600000,
+          });
+        }
+        return null; // SET(touchShare) 등은 무시
+      },
+    }));
+  };
+  const pathReq = (url) => ({ method: "GET", query: {}, headers: {}, url });
+
+  it("쿼리 전혀 없음 + 경로 토큰 → 200 · 스냅샷 렌더", async () => {
+    seedKv();
+    const handler = (await import("../../api/export-view.js")).default;
+    const res = makeRes();
+    await handler(pathReq(`/export/view/${PATH_TOKEN}`), res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toBe("text/html; charset=utf-8");
+    expect(res.body).toContain("경로형 스냅샷 본문");
+    expect(res.body).toContain("공유 시점 스냅샷");
+  });
+
+  it("쿼리 ?t= 가 있으면 경로보다 우선", async () => {
+    seedKv();
+    const handler = (await import("../../api/export-view.js")).default;
+    const res = makeRes();
+    // 경로에는 다른(존재하지 않는) 토큰 — 쿼리의 유효 토큰이 이겨야 한다
+    await handler({ method: "GET", query: { t: PATH_TOKEN }, headers: {}, url: `/export/view/${"d".repeat(32)}` }, res);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain("경로형 스냅샷 본문");
+  });
+
+  it("형식이 틀린 경로 토큰 → 404 (KV 조회 안 함)", async () => {
+    seedKv();
+    const handler = (await import("../../api/export-view.js")).default;
+    const res = makeRes();
+    await handler(pathReq("/export/view/not-a-valid-token"), res);
+    expect(res.statusCode).toBe(404);
+    expect(res.body).not.toContain("경로형 스냅샷 본문");
+  });
+
+  it("기존 쿼리형(?t=) 요청은 url 필드가 없어도 그대로 동작(회귀 방지)", async () => {
+    seedKv();
+    const handler = (await import("../../api/export-view.js")).default;
+    const res = makeRes();
+    await handler(makeReq({ t: PATH_TOKEN }), res);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain("경로형 스냅샷 본문");
+  });
+});
+
 describe("export-view — 진단 모드(?diag=1)", () => {
   it("토큰 없이도 200 · 설정 여부/커밋만 · 토큰 값과 사용자 데이터는 미노출", async () => {
     const handler = await loadHandler();

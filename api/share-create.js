@@ -43,7 +43,7 @@ export default async function handler(req, res) {
     return res.status(200).json({
       ok: true,
       token,
-      path: `/export/view?t=${token}`,
+      path: `/export/view/${token}`, // 경로형 — 일부 리더가 쿼리스트링을 유실해서. 쿼리형(?t=)도 서버는 계속 받음
       expiresAt: now + ttlSeconds * 1000,
       ttlHours: hours,
     });

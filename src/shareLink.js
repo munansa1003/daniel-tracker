@@ -9,10 +9,12 @@ export const TTL_CHOICES = [
   { key: "7d", label: "7일" },
 ];
 
-// 절대 URL — 공유 대상(클로드)이 열 수 있어야 하므로 origin 포함
+// 절대 URL — 공유 대상(클로드)이 열 수 있어야 하므로 origin 포함.
+// 경로형(/export/view/<token>)을 쓴다: 일부 외부 리더가 쿼리스트링(?t=)을 유실하는
+// 사례가 있어서다. 서버는 쿼리형도 계속 받는다(기존 발급 링크 호환).
 export function shareUrlOf(token, origin) {
   const base = origin || (typeof window !== "undefined" ? window.location.origin : "");
-  return `${base}/export/view?t=${token}`;
+  return `${base}/export/view/${token}`;
 }
 
 // 남은 시간 표기 — 만료됐으면 null
