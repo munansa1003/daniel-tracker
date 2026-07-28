@@ -169,6 +169,9 @@ BodyTab → StatsTab 순. StatsTab은 중첩 컴포넌트 포함 통째 이동.
 7. **판정은 반올림 기준**(§3) — 리팩토링 중 `Math.round` 빠뜨리면 PR #16 버그 재발. **칼로리 판정은 `isCalOk()` 한 곳으로 통일**(반올림+모드 되먹기 내장). 직접 `<= 목표 + ex×0.5` 인라인 금지 — 0.5가 모드별(0.5/1.0)이므로 `exFeedback(mode)`/`isCalOk` 사용
 9. **모드 판정의 두 종류**(§3): 홈/오늘=`goals.mode`(현재), 달력/통계 과거=`dd.mode`(그 날). 둘을 섞으면 과거 등급이 흔들림. 새 판정 추가 시 "이건 현재 모드냐 그 날 모드냐" 먼저 결정
 8. 임시 파일(미리보기 HTML 등)은 커밋 금지 — stop hook이 untracked 파일을 잡음
+10. **공유 뷰 URL은 반드시 경로형(`/export/view/<32자hex>`)을 유지할 것** — 쿼리형(`?t=`)은 외부 AI 리더가 읽지 못한다(2026-07-28 실측: 브라우저·curl은 200, Claude 웹 리더만 404 — 쿼리스트링이 유실되어 토큰 없는 요청으로 처리됨). 쿼리형은 하위호환으로만 남겨두고(서버는 계속 받음), **신규 링크 발급은 경로형으로만** 할 것 (`shareUrlOf`·`share-create`의 `path`가 단일 출처)
+11. **`api/export-view.js`에 `checkOrigin`을 적용하지 말 것** — 외부 리더·주소창 직접 방문은 Origin 헤더가 없어 전부 403이 된다. 대신 토큰 게이트 + rateLimit + noindex/no-store로 통제한다 (파일 상단 주석에도 있으나 여기에도 남긴다)
+12. **`robots.txt`에 `/export` 관련 `Disallow`를 추가하지 말 것** — 검색 노출 차단은 뷰 페이지의 noindex 메타(+`X-Robots-Tag`)가 담당하며, Disallow는 규칙을 지키는 외부 리더의 접근까지 막아 공유 기능을 무력화한다. 초기 기획서 Phase 3 체크리스트에 이 항목이 있었으나 **폐기 확정**. 참고로 `vite.config.js`의 `navigateFallbackDenylist`에 `/^\/export\//`가 있는 이유: 설치된 PWA의 서비스워커가 공유 링크 내비게이션을 앱 화면(index.html)으로 가로채지 않게 하기 위함 — 이것도 제거 금지
 
 ## 7. 검증 방법
 
