@@ -31,8 +31,9 @@ describe("share-store 순수 유틸", () => {
 });
 
 describe("shareLink 클라이언트 유틸", () => {
-  it("공유 URL은 절대주소(origin 포함) + ?t=", () => {
-    expect(shareUrlOf("abc123", "https://x.app")).toBe("https://x.app/export/view?t=abc123");
+  it("공유 URL은 절대주소(origin 포함) + 경로형 토큰", () => {
+    // 경로형(/export/view/<token>) — 일부 외부 리더가 쿼리스트링을 유실해서
+    expect(shareUrlOf("abc123", "https://x.app")).toBe("https://x.app/export/view/abc123");
   });
   it("남은 시간 표기", () => {
     const now = 1_000_000_000_000;
@@ -104,7 +105,7 @@ describe("share-create", () => {
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
     expect(isValidToken(body.token)).toBe(true);
-    expect(body.path).toBe(`/export/view?t=${body.token}`);
+    expect(body.path).toBe(`/export/view/${body.token}`);
     expect(body.ttlHours).toBe(24);
     expect(body.expiresAt).toBeGreaterThan(Date.now());
     // KV에 uid와 함께 저장됐는지

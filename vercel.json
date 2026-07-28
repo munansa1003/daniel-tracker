@@ -3,6 +3,8 @@
     { "path": "/api/cron-reminders", "schedule": "0 11 * * *" }
   ],
   "rewrites": [
-    { "source": "/export/view", "destination": "/api/export-view" }
+    { "source": "/export/view", "destination": "/api/export-view" },
+    { "source": "/export/view/:t", "destination": "/api/export-view?t=:t" },
+    { "source": "/export/diag", "destination": "/api/export-view?diag=1" }
   ]
 }

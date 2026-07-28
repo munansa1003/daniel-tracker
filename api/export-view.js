@@ -28,7 +28,15 @@ export default async function handler(req, res) {
 
   const expected = process.env.SHARE_TEST_TOKEN;
   const token = req.query?.token;   // Phase 1: 환경변수 토큰 → 가상 샘플
-  const share = req.query?.t;       // Phase 2: 앱이 발급한 공유 토큰 → KV 스냅샷
+  let share = req.query?.t;         // Phase 2: 앱이 발급한 공유 토큰 → KV 스냅샷
+
+  // 방어적 경로 파싱 — 일부 외부 리더가 쿼리스트링을 유실하는 사례가 있어
+  // /export/view/<token> 경로형도 받는다. 쿼리(?t=)가 있으면 그것이 우선.
+  // 토큰 형식 검증은 아래 isValidToken 한 곳에서 동일하게 적용된다.
+  if (share === undefined && typeof req.url === "string") {
+    const m = /^\/export\/view\/([^/?#]+)/.exec(req.url);
+    if (m) { try { share = decodeURIComponent(m[1]); } catch { share = m[1]; } }
+  }
 
   // 진단 모드(?diag=1) — 배포/설정 문제를 토큰 없이 구분하기 위한 최소 정보.
   // 토큰 값·사용자 데이터는 절대 싣지 않는다(설정 여부·커밋·환경만).
