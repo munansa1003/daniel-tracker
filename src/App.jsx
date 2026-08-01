@@ -1095,13 +1095,15 @@ function MainApp({ user, onLogout }) {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <span style={{ fontSize: 13, color: THEME.sub }}>오늘의 요약</span>
+                {/* 모드 뱃지 = 휴식일 토글(①·④ 공용, C안 뱃지 통합) — 감량 모드에서 뱃지를 탭하면
+                    감량↔휴식 전환. 선택 날짜에 적용되므로 과거 날짜 소급 지정도 이 뱃지로.
+                    유지 모드는 프리셋을 무시하므로 정적 뱃지 그대로. 복귀 중(운동 300 초과)엔 금색. */}
                 {mode === "maintain"
                   ? <span style={{ fontSize: 10, fontWeight: 600, color: "#5a9e6f", background: "rgba(90,158,111,0.12)", border: "1px solid rgba(90,158,111,0.3)", borderRadius: 20, padding: "2px 9px" }}>유지</span>
-                  : <span style={{ fontSize: 10, fontWeight: 600, color: "#d4af37", background: "rgba(212,175,55,0.12)", border: "1px solid rgba(212,175,55,0.3)", borderRadius: 20, padding: "2px 9px" }}>감량</span>}
-                {/* 휴식일 도장 토글(①·④ 공용) — 선택 날짜에 적용되므로 과거 날짜 소급 지정도 여기서 */}
-                {mode !== "maintain" && (restStamped
-                  ? <span onClick={() => setDayType(date, null)} style={{ fontSize: 10, fontWeight: 600, color: restReverted ? "#d4af37" : "#5a9e6f", background: restReverted ? "rgba(212,175,55,0.12)" : "rgba(90,158,111,0.12)", border: `1px solid ${restReverted ? "rgba(212,175,55,0.3)" : "rgba(90,158,111,0.3)"}`, borderRadius: 20, padding: "2px 9px", cursor: "pointer" }}>{restReverted ? "😴→🏋️ 운동 복귀" : "😴 휴식일"}</span>
-                  : <span onClick={() => setDayType(date, "rest")} style={{ fontSize: 10, fontWeight: 600, color: "#707070", border: "1px dashed rgba(255,255,255,0.22)", borderRadius: 20, padding: "2px 9px", cursor: "pointer" }}>😴 휴식일로</span>)}
+                  : (() => {
+                      const col = restStamped && !restReverted ? "#5a9e6f" : "#d4af37";
+                      return <button onClick={() => { setDayType(date, restStamped ? null : "rest"); try { localStorage.setItem("dt_restHintSeen", "1"); } catch { /* 무시 */ } }} aria-pressed={restStamped} style={{ font: "inherit", fontSize: 10, fontWeight: 600, color: col, background: `${col}1f`, border: `1px solid ${col}4d`, borderRadius: 20, padding: "2px 9px", cursor: "pointer" }}>{restStamped ? "휴식" : "감량"}</button>;
+                    })()}
                 {activeHealth.length > 0 && (() => {
                   const tm = typeMeta(activeHealth[0].type);
                   const multi = activeHealth.length > 1;
@@ -1120,6 +1122,12 @@ function MainApp({ user, onLogout }) {
                 {restReverted
                   ? `운동 ${Math.round(exTotal)}kcal 기록 — 300kcal 초과라 오늘은 훈련일 공식(기초 ${targetsByMode[mode].k.toLocaleString()} + 운동 되먹기)으로 판정돼요. 도장은 유지됩니다.`
                   : "휴식일 프리셋: 목표 1,675kcal 고정 · 운동 되먹기 없음 (운동 300kcal 초과 기록 시 훈련일 공식 자동 복귀)"}
+              </div>
+            )}
+            {/* 뱃지 통합의 발견성 보완 — 첫 토글 전까지만 보이는 1회성 힌트 */}
+            {mode !== "maintain" && !restStamped && (() => { try { return !localStorage.getItem("dt_restHintSeen"); } catch { return false; } })() && (
+              <div style={{ fontSize: 10, color: "#707070", margin: "-8px 0 12px", lineHeight: 1.5 }}>
+                쉬는 날엔 <b style={{ color: "#5a9e6f", fontWeight: 600 }}>감량 뱃지를 탭</b>해 휴식일 기준(1,675kcal 고정)으로 바꿀 수 있어요.
               </div>
             )}
             <div style={{ display: "flex", gap: 12, justifyContent: "center", marginBottom: 16 }}>
