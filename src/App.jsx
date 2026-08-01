@@ -448,8 +448,8 @@ function MainApp({ user, onLogout }) {
   const doBackup = async () => {
     // CSV 생성
     const rows = [];
-    rows.push(["=== 일별 요약 ==="]); rows.push(["날짜","P(g)","C(g)","F(g)","K(kcal)","운동(kcal)","Net(kcal)"]);
-    Object.entries(allDays).sort().forEach(([d, data]) => { const a = aggregateDay(data); rows.push([d, Math.round(a.p), Math.round(a.c), Math.round(a.f), Math.round(a.k), Math.round(a.ex), Math.round(a.net)]); });
+    rows.push(["=== 일별 요약 ==="]); rows.push(["날짜","P(g)","C(g)","F(g)","K(kcal)","운동(kcal)","Net(kcal)","휴식일"]);
+    Object.entries(allDays).sort().forEach(([d, data]) => { const a = aggregateDay(data); rows.push([d, Math.round(a.p), Math.round(a.c), Math.round(a.f), Math.round(a.k), Math.round(a.ex), Math.round(a.net), isRestStamp(data) ? "rest" : ""]); });
     rows.push([]); rows.push(["=== 식단 상세 ==="]); rows.push(["날짜","시간","음식","수량","P(g)","C(g)","F(g)","K(kcal)"]);
     Object.entries(allDays).sort().forEach(([d, data]) => (data.meals || []).forEach(m => rows.push([d, `${String(m.hour||0).padStart(2,"0")}:00`, m.n, m.serving, (m.p*m.serving).toFixed(1), (m.c*m.serving).toFixed(1), (m.f*m.serving).toFixed(1), Math.round(m.k*m.serving)])));
     rows.push([]); rows.push(["=== 운동 상세 ==="]); rows.push(["날짜","시간","운동","시간(분)","소모(kcal)","MET"]);
@@ -1196,7 +1196,7 @@ function MainApp({ user, onLogout }) {
           <div>
           {/* 입력 화면 상단 통계 (맨 위 고정): 다음 끼니 → 구성비 → 시간대 리듬 */}
           <NextMealTip totals={totals} meals={meals} nowHour={nowHour()} tP={HOME_TARGETS.p} tC={adjustedC} tK={effectiveTargetK} />
-          <MacroRatioBar totals={totals} targets={TARGETS} />
+          <MacroRatioBar totals={totals} targets={HOME_TARGETS} />
           <IntakeRhythm meals={meals} />
           {/* 기간 통계(D1): 칼로리 vs 목표 밴드 라인 */}
           <CalorieBandChart allDays={allDays} targetsByMode={targetsByMode} mode={mode} />
@@ -1758,6 +1758,7 @@ function MainApp({ user, onLogout }) {
                 단백질 2.2g/kg · 지방 0.6g/kg는 동일. 탄수가 자동으로 늘어납니다(+{TM.c - TC.c}g).
               </div>
               <div style={{ fontSize: 10, color: "#707070", marginTop: 8, lineHeight: 1.5 }}>전환은 오늘부터 적용됩니다. 과거 기록은 그 날의 모드 그대로 판정돼요.</div>
+              <div style={{ fontSize: 10, color: "#707070", marginTop: 4, lineHeight: 1.5 }}>휴식일 도장은 감량 모드 전용 — 유지 모드에선 적용되지 않아요(유지 목표가 이미 더 여유). 도장은 보존되고, 감량 모드로 돌아오면 다시 적용됩니다.</div>
             </div>
             <div style={{ fontSize: 11, color: "#707070", margin: "16px 0 10px" }}>실측 자동 보정</div>
             <AdaptiveTdeeCard estimate={tdeeEstimate} adaptiveOn={adaptiveOn} currentAdjust={appAdjust} proposal={adaptiveProposal} onToggle={setAdaptiveOn} onApply={applyAdaptive} onRevert={revertAdaptive} />

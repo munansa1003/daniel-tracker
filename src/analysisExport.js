@@ -100,7 +100,11 @@ export function buildAnalysisPackage(state, { start, end }, todayStr, opts = {})
       L.push(`- 모드: ${mode === "maintain" ? "유지(maintain)" : "감량(cut)"} · 목표 ${targets.k?.toLocaleString() || "?"}kcal · P${targets.p || "?"} C${targets.c || "?"} F${targets.f || "?"}`);
       L.push(`- 적응형 보정: ${appAdjust !== 0 ? `${appAdjust > 0 ? "+" : ""}${appAdjust}kcal 적용 중 (실측 TDEE 역산 기반)` : "없음(공식 그대로)"}`);
       L.push(`- 규칙: 운동 소모의 ${mode === "maintain" ? "100%" : "50%"}를 잔여칼로리에 반영 · 운동일 탄수 보너스`);
-      L.push("- 휴식일(😴 표시): 목표 1,675kcal 고정 · 운동 반영 없음 (운동 300kcal 초과 기록 시 훈련일 기준으로 자동 복귀)");
+      // 휴식일 규칙 줄은 기간 내 휴식일이 실제로 있을 때만 — 도장 없는 과거 데이터의
+      // 내보내기 결과가 기능 도입 전과 바이트 단위로 동일하게 유지된다(R4 회귀 보장).
+      if (recorded.some((d) => isRestStamp(allDays[d]))) {
+        L.push("- 휴식일(😴 표시): 목표 1,675kcal 고정 · 운동 반영 없음 (운동 300kcal 초과 기록 시 훈련일 기준으로 자동 복귀)");
+      }
       L.push("- 아래 판정(✓/✗)은 그 날의 모드·보정 기준 적정 여부");
       L.push("");
     });
