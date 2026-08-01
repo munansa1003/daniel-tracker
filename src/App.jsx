@@ -4,7 +4,7 @@ import store, { getCurrentUserId, setUserId, logout, getMembership, joinWithInvi
 import { watchAuth, signInWithGoogle, signOutUser, isOwnerEmail } from "./auth.js";
 import { APP_NAME, DEFAULT_FOODS, DEFAULT_EX, TARGETS as DEFAULT_TARGETS, COLORS } from "./data.js";
 import { THEME, GlobalStyles } from "./theme.jsx";
-import { today, nowHour, isCompletedDay, calcTargets, sortByHour, periodOf, groupMealsByTime, groupExercisesByTime, aggregateDay, exFeedback, isCalOk, adjustForDate } from "./utils.js";
+import { today, nowHour, isCompletedDay, calcTargets, sortByHour, periodOf, groupMealsByTime, groupExercisesByTime, aggregateDay, exFeedback, isCalOk, adjustForDate, REST_K, restTargets, effectiveDayMode, isRestStamp } from "./utils.js";
 import { estimateTDEE } from "./adaptiveTDEE.js";
 import { pendingReminders } from "./reminders.js";
 import { pushConfigured, enablePush, disablePush, syncPushState } from "./push.js";
@@ -262,7 +262,19 @@ function MainApp({ user, onLogout }) {
     // 그 날의 목표 모드를 기록에 스탬프해 둔다(달력/통계가 그 날 기준으로 판정).
     // 오늘은 현재 모드로, 과거 날 보정은 기존 스탬프를 보존(없으면 cut 폴백).
     const dayMode = d === today() ? mode : allDays[d]?.mode;
-    const rec = { meals: m, exercises: e, ...(dayMode ? { mode: dayMode } : {}) };
+    // 휴식일 도장(dayType)은 식단·운동 편집과 무관하게 보존 — rec가 통째 교체라 명시 이월 필수.
+    const dayType = allDays[d]?.dayType;
+    const rec = { meals: m, exercises: e, ...(dayMode ? { mode: dayMode } : {}), ...(dayType ? { dayType } : {}) };
+    setAllDays(prev => ({ ...prev, [d]: rec }));
+    await store.set(`day:${d}`, rec);
+  };
+
+  // 휴식일 도장 설정/해제 — 기록 유무와 무관하게 그 날 레코드에 dayType만 스탬프.
+  //  t: "rest"(휴식일) | "train"(저녁 제안의 "오늘은 훈련일" 확정 — 재제안 방지) | null(도장 제거)
+  const setDayType = async (d, t) => {
+    const cur = allDays[d] || {};
+    const dayMode = d === today() ? mode : cur.mode;
+    const rec = { meals: cur.meals || [], exercises: cur.exercises || [], ...(dayMode ? { mode: dayMode } : {}), ...(t ? { dayType: t } : {}) };
     setAllDays(prev => ({ ...prev, [d]: rec }));
     await store.set(`day:${d}`, rec);
   };
@@ -586,6 +598,7 @@ function MainApp({ user, onLogout }) {
     return {
       cut: calcTargets(monthWeight, h, a, "cut", appAdjust),
       maintain: calcTargets(monthWeight, h, a, "maintain", appAdjust),
+      rest: restTargets(monthWeight), // 휴식일 프리셋 — K 고정 1,675, 보정(adjust) 무관
     };
   }, [monthWeight, user, appAdjust]);
   const TARGETS = targetsByMode[mode];
@@ -594,7 +607,8 @@ function MainApp({ user, onLogout }) {
   const tdeeEstimate = useMemo(() => estimateTDEE(bodyLog, allDays, today(), bmr, 28, isExcludedCalc), [bodyLog, allDays, bmr, today(), isExcludedCalc]);
 
   // 그 날 유효 보정치로 목표 K를 조정(과거 판정 보존): 현재 목표K − 현재보정 + 그날보정
-  const dayTargetK = (m, ds) => (targetsByMode[m] || targetsByMode.cut).k - appAdjust + adjustForDate(tdeeHistory, ds);
+  // 휴식일(rest)은 고정 프리셋이라 적응형 보정과 무관하게 항상 1,675.
+  const dayTargetK = (m, ds) => m === "rest" ? REST_K : (targetsByMode[m] || targetsByMode.cut).k - appAdjust + adjustForDate(tdeeHistory, ds);
 
   // 보정 제안: 켜짐 + 신뢰도 높음 + 현재 보정과 40kcal↑ 벌어질 때만
   const adaptiveProposal = useMemo(() => {
@@ -622,7 +636,7 @@ function MainApp({ user, onLogout }) {
       const hasAny = ((day.meals || []).length) || ((day.exercises || []).length);
       if (hasAny) recorded++;
       if ((day.exercises || []).length) workouts++;
-      const dM = day.mode || "cut";
+      const dM = effectiveDayMode(day, a.ex, day.mode || "cut"); // 휴식일 도장이면 고정 1,675 기준
       if (a.k > 0 && isCalOk(a.k, a.ex, dayTargetK(dM, ds), dM)) calOk++;
       if (a.p >= (targetsByMode[dM] || targetsByMode.cut).p) protHit++;
     }
@@ -657,11 +671,19 @@ function MainApp({ user, onLogout }) {
   }, [meals]);
   const exTotal = useMemo(() => exercises.reduce((s, e) => s + (e.kcal || 0), 0), [exercises]);
 
-  // 운동 되먹기: 감량 50% / 유지 100%를 그날 탄수·섭취 목표로 보충 (큰 운동일 과한 적자/근손실 방지)
-  const carbBonus = useMemo(() => Math.round((exTotal * exFeedback(mode)) / 4), [exTotal, mode]);
-  const adjustedC = useMemo(() => TARGETS.c + carbBonus, [TARGETS.c, carbBonus]);
-  // 그날 섭취 목표 = 기초 목표 + 운동 되먹기(kcal)
-  const effectiveTargetK = useMemo(() => TARGETS.k + Math.round(exTotal * exFeedback(mode)), [TARGETS.k, exTotal, mode]);
+  // 선택 날짜의 유효 모드 — 휴식일 도장(+운동 ≤300kcal)이면 "rest"(고정 1,675).
+  // 홈 요약·도넛·진행바·NetCalCard·식단 팁이 전부 이 기준 하나를 따라간다(판정 단일 기준).
+  const dayRec = allDays[date];
+  const restStamped = isRestStamp(dayRec);
+  const homeMode = effectiveDayMode(dayRec, exTotal, mode);
+  const restReverted = restStamped && mode !== "maintain" && homeMode !== "rest"; // 운동 300 초과 → 훈련일 공식 복귀 중
+  const HOME_TARGETS = targetsByMode[homeMode] || TARGETS;
+
+  // 운동 되먹기: 감량 50% / 유지 100% / 휴식일 0(고정 목표)을 그날 탄수·섭취 목표로 보충
+  const carbBonus = useMemo(() => Math.round((exTotal * exFeedback(homeMode)) / 4), [exTotal, homeMode]);
+  const adjustedC = useMemo(() => HOME_TARGETS.c + carbBonus, [HOME_TARGETS.c, carbBonus]);
+  // 그날 섭취 목표 = 기초 목표 + 운동 되먹기(kcal). 휴식일은 되먹기 0이라 1,675 그대로.
+  const effectiveTargetK = useMemo(() => HOME_TARGETS.k + Math.round(exTotal * exFeedback(homeMode)), [HOME_TARGETS.k, exTotal, homeMode]);
 
   const filteredFoods = useMemo(() => {
     if (!search.trim()) return [];
@@ -970,8 +992,9 @@ function MainApp({ user, onLogout }) {
                 const isToday = ds === todayStr;
                 const isSelected = ds === date;
                 const a = dd ? aggregateDay(dd) : null;
-                // 그 날의 모드로 목표/되먹기를 골라 판정(과거 감량일은 감량 기준 그대로 유지)
-                const dMode = dd?.mode || "cut";
+                // 그 날의 모드로 목표/되먹기를 골라 판정(과거 감량일은 감량 기준 그대로 유지).
+                // 휴식일 도장(+운동 ≤300)은 고정 1,675 기준 — 홈·통계·내보내기와 같은 규칙.
+                const dMode = effectiveDayMode(dd, a ? a.ex : 0, dd?.mode || "cut");
                 const dT = targetsByMode[dMode] || targetsByMode.cut;
                 const pP = a ? Math.min(a.p / dT.p, 1) : 0;
                 const pC = a ? Math.min(a.c / dT.c, 1) : 0;
@@ -993,6 +1016,7 @@ function MainApp({ user, onLogout }) {
                         {ring(18, 18, 7.5, pP, "#4a8fc9")}
                       </svg>
                       {hasData && calOk !== null && <div style={{ position: "absolute", top: 0, right: -1, width: 6, height: 6, borderRadius: "50%", background: calOk ? "#5a9e6f" : "#e05252" }} />}
+                      {isRestStamp(dd) && <div style={{ position: "absolute", top: -2, left: -2, fontSize: 8, lineHeight: 1 }}>😴</div>}
                       {hev && <div style={{ position: "absolute", bottom: -1, left: -1, fontSize: 9, lineHeight: 1 }}>{typeMeta(hev.type).ico}</div>}
                     </div>
                   </div>
@@ -1035,6 +1059,18 @@ function MainApp({ user, onLogout }) {
               <div style={{ background: "#4a8fc9", borderRadius: 8, padding: "8px 14px", fontSize: 12, color: "#fff", fontWeight: 500 }}>측정</div>
             </div>
           ))}
+          {/* 휴식일 제안 배너(③) — 저녁 8시 이후 오늘 운동 기록이 없으면 '제안'만 한다(자동 판정 아님).
+              식단 기록이 있는 날만(아예 미기록이면 위 기록 배너가 담당). dayType 확정 시 재제안 없음. */}
+          {rmdOn("rest") && mode !== "maintain" && date === today() && nowHour() >= 20 && exercises.length === 0 && meals.length > 0 && !dayRec?.dayType && (
+            <div style={{ background: "rgba(90,158,111,0.08)", border: "1px solid rgba(90,158,111,0.25)", borderRadius: 16, padding: 12, marginBottom: 12 }}>
+              <div style={{ fontSize: 13, color: "#5a9e6f", fontWeight: 500 }}>😴 오늘 운동 기록이 없어요</div>
+              <div style={{ fontSize: 11, color: "#707070", marginTop: 2 }}>휴식일 기준(1,675kcal 고정)으로 바꿀까요?</div>
+              <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                <div onClick={() => setDayType(today(), "rest")} style={{ background: "#5a9e6f", borderRadius: 8, padding: "8px 14px", fontSize: 12, color: "#fff", fontWeight: 500, cursor: "pointer" }}>휴식일로 전환</div>
+                <div onClick={() => setDayType(today(), "train")} style={{ background: "#2a2a2a", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: "8px 14px", fontSize: 12, color: "#8a8a8a", cursor: "pointer" }}>오늘은 훈련일</div>
+              </div>
+            </div>
+          )}
           {/* 백업 알림 */}
           {justBacked ? (
             <div style={{ background: "rgba(90,158,111,0.08)", border: "1px solid rgba(90,158,111,0.2)", borderRadius: 16, padding: 12, marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -1062,6 +1098,10 @@ function MainApp({ user, onLogout }) {
                 {mode === "maintain"
                   ? <span style={{ fontSize: 10, fontWeight: 600, color: "#5a9e6f", background: "rgba(90,158,111,0.12)", border: "1px solid rgba(90,158,111,0.3)", borderRadius: 20, padding: "2px 9px" }}>유지</span>
                   : <span style={{ fontSize: 10, fontWeight: 600, color: "#d4af37", background: "rgba(212,175,55,0.12)", border: "1px solid rgba(212,175,55,0.3)", borderRadius: 20, padding: "2px 9px" }}>감량</span>}
+                {/* 휴식일 도장 토글(①·④ 공용) — 선택 날짜에 적용되므로 과거 날짜 소급 지정도 여기서 */}
+                {mode !== "maintain" && (restStamped
+                  ? <span onClick={() => setDayType(date, null)} style={{ fontSize: 10, fontWeight: 600, color: restReverted ? "#d4af37" : "#5a9e6f", background: restReverted ? "rgba(212,175,55,0.12)" : "rgba(90,158,111,0.12)", border: `1px solid ${restReverted ? "rgba(212,175,55,0.3)" : "rgba(90,158,111,0.3)"}`, borderRadius: 20, padding: "2px 9px", cursor: "pointer" }}>{restReverted ? "😴→🏋️ 운동 복귀" : "😴 휴식일"}</span>
+                  : <span onClick={() => setDayType(date, "rest")} style={{ fontSize: 10, fontWeight: 600, color: "#707070", border: "1px dashed rgba(255,255,255,0.22)", borderRadius: 20, padding: "2px 9px", cursor: "pointer" }}>😴 휴식일로</span>)}
                 {activeHealth.length > 0 && (() => {
                   const tm = typeMeta(activeHealth[0].type);
                   const multi = activeHealth.length > 1;
@@ -1075,8 +1115,15 @@ function MainApp({ user, onLogout }) {
               </div>
               <span style={{ fontSize: 12, fontFamily: "monospace", color: totals.k < effectiveTargetK * 0.75 ? "#e05252" : totals.k < effectiveTargetK * 0.9 ? "#d4af37" : totals.k <= effectiveTargetK ? "#5a9e6f" : "#d4af37" }}>섭취 {Math.round(totals.k)} kcal</span>
             </div>
+            {restStamped && (
+              <div style={{ fontSize: 10, color: "#707070", margin: "-8px 0 12px", lineHeight: 1.5 }}>
+                {restReverted
+                  ? `운동 ${Math.round(exTotal)}kcal 기록 — 300kcal 초과라 오늘은 훈련일 공식(기초 ${targetsByMode[mode].k.toLocaleString()} + 운동 되먹기)으로 판정돼요. 도장은 유지됩니다.`
+                  : "휴식일 프리셋: 목표 1,675kcal 고정 · 운동 되먹기 없음 (운동 300kcal 초과 기록 시 훈련일 공식 자동 복귀)"}
+              </div>
+            )}
             <div style={{ display: "flex", gap: 12, justifyContent: "center", marginBottom: 16 }}>
-              {[{ l: "단백질", v: totals.p, t: TARGETS.p, c: COLORS.p }, { l: "탄수", v: totals.c, t: adjustedC, c: COLORS.c, bonus: carbBonus }, { l: "지방", v: totals.f, t: TARGETS.f, c: COLORS.f }].map(x => (
+              {[{ l: "단백질", v: totals.p, t: HOME_TARGETS.p, c: COLORS.p }, { l: "탄수", v: totals.c, t: adjustedC, c: COLORS.c, bonus: carbBonus }, { l: "지방", v: totals.f, t: HOME_TARGETS.f, c: COLORS.f }].map(x => (
                 <div key={x.l} style={{ textAlign: "center" }}>
                   <MiniDonut value={x.v} max={x.t} color={x.c} />
                   <div style={{ fontSize: 11, color: "#707070", marginTop: 4 }}>{x.l}</div>
@@ -1094,7 +1141,7 @@ function MainApp({ user, onLogout }) {
                 -{exTotal.toLocaleString()} kcal
               </span>
             </div>
-            <NetCalCard intake={totals.k} exercise={exTotal} targetK={effectiveTargetK} mode={mode} />
+            <NetCalCard intake={totals.k} exercise={exTotal} targetK={effectiveTargetK} mode={homeMode} />
           </div>
           </div>
           <div>
@@ -1159,7 +1206,7 @@ function MainApp({ user, onLogout }) {
           <div style={landscape ? { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, alignItems: "start" } : undefined}>
           <div>
           {/* 입력 화면 상단 통계 (맨 위 고정): 다음 끼니 → 구성비 → 시간대 리듬 */}
-          <NextMealTip totals={totals} meals={meals} nowHour={nowHour()} tP={TARGETS.p} tC={adjustedC} tK={effectiveTargetK} />
+          <NextMealTip totals={totals} meals={meals} nowHour={nowHour()} tP={HOME_TARGETS.p} tC={adjustedC} tK={effectiveTargetK} />
           <MacroRatioBar totals={totals} targets={TARGETS} />
           <IntakeRhythm meals={meals} />
           {/* 기간 통계(D1): 칼로리 vs 목표 밴드 라인 */}

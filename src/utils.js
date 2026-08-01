@@ -31,8 +31,33 @@ export function periodStart(period, todayStr) {
 // 감량값(175 · 0.5)은 7개월 실측 캘리브레이션 — 변경 금지. 단백질 2.2/지방 0.6은 공통,
 // 탄수는 '나머지'라 유지 모드에서 자동 증가한다.
 export const MODE_DEFICIT = { cut: 175, maintain: 0 };
-export const MODE_FEEDBACK = { cut: 0.5, maintain: 1 };
+export const MODE_FEEDBACK = { cut: 0.5, maintain: 1, rest: 0 };
 export function exFeedback(mode) { return MODE_FEEDBACK[mode] ?? MODE_FEEDBACK.cut; }
+
+/* ── 휴식일 프리셋 (dayType:"rest" 도장) ──────────────────────────────
+   쉬는 날의 목표를 체중 공식이 아니라 고정 한 숫자(1,675)로 둔다 — 컨셉 A(고정 안전선).
+   1,675는 추정 유지 바로 아래 안전선으로 사용자가 확정한 값. 적응형 보정(adjust)과도
+   무관하게 항상 같다("항상 같은 숫자"가 이 프리셋의 존재 이유). 체중이 크게 변하면 수동 재점검.
+   P(2.2g/kg)·F(0.6g/kg)는 근육 보존 축이라 훈련일과 동일, C만 나머지로 재계산.
+   운동을 300kcal 넘게 기록한 날은 도장이 있어도 훈련일 공식으로 자동 복귀한다
+   (되먹기 0.5 기준 복귀 시점 목표가 1,675보다 커지도록 300을 선택 — 문턱 절벽 없음).
+   유지(maintain) 모드는 이미 목표가 유지 칼로리라 프리셋보다 관대 — 도장을 무시한다.
+   dayType:"train"은 저녁 제안 배너의 "오늘은 훈련일" 응답용 명시 확정(판정은 도장 없음과 동일). */
+export const REST_K = 1675;
+export const REST_EX_REVERT = 300;
+export const isRestStamp = (day) => day?.dayType === "rest";
+export function restTargets(weight) {
+  const p = Math.round(weight * 2.2);
+  const f = Math.round(weight * 0.6);
+  const c = Math.round((REST_K - p * 4 - f * 9) / 4);
+  return { p, c, f, k: REST_K, weight: Math.round(weight * 10) / 10 };
+}
+// 그 날의 유효 모드: 휴식일 도장이 실제로 발효 중이면 "rest", 아니면 원래 모드.
+// isCalOk/exFeedback/목표 선택이 전부 이 모드 하나로 갈라진다(판정 단일 기준 유지).
+export function effectiveDayMode(day, exKcal, mode = "cut") {
+  if (mode !== "maintain" && isRestStamp(day) && Math.round(exKcal || 0) <= REST_EX_REVERT) return "rest";
+  return mode;
+}
 
 // 칼로리 적정/초과 판정 단일 함수 (전 화면 통일 — §3/§6).
 // 표시값(반올림) ≤ 모드 목표 + 운동 되먹기(반올림). targetK는 해당 mode의 목표여야 한다.

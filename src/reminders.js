@@ -1,5 +1,6 @@
 // 리마인더 판단(순수). 인앱 배너(앱 열 때)와 백그라운드 푸시(매일 밤 크론) 양쪽에서 공용으로 쓴다.
-export const REMINDER_DEFAULTS = { record: true, weight: true, backup: true, report: true };
+// rest(휴식일 제안)는 인앱 배너 전용 — 푸시 크론에는 포함하지 않는다(운동을 늦게 기록하는 날 오발송 방지).
+export const REMINDER_DEFAULTS = { record: true, weight: true, backup: true, report: true, rest: true };
 
 export function daysBetween(aStr, bStr) {
   return Math.round((new Date(bStr + "T12:00:00") - new Date(aStr + "T12:00:00")) / 86400000);
