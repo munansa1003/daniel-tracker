@@ -1105,11 +1105,10 @@ function MainApp({ user, onLogout }) {
               </div>
               <span style={{ fontSize: 12, fontFamily: "monospace", color: totals.k < effectiveTargetK * 0.75 ? "#e05252" : totals.k < effectiveTargetK * 0.9 ? "#d4af37" : totals.k <= effectiveTargetK ? "#5a9e6f" : "#d4af37" }}>섭취 {Math.round(totals.k)} kcal</span>
             </div>
-            {restStamped && (
+            {/* 휴식일 평상시엔 문구 없음('휴식' 뱃지 + 1,675 숫자로 충분) — 운동 300 초과 복귀 시에만 한 줄 */}
+            {restReverted && (
               <div style={{ fontSize: 10, color: "#707070", margin: "-8px 0 12px", lineHeight: 1.5 }}>
-                {restReverted
-                  ? `운동 ${Math.round(exTotal)}kcal 기록 — 300kcal 초과라 오늘은 훈련일 공식(기초 ${targetsByMode[mode].k.toLocaleString()} + 운동 되먹기)으로 판정돼요. 도장은 유지됩니다.`
-                  : "휴식일 프리셋: 목표 1,675kcal 고정 · 운동 되먹기 없음 (운동 300kcal 초과 기록 시 훈련일 공식 자동 복귀)"}
+                운동 300kcal 초과 — 오늘은 훈련일 기준으로 판정돼요.
               </div>
             )}
             <div style={{ display: "flex", gap: 12, justifyContent: "center", marginBottom: 16 }}>
@@ -1749,13 +1748,13 @@ function MainApp({ user, onLogout }) {
           );
           return (<>
             <div style={{ fontSize: 11, color: "#707070", marginBottom: 10 }}>목표 모드 — 칼로리·매크로 계산 방식</div>
-            {opt("cut", mode === "cut", "감량 모드", TC, "기초적자 −175 · 운동 50% 되먹기", "평균 적자 ~400/일 · 주 약 0.37kg 감량")}
-            {opt("maintain", mode === "maintain", "유지 모드", TM, "적자 0 · 운동 100% 되먹기", "에너지 균형 · 체중·근육 유지 (체지방 목표 도달 후)")}
+            {opt("cut", mode === "cut", "감량 모드", TC, "기초적자 −175 · 운동 50% 반영", "평균 적자 ~400/일 · 주 약 0.37kg 감량")}
+            {opt("maintain", mode === "maintain", "유지 모드", TM, "적자 0 · 운동 100% 반영", "에너지 균형 · 체중·근육 유지 (체지방 목표 도달 후)")}
             <div style={{ background: "#252525", borderRadius: 10, padding: 12, marginTop: 4 }}>
               <div style={{ fontSize: 11, color: "#8a8a8a", lineHeight: 1.6 }}>
                 <b style={{ color: "#f5f5f0" }}>차이는 딱 두 가지</b><br/>
                 ① 휴식일 적자 <span style={{ fontFamily: "monospace", color: "#e05252" }}>−175</span> → <span style={{ fontFamily: "monospace", color: "#5a9e6f" }}>0</span><br/>
-                ② 운동 되먹기 <span style={{ fontFamily: "monospace", color: "#e05252" }}>×0.5</span> → <span style={{ fontFamily: "monospace", color: "#5a9e6f" }}>×1.0</span><br/>
+                ② 운동 반영 <span style={{ fontFamily: "monospace", color: "#e05252" }}>×0.5</span> → <span style={{ fontFamily: "monospace", color: "#5a9e6f" }}>×1.0</span><br/>
                 단백질 2.2g/kg · 지방 0.6g/kg는 동일. 탄수가 자동으로 늘어납니다(+{TM.c - TC.c}g).
               </div>
               <div style={{ fontSize: 10, color: "#707070", marginTop: 8, lineHeight: 1.5 }}>전환은 오늘부터 적용됩니다. 과거 기록은 그 날의 모드 그대로 판정돼요.</div>
