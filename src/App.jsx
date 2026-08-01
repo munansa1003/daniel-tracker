@@ -270,7 +270,7 @@ function MainApp({ user, onLogout }) {
   };
 
   // 휴식일 도장 설정/해제 — 기록 유무와 무관하게 그 날 레코드에 dayType만 스탬프.
-  //  t: "rest"(휴식일) | "train"(저녁 제안의 "오늘은 훈련일" 확정 — 재제안 방지) | null(도장 제거)
+  //  t: "rest"(휴식일) | "train"(예약값 — 판정은 도장 없음과 동일) | null(도장 제거)
   const setDayType = async (d, t) => {
     const cur = allDays[d] || {};
     const dayMode = d === today() ? mode : cur.mode;
@@ -1059,18 +1059,6 @@ function MainApp({ user, onLogout }) {
               <div style={{ background: "#4a8fc9", borderRadius: 8, padding: "8px 14px", fontSize: 12, color: "#fff", fontWeight: 500 }}>측정</div>
             </div>
           ))}
-          {/* 휴식일 제안 배너(③) — 저녁 8시 이후 오늘 운동 기록이 없으면 '제안'만 한다(자동 판정 아님).
-              식단 기록이 있는 날만(아예 미기록이면 위 기록 배너가 담당). dayType 확정 시 재제안 없음. */}
-          {rmdOn("rest") && mode !== "maintain" && date === today() && nowHour() >= 20 && exercises.length === 0 && meals.length > 0 && !dayRec?.dayType && (
-            <div style={{ background: "rgba(90,158,111,0.08)", border: "1px solid rgba(90,158,111,0.25)", borderRadius: 16, padding: 12, marginBottom: 12 }}>
-              <div style={{ fontSize: 13, color: "#5a9e6f", fontWeight: 500 }}>😴 오늘 운동 기록이 없어요</div>
-              <div style={{ fontSize: 11, color: "#707070", marginTop: 2 }}>휴식일 기준(1,675kcal 고정)으로 바꿀까요?</div>
-              <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                <div onClick={() => setDayType(today(), "rest")} style={{ background: "#5a9e6f", borderRadius: 8, padding: "8px 14px", fontSize: 12, color: "#fff", fontWeight: 500, cursor: "pointer" }}>휴식일로 전환</div>
-                <div onClick={() => setDayType(today(), "train")} style={{ background: "#2a2a2a", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: "8px 14px", fontSize: 12, color: "#8a8a8a", cursor: "pointer" }}>오늘은 훈련일</div>
-              </div>
-            </div>
-          )}
           {/* 백업 알림 */}
           {justBacked ? (
             <div style={{ background: "rgba(90,158,111,0.08)", border: "1px solid rgba(90,158,111,0.2)", borderRadius: 16, padding: 12, marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -1102,7 +1090,7 @@ function MainApp({ user, onLogout }) {
                   ? <span style={{ fontSize: 10, fontWeight: 600, color: "#5a9e6f", background: "rgba(90,158,111,0.12)", border: "1px solid rgba(90,158,111,0.3)", borderRadius: 20, padding: "2px 9px" }}>유지</span>
                   : (() => {
                       const col = restStamped && !restReverted ? "#5a9e6f" : "#d4af37";
-                      return <button onClick={() => { setDayType(date, restStamped ? null : "rest"); try { localStorage.setItem("dt_restHintSeen", "1"); } catch { /* 무시 */ } }} aria-pressed={restStamped} style={{ font: "inherit", fontSize: 10, fontWeight: 600, color: col, background: `${col}1f`, border: `1px solid ${col}4d`, borderRadius: 20, padding: "2px 9px", cursor: "pointer" }}>{restStamped ? "휴식" : "감량"}</button>;
+                      return <button onClick={() => setDayType(date, restStamped ? null : "rest")} aria-pressed={restStamped} style={{ font: "inherit", fontSize: 10, fontWeight: 600, color: col, background: `${col}1f`, border: `1px solid ${col}4d`, borderRadius: 20, padding: "2px 9px", cursor: "pointer" }}>{restStamped ? "휴식" : "감량"}</button>;
                     })()}
                 {activeHealth.length > 0 && (() => {
                   const tm = typeMeta(activeHealth[0].type);
@@ -1122,12 +1110,6 @@ function MainApp({ user, onLogout }) {
                 {restReverted
                   ? `운동 ${Math.round(exTotal)}kcal 기록 — 300kcal 초과라 오늘은 훈련일 공식(기초 ${targetsByMode[mode].k.toLocaleString()} + 운동 되먹기)으로 판정돼요. 도장은 유지됩니다.`
                   : "휴식일 프리셋: 목표 1,675kcal 고정 · 운동 되먹기 없음 (운동 300kcal 초과 기록 시 훈련일 공식 자동 복귀)"}
-              </div>
-            )}
-            {/* 뱃지 통합의 발견성 보완 — 첫 토글 전까지만 보이는 1회성 힌트 */}
-            {mode !== "maintain" && !restStamped && (() => { try { return !localStorage.getItem("dt_restHintSeen"); } catch { return false; } })() && (
-              <div style={{ fontSize: 10, color: "#707070", margin: "-8px 0 12px", lineHeight: 1.5 }}>
-                쉬는 날엔 <b style={{ color: "#5a9e6f", fontWeight: 600 }}>감량 뱃지를 탭</b>해 휴식일 기준(1,675kcal 고정)으로 바꿀 수 있어요.
               </div>
             )}
             <div style={{ display: "flex", gap: 12, justifyContent: "center", marginBottom: 16 }}>
