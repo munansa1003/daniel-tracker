@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { aggregateDay, isCalOk, periodStart, today } from "../utils.js";
+import { aggregateDay, isCalOk, periodStart, today, effectiveDayMode } from "../utils.js";
 
 const PERIODS = [["1w", "1주"], ["1m", "1달"], ["3m", "3개월"], ["all", "전체"]];
 
@@ -10,7 +10,11 @@ export function buildCalorieSeries(allDays, targetsByMode, mode, period, todaySt
   let entries = Object.keys(allDays || {})
     .filter((ds) => ds >= start && ds < todayStr)
     .sort()
-    .map((ds) => ({ a: aggregateDay(allDays[ds]), m: (allDays[ds] && allDays[ds].mode) || "cut" }))
+    .map((ds) => {
+      const a = aggregateDay(allDays[ds]);
+      // 휴식일 도장(+운동 ≤300)은 고정 1,675 기준으로 판정 — 홈/달력/통계와 같은 규칙
+      return { a, m: effectiveDayMode(allDays[ds], a.ex, (allDays[ds] && allDays[ds].mode) || "cut") };
+    })
     .filter((x) => x.a.k > 0);
   const MAX = 30; // 점이 많으면 균등 샘플링
   if (entries.length > MAX) {

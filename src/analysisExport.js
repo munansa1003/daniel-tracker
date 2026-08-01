@@ -5,7 +5,7 @@
 // 내결함성: 예상 밖 데이터(shape 오염)로 한 섹션이 죽어도 문서 전체가 비지 않도록
 // 섹션별로 격리하고 "[생성 실패: 섹션명 — 원인]" 마커를 남긴다(일별 요약은 날짜 단위 격리).
 // 실사용에서 "특정 날짜 이후 포함 시 빈 결과" 신고가 있었음 — 침묵 실패 금지 원칙.
-import { aggregateDay, isCalOk, adjustForDate, exFeedback } from "./utils.js";
+import { aggregateDay, isCalOk, adjustForDate, exFeedback, effectiveDayMode, isRestStamp, REST_K } from "./utils.js";
 import { dateInEvent, typeMeta } from "./healthEvents.js";
 
 export const EXPORT_VERSION = "v2.1";
@@ -70,7 +70,8 @@ export function buildAnalysisPackage(state, { start, end }, todayStr, opts = {})
 
   try {
     const { allDays = {}, bodyLog = [], goals = {}, user = {}, mode = "cut", targets = {}, targetsByMode = {}, appAdjust = 0, tdeeHistory = [], healthEvents = [] } = state || {};
-    const dayTargetK = (m, ds) => ((targetsByMode[m] || targetsByMode.cut || targets).k || 0) - appAdjust + adjustForDate(tdeeHistory, ds);
+    // 휴식일(rest)은 고정 프리셋 — 적응형 보정 무관하게 항상 1,675 (앱 dayTargetK와 동일 규칙)
+    const dayTargetK = (m, ds) => m === "rest" ? REST_K : ((targetsByMode[m] || targetsByMode.cut || targets).k || 0) - appAdjust + adjustForDate(tdeeHistory, ds);
 
     const totalDays = Math.round((toDate(end) - toDate(start)) / MS_DAY) + 1;
     const periodLabel = totalDays <= 15 ? "격주" : totalDays <= 32 ? "1개월" : totalDays <= 95 ? "3개월" : `${totalDays}일`;
@@ -99,6 +100,7 @@ export function buildAnalysisPackage(state, { start, end }, todayStr, opts = {})
       L.push(`- 모드: ${mode === "maintain" ? "유지(maintain)" : "감량(cut)"} · 목표 ${targets.k?.toLocaleString() || "?"}kcal · P${targets.p || "?"} C${targets.c || "?"} F${targets.f || "?"}`);
       L.push(`- 적응형 보정: ${appAdjust !== 0 ? `${appAdjust > 0 ? "+" : ""}${appAdjust}kcal 적용 중 (실측 TDEE 역산 기반)` : "없음(공식 그대로)"}`);
       L.push(`- 규칙: 운동 소모의 ${mode === "maintain" ? "100%" : "50%"}를 잔여칼로리에 반영 · 운동일 탄수 보너스`);
+      L.push("- 휴식일(😴 표시): 목표 1,675kcal 고정 · 운동 되먹기 없음 (운동 300kcal 초과 기록 시 훈련일 공식으로 자동 복귀)");
       L.push("- 아래 판정(✓/✗)은 그 날의 모드·보정 기준 적정 여부");
       L.push("");
     });
@@ -161,7 +163,7 @@ export function buildAnalysisPackage(state, { start, end }, todayStr, opts = {})
           if ((allDays[ds].exercises || []).length) exCnt++;
           if (ds !== todayStr && a.k > 0) {
             judged++;
-            const dM = allDays[ds].mode || "cut";
+            const dM = effectiveDayMode(allDays[ds], a.ex, allDays[ds].mode || "cut");
             if (isCalOk(a.k, a.ex, dayTargetK(dM, ds), dM)) ok++;
           }
         }
@@ -211,7 +213,7 @@ export function buildAnalysisPackage(state, { start, end }, todayStr, opts = {})
         try {
           const day = allDays[ds];
           const a = aggregateDay(day);
-          const dM = day.mode || "cut";
+          const dM = effectiveDayMode(day, a.ex, day.mode || "cut"); // 휴식일 도장(+운동 ≤300) → 고정 1,675
           // isCalOk와 동일 산식: round(섭취) ≤ 목표 + round(운동×반영률) — 표시값도 그 기준값 그대로
           const effTarget = dayTargetK(dM, ds) + Math.round(a.ex * exFeedback(dM));
           let mark;
@@ -223,7 +225,7 @@ export function buildAnalysisPackage(state, { start, end }, todayStr, opts = {})
           const repeat = sig !== null && sig === prevSig;
           prevSig = sig;
           const inEvent = events.find((ev) => dateInEvent(ds, ev));
-          L.push(`${ds.slice(5)}  ${String(Math.round(a.k)).padStart(5)}  ${String(Math.round(a.p)).padStart(3)}  ${String(Math.round(a.c)).padStart(3)}  ${String(Math.round(a.f)).padStart(3)}  ${String(a.ex ? "-" + Math.round(a.ex) : "0").padStart(5)}  ${String(effTarget).padStart(5)}  ${mark}${repeat ? " ≈" : ""}${inEvent ? ` [${inEvent.label || typeMeta(inEvent.type).name}]` : ""}`);
+          L.push(`${ds.slice(5)}  ${String(Math.round(a.k)).padStart(5)}  ${String(Math.round(a.p)).padStart(3)}  ${String(Math.round(a.c)).padStart(3)}  ${String(Math.round(a.f)).padStart(3)}  ${String(a.ex ? "-" + Math.round(a.ex) : "0").padStart(5)}  ${String(effTarget).padStart(5)}  ${mark}${isRestStamp(day) ? " 😴" : ""}${repeat ? " ≈" : ""}${inEvent ? ` [${inEvent.label || typeMeta(inEvent.type).name}]` : ""}`);
           if (detail) {
             // 정밀 상세본 — 무엇을 먹고 어떤 운동을 했는지(시간·수량·kcal). 구간 심층 분석용.
             const meals = [...(day.meals || [])].sort((x, y) => (x.hour || 0) - (y.hour || 0));

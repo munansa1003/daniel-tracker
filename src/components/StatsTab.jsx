@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from "react";
 import { THEME } from "../theme.jsx";
-import { today, isCompletedDay, calcTargets, aggregateDay, isCalOk, adjustForDate } from "../utils.js";
+import { today, isCompletedDay, calcTargets, aggregateDay, isCalOk, adjustForDate, effectiveDayMode, REST_K } from "../utils.js";
 import { useOrientation } from "../hooks/useOrientation.js";
 
 export function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, targetsByMode, mode = "cut", appAdjust = 0, tdeeHistory = [] }) {
@@ -12,7 +12,8 @@ export function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, tar
   // 그 날의 모드로 목표 세트를 고르는 헬퍼(달력/주간 판정용). 세트가 없으면 현재 targets로 폴백.
   const dayTargets = (m) => (targetsByMode ? (targetsByMode[m] || targetsByMode.cut) : targets);
   // 그 날 유효 적응형 보정치로 목표 K 조정(과거 판정 보존). 보정 없으면 dayTargets(m).k와 동일.
-  const dayTargetK = (m, ds) => dayTargets(m).k - appAdjust + adjustForDate(tdeeHistory, ds);
+  // 휴식일(rest)은 고정 프리셋 — 보정 무관하게 항상 1,675 (App.dayTargetK와 동일 규칙).
+  const dayTargetK = (m, ds) => m === "rest" ? REST_K : dayTargets(m).k - appAdjust + adjustForDate(tdeeHistory, ds);
   const [weekOffset, setWeekOffset] = useState(0); // 0=이번주, -1=지난주, -2=2주전...
   const latest = bodyLog[bodyLog.length - 1];
   const first = bodyLog[0];
@@ -56,8 +57,8 @@ export function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, tar
       Object.entries(allDays).forEach(([d, day]) => {
         if (d >= from.date && d <= to.date && isCompletedDay(d)) {
           const a = aggregateDay(day);
-          // 목표 비교는 그 날의 모드 목표를 평균(기간이 감량↔유지 전환을 걸쳐도 정확)
-          if (a.k > 0) { tK += a.k; tP += a.p; tTk += dayTargetK(day.mode || "cut", d); n++; }
+          // 목표 비교는 그 날의 유효 모드 목표를 평균(감량↔유지 전환·휴식일 도장을 걸쳐도 정확)
+          if (a.k > 0) { tK += a.k; tP += a.p; tTk += dayTargetK(effectiveDayMode(day, a.ex, day.mode || "cut"), d); n++; }
           if (a.ex > 0) { tEx += a.ex; exDays++; }
         }
       });
@@ -125,8 +126,8 @@ export function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, tar
           return { date: ds, label: dayLabels[i], has: false, pHit: false, dHit: false, eHit: false, isToday };
         const a = aggregateDay(dd);
         // 판정은 화면 표시값(반올림) 기준 — 표시가 목표와 같으면 달성으로 직관 일치
-        // 칼로리 판정은 '그 날의 모드' 기준(과거 감량일은 감량 기준 유지). 단백질은 모드 무관.
-        const dM = dd.mode || "cut";
+        // 칼로리 판정은 '그 날의 유효 모드' 기준(휴식일 도장이면 고정 1,675). 단백질은 모드 무관.
+        const dM = effectiveDayMode(dd, a.ex, dd.mode || "cut");
         const ph = Math.round(a.p) >= targets.p, dh = isCalOk(a.k, a.ex, dayTargetK(dM, ds), dM), eh = (dd.exercises || []).length > 0;
         const lateEat = (dd.meals || []).some(m => (m.hour || 0) >= 22);
         // 오늘은 미완성이므로 평균/카운트에서 제외 (시각화에는 isToday 플래그로 별도 표시)
@@ -216,7 +217,7 @@ export function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, tar
         const dd = allDays[ds];
         if (!dd || ((!dd.meals || !dd.meals.length) && (!dd.exercises || !dd.exercises.length))) return;
         const a = aggregateDay(dd);
-        const dM = dd.mode || "cut";
+        const dM = effectiveDayMode(dd, a.ex, dd.mode || "cut");
         n++;
         if (Math.round(a.p) >= targets.p) pDays++;
         if (isCalOk(a.k, a.ex, dayTargetK(dM, ds), dM)) dDays++;
@@ -391,7 +392,7 @@ export function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, tar
         const entries = Object.entries(allDays).filter(([d]) => d >= prev.date && d <= curr.date && isCompletedDay(d));
         if (entries.length < 3) continue;
         let tP = 0, tK = 0, tTk = 0, eD = 0, latD = 0;
-        entries.forEach(([ds, data]) => { const a = aggregateDay(data); tP += a.p; tK += a.k; tTk += dayTargetK(data.mode || "cut", ds); if ((data.exercises || []).length > 0) eD++; if ((data.meals || []).some(m => (m.hour || 0) >= 22)) latD++; });
+        entries.forEach(([ds, data]) => { const a = aggregateDay(data); tP += a.p; tK += a.k; tTk += dayTargetK(effectiveDayMode(data, a.ex, data.mode || "cut"), ds); if ((data.exercises || []).length > 0) eD++; if ((data.meals || []).some(m => (m.hour || 0) >= 22)) latD++; });
         const d = entries.length;
         const p = { avgP: Math.round(tP / d), avgK: Math.round(tK / d), avgTk: Math.round(tTk / d), weeklyEx: Math.round(eD / d * 7 * 10) / 10, lateRate: Math.round(latD / d * 100) };
         if (curr.fatPct < prev.fatPct) good.push(p); else if (curr.fatPct > prev.fatPct) bad.push(p);

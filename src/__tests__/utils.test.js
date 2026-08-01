@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { calcTargets, periodOf, TIME_PERIODS, aggregateDay, getWeekKey, exFeedback, isCalOk, MODE_DEFICIT, MODE_FEEDBACK, adjustForDate } from "../utils.js";
+import { calcTargets, periodOf, TIME_PERIODS, aggregateDay, getWeekKey, exFeedback, isCalOk, MODE_DEFICIT, MODE_FEEDBACK, adjustForDate, REST_K, REST_EX_REVERT, restTargets, effectiveDayMode } from "../utils.js";
 
 describe("calcTargets — 칼로리·매크로 목표 (캘리브레이션 값 보호)", () => {
   it("스모크: 체중 77.3 / 175cm / 42세 → K=1570, P=170, F=46, C=119", () => {
@@ -62,12 +62,15 @@ describe("calcTargets — 유지(maintain) 모드", () => {
 });
 
 describe("exFeedback / isCalOk — 모드별 운동 되먹기 & 판정", () => {
-  it("운동 되먹기 계수: 감량 0.5 / 유지 1.0", () => {
+  it("운동 되먹기 계수: 감량 0.5 / 유지 1.0 / 휴식일 0", () => {
     expect(exFeedback("cut")).toBe(0.5);
     expect(exFeedback("maintain")).toBe(1);
+    expect(exFeedback("rest")).toBe(0); // 휴식일 프리셋: 고정 목표라 되먹기 없음
     expect(exFeedback(undefined)).toBe(0.5); // 폴백 = cut
     expect(MODE_DEFICIT).toEqual({ cut: 175, maintain: 0 });
-    expect(MODE_FEEDBACK).toEqual({ cut: 0.5, maintain: 1 });
+    // rest: 0 확장 — 휴식일 프리셋(고정 1,675)은 운동 되먹기가 없어야 "항상 같은 숫자"가 성립.
+    // 300kcal 초과 운동은 effectiveDayMode가 훈련일로 복귀시키므로 되먹기 손실도 없다.
+    expect(MODE_FEEDBACK).toEqual({ cut: 0.5, maintain: 1, rest: 0 });
   });
 
   it("판정은 반올림 기준 (PR #16): 표시값이 목표와 같으면 달성", () => {
@@ -79,6 +82,47 @@ describe("exFeedback / isCalOk — 모드별 운동 되먹기 & 판정", () => {
     // 섭취 2000, 운동 800. 감량 목표 1570 / 유지 목표 1745 기준
     expect(isCalOk(2000, 800, 1570, "cut")).toBe(false);     // 1570 + 400 = 1970 < 2000
     expect(isCalOk(2000, 800, 1745, "maintain")).toBe(true); // 1745 + 800 = 2545 ≥ 2000
+  });
+});
+
+describe("휴식일 프리셋 — restTargets / effectiveDayMode / 판정", () => {
+  it("restTargets: K는 고정 1,675, P·F는 체중 공식 그대로, C는 나머지", () => {
+    expect(REST_K).toBe(1675);
+    expect(restTargets(75)).toEqual({ p: 165, c: 153, f: 45, k: 1675, weight: 75 });
+    expect(restTargets(77.3)).toEqual({ p: 170, c: 145, f: 46, k: 1675, weight: 77.3 });
+  });
+  it("restTargets: 체중이 달라도 K는 불변(고정 안전선), 매크로 정합 유지", () => {
+    for (const w of [70, 75, 80, 85]) {
+      const t = restTargets(w);
+      expect(t.k).toBe(1675);
+      expect(t.p).toBe(Math.round(w * 2.2));
+      expect(t.f).toBe(Math.round(w * 0.6));
+      expect(Math.abs(t.p * 4 + t.f * 9 + t.c * 4 - t.k)).toBeLessThanOrEqual(2);
+    }
+  });
+  it("effectiveDayMode: 도장 + 운동 ≤300 → rest, 300 초과 → 훈련일 공식 자동 복귀", () => {
+    const rest = { dayType: "rest" };
+    expect(effectiveDayMode(rest, 0, "cut")).toBe("rest");
+    expect(effectiveDayMode(rest, REST_EX_REVERT, "cut")).toBe("rest");      // 딱 300은 휴식일 유지
+    expect(effectiveDayMode(rest, REST_EX_REVERT + 1, "cut")).toBe("cut");   // 301부터 복귀
+    expect(effectiveDayMode(rest, 300.4, "cut")).toBe("rest");               // 반올림 기준(표시값과 동일)
+  });
+  it("effectiveDayMode: 도장 없는 날·train 확정·유지 모드는 원래 모드 그대로", () => {
+    expect(effectiveDayMode(undefined, 0, "cut")).toBe("cut");
+    expect(effectiveDayMode({}, 0, "cut")).toBe("cut");
+    expect(effectiveDayMode({ dayType: "train" }, 0, "cut")).toBe("cut");
+    // 유지 모드는 목표(유지 칼로리)가 이미 프리셋보다 관대 — 도장 무시
+    expect(effectiveDayMode({ dayType: "rest" }, 0, "maintain")).toBe("maintain");
+  });
+  it("판정: rest 모드는 되먹기 0 — 고정 1,675 하나로만 판정", () => {
+    expect(isCalOk(1650, 0, REST_K, "rest")).toBe(true);    // 회식 1,650 → ✓ (여유 25)
+    expect(isCalOk(1675.4, 0, REST_K, "rest")).toBe(true);  // 표시값 1675 = 목표
+    expect(isCalOk(1676, 0, REST_K, "rest")).toBe(false);
+    expect(isCalOk(1700, 200, REST_K, "rest")).toBe(false); // 운동 200을 해도 목표는 그대로 1,675
+  });
+  it("복귀 문턱에 절벽 없음: 301kcal 운동 복귀 시 훈련일 유효목표가 1,675보다 크거나 같다", () => {
+    // 사용자 실측 기준(훈련일 기초 ≈1,536)에서 1536 + round(301×0.5) = 1687 ≥ 1675
+    expect(1536 + Math.round((REST_EX_REVERT + 1) * 0.5)).toBeGreaterThanOrEqual(REST_K);
   });
 });
 
