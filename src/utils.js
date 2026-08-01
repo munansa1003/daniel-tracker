@@ -42,7 +42,7 @@ export function exFeedback(mode) { return MODE_FEEDBACK[mode] ?? MODE_FEEDBACK.c
    운동을 300kcal 넘게 기록한 날은 도장이 있어도 훈련일 공식으로 자동 복귀한다
    (되먹기 0.5 기준 복귀 시점 목표가 1,675보다 커지도록 300을 선택 — 문턱 절벽 없음).
    유지(maintain) 모드는 이미 목표가 유지 칼로리라 프리셋보다 관대 — 도장을 무시한다.
-   dayType:"train"은 저녁 제안 배너의 "오늘은 훈련일" 응답용 명시 확정(판정은 도장 없음과 동일). */
+   dayType:"train"은 예약된 값(명시적 훈련일 확정) — 판정은 도장 없음과 동일하게 취급한다. */
 export const REST_K = 1675;
 export const REST_EX_REVERT = 300;
 export const isRestStamp = (day) => day?.dayType === "rest";
