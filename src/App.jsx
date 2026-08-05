@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar, ComposedChart, Legend, ReferenceLine } from "recharts";
 import store, { getCurrentUserId, setUserId, logout, getMembership, joinWithInvite, getMigratedMark, getSharedFoods, addSharedFood, getSharedExercises, addSharedExercise } from "./store.js";
-import { watchAuth, signInWithGoogle, signOutUser, isOwnerEmail } from "./auth.js";
+import { watchAuth, signInWithGoogle, signOutUser, isOwnerEmail, getIdToken } from "./auth.js";
+import { mergeImports } from "./importMerge.js";
 import { APP_NAME, DEFAULT_FOODS, DEFAULT_EX, TARGETS as DEFAULT_TARGETS, COLORS } from "./data.js";
 import { THEME, GlobalStyles } from "./theme.jsx";
 import { today, nowHour, isCompletedDay, calcTargets, sortByHour, periodOf, groupMealsByTime, groupExercisesByTime, aggregateDay, exFeedback, isCalOk, adjustForDate, REST_K, restTargets, effectiveDayMode, isRestStamp } from "./utils.js";
@@ -224,20 +225,26 @@ function MainApp({ user, onLogout }) {
 
   // 전체 재동기화 — 시작 시 + 클로드 내보내기 패널을 열 때(오래된 로컬 스냅샷으로
   // 패키지가 만들어지는 것 방지: 다른 기기 기록·미완 동기화가 빠진 채 복사되는 사고).
+  // 마지막에 워치 사서함 동기화(syncImports)를 이어 실행한다 — 원격 스냅샷을 받은 "뒤"에
+  // 병합해야 병합 결과가 setAllDays(remoteDays)로 되돌려지지 않는다. (정의가 목표 계산부
+  // 아래라 ref로 배선 — syncImports가 monthWeight·mode를 쓰기 때문)
+  const syncImportsRef = useRef(null);
   const resyncAll = useCallback(async () => {
     try { await store.flushPendingSync?.(); } catch { /* flush 실패는 동기화를 막지 않음 — 큐에 남아 재시도 */ }
     const [remote, sf, se] = await Promise.all([store.getAllData(), getSharedFoods(), getSharedExercises()]);
     if (sf) setSharedFoods(sf);
     if (se) setSharedExercises(se);
-    if (!remote || Object.keys(remote).length === 0) return;
-    if (remote["custom-foods"]) setCustomFoods(remote["custom-foods"]);
-    if (remote["custom-exercises"]) setCustomEx(remote["custom-exercises"]);
-    if (remote["bodylog"]) setBodyLog([...remote["bodylog"]].sort((a, b) => a.date.localeCompare(b.date)));
-    if (remote["lastBackup"]) setLastBackup(remote["lastBackup"]);
-    if (remote["goals"]) setGoals(remote["goals"]);
-    const remoteDays = {};
-    for (const k in remote) { if (k.startsWith("day:")) remoteDays[k.slice(4)] = remote[k]; }
-    if (Object.keys(remoteDays).length > 0) setAllDays(remoteDays);
+    if (remote && Object.keys(remote).length > 0) {
+      if (remote["custom-foods"]) setCustomFoods(remote["custom-foods"]);
+      if (remote["custom-exercises"]) setCustomEx(remote["custom-exercises"]);
+      if (remote["bodylog"]) setBodyLog([...remote["bodylog"]].sort((a, b) => a.date.localeCompare(b.date)));
+      if (remote["lastBackup"]) setLastBackup(remote["lastBackup"]);
+      if (remote["goals"]) setGoals(remote["goals"]);
+      const remoteDays = {};
+      for (const k in remote) { if (k.startsWith("day:")) remoteDays[k.slice(4)] = remote[k]; }
+      if (Object.keys(remoteDays).length > 0) setAllDays(remoteDays);
+    }
+    try { await syncImportsRef.current?.(); } catch { /* 오프라인 등 — 다음 시작에 재시도 */ }
   }, []);
 
   // 온라인 복귀 시 오프라인 대기분 재전송 (세션 중에는 localStorage가 항상 최신이라 순서 무관)
@@ -652,6 +659,40 @@ function MainApp({ user, onLogout }) {
   const doDisablePush = () => disablePush();
   // 구독돼 있으면 상태·토글 변화 시 KV 갱신(구독 없으면 no-op).
   useEffect(() => { syncPushState({ state: pushState, reminders: goals.reminders }); }, [pushState, goals.reminders]);
+
+  // ── 워치 자동 가져오기(사서함): pull → 기존 saveDay 경로로 병합 → ack ──
+  // 서버(검문소)는 검증·중복 차단·보관까지만. day 문서를 쓰는 주체는 앱 하나로 유지돼
+  // 유효목표·휴식일 복귀·통계가 수동 입력과 같은 단일 출처 경로로 자동 반영된다.
+  // 병합은 importKey 멱등 — ack 유실·다중 기기 동시 병합에도 중복이 생기지 않는다.
+  const [importInfo, setImportInfo] = useState(null); // 설정 카드용 { cutover, log, enabled }
+  const syncImports = useCallback(async () => {
+    const uid = getCurrentUserId();
+    if (!uid) return;
+    const idToken = await getIdToken();
+    if (!idToken) return; // 미로그인·오프라인 — 조용히 스킵(다음 시작에 재시도)
+    let data;
+    try {
+      const r = await fetch("/api/import-inbox", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ uid, idToken, action: "pull" }) });
+      if (!r.ok) return;
+      data = await r.json();
+    } catch { return; }
+    setImportInfo({ cutover: data.cutover || null, log: Array.isArray(data.log) ? data.log : [], enabled: !!data.enabled });
+    const entries = Array.isArray(data.entries) ? data.entries : [];
+    if (!entries.length) return;
+    // 병합 기준은 localStorage 미러(세션 중 항상 최신 진실) — state 스냅샷 지연과 무관
+    const local = store.getLocalAll();
+    const days = {};
+    for (const k in local) { if (k.startsWith("day:")) days[k.slice(4)] = local[k]; }
+    const { updatedDays, ackKeys } = mergeImports(days, entries, { weight: monthWeight, todayStr: today(), mode });
+    for (const d of Object.keys(updatedDays)) await store.set(`day:${d}`, updatedDays[d]);
+    if (Object.keys(updatedDays).length > 0) setAllDays(prev => ({ ...prev, ...updatedDays }));
+    if (ackKeys.length) {
+      try {
+        await fetch("/api/import-inbox", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ uid, idToken, action: "ack", keys: ackKeys }) });
+      } catch { /* ack 실패 → 사서함에 남아 다음 pull에서 멱등 재처리 */ }
+    }
+  }, [monthWeight, mode]);
+  useEffect(() => { syncImportsRef.current = syncImports; }, [syncImports]);
 
   // 적응형 핸들러 (전부 비파괴적·되돌리기 가능)
   const setAdaptiveOn = (on) => saveGoals({ ...goals, adaptiveOn: on });
@@ -1178,7 +1219,7 @@ function MainApp({ user, onLogout }) {
                   </div>
                   {group.items.map((e, j) => (
                     <div key={j} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0 5px 8px", borderBottom: "1px solid rgba(255,255,255,0.02)", fontSize: 13 }}>
-                      <div><span style={{ color: "#4a8fc9", fontSize: 11, marginRight: 6, fontFamily: "monospace" }}>{String(e.hour || 0).padStart(2, "0")}시</span>{e.n} · {e.duration}분</div>
+                      <div><span style={{ color: "#4a8fc9", fontSize: 11, marginRight: 6, fontFamily: "monospace" }}>{String(e.hour || 0).padStart(2, "0")}시</span>{e.n}{e.source === "watch" && <span title="워치 자동 기록" style={{ marginLeft: 4, fontSize: 10 }}>⌚</span>} · {e.duration}분</div>
                       <span style={{ color: "#4a8fc9", fontFamily: "monospace", fontSize: 12 }}>-{e.kcal}kcal</span>
                     </div>
                   ))}
@@ -1670,7 +1711,7 @@ function MainApp({ user, onLogout }) {
                 {group.items.map((e) => (
                   <div key={e._idx}>
                     <div className={`dbp-lp-item ${lpEx.selectedIdx === e._idx ? "dbp-lp-selected" : ""}`} {...lpEx.bind(e._idx)} onClick={() => { if (!lpEx.wasLongPress()) setEditExIdx(e._idx); }} style={{ ...cs, padding: 10, display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", marginBottom: lpEx.selectedIdx === e._idx ? 0 : 12, borderRadius: lpEx.selectedIdx === e._idx ? "16px 16px 0 0" : 16, borderBottom: lpEx.selectedIdx === e._idx ? "none" : cs.border }}>
-                      <div style={{ flex: 1 }}><span style={{ color: "#4a8fc9", fontSize: 11, marginRight: 6, fontFamily: "monospace" }}>{String(e.hour || 0).padStart(2, "0")}시</span><span style={{ fontSize: 13 }}>{e.n}</span><span style={{ color: "#707070", fontSize: 12, marginLeft: 4 }}>{e.duration}분</span><div style={{ fontSize: 11, color: "#4a8fc9", fontFamily: "monospace" }}>-{e.kcal} kcal</div></div>
+                      <div style={{ flex: 1 }}><span style={{ color: "#4a8fc9", fontSize: 11, marginRight: 6, fontFamily: "monospace" }}>{String(e.hour || 0).padStart(2, "0")}시</span><span style={{ fontSize: 13 }}>{e.n}</span>{e.source === "watch" && <span title="워치 자동 기록" style={{ marginLeft: 4, fontSize: 10 }}>⌚</span>}<span style={{ color: "#707070", fontSize: 12, marginLeft: 4 }}>{e.duration}분</span><div style={{ fontSize: 11, color: "#4a8fc9", fontFamily: "monospace" }}>-{e.kcal} kcal</div></div>
                     </div>
                     {lpEx.selectedIdx === e._idx && (
                       <div style={{ ...cs, padding: 0, marginTop: 0, borderRadius: "0 0 16px 16px", overflow: "hidden", borderTop: "none" }}>
@@ -1922,6 +1963,31 @@ function MainApp({ user, onLogout }) {
               </div>
               <span style={{ fontSize: 11, color: "#707070" }}>→</span>
             </div>
+          </div>
+          {/* 자동 가져오기(워치 → 검문소 → 사서함) 관측 카드 — 컷오버·최근 수신 5건 */}
+          <div style={{ fontSize: 11, color: "#707070", margin: "14px 0 8px" }}>자동 가져오기 (애플워치)</div>
+          <div style={{ background: "#252525", borderRadius: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", borderBottom: "0.5px solid rgba(255,255,255,0.04)" }}>
+              <div>
+                <div style={{ fontSize: 12, color: "#f5f5f0" }}>⌚ 워치 운동 자동 수신</div>
+                <div style={{ fontSize: 10, color: "#707070", marginTop: 2 }}>
+                  {importInfo === null ? "상태 미확인 — '지금 확인'을 눌러 주세요"
+                    : importInfo.enabled ? `켜짐 · 컷오버 ${importInfo.cutover || "-"} 이후 운동만 수신`
+                    : "꺼짐 — 서버 환경변수 설정 필요 (docs/shortcut-recipe.md)"}
+                </div>
+              </div>
+              <div onClick={syncImports} style={{ background: "#2f2f2f", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: "#f5f5f0", cursor: "pointer", flexShrink: 0 }}>지금 확인</div>
+            </div>
+            {(importInfo?.log || []).slice(0, 5).map((g, i, arr) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "7px 12px", borderBottom: i < arr.length - 1 ? "0.5px solid rgba(255,255,255,0.04)" : "none", fontSize: 10, fontFamily: "monospace", color: "#8a8a8a" }}>
+                <span>{String(g.at || "").slice(5, 16).replace("T", " ")}</span>
+                <span>{({ "workout-end": "운동종료", "evening-backup": "저녁백업", "manual-tap": "원탭" })[g.source] || g.source}</span>
+                <span>+{g.accepted} 중복{g.ignored} 제외{g.filtered} 거부{g.rejected}</span>
+              </div>
+            ))}
+            {importInfo !== null && (importInfo.log || []).length === 0 && (
+              <div style={{ padding: "8px 12px", fontSize: 10, color: "#4a4a4a" }}>아직 수신 기록이 없어요</div>
+            )}
           </div>
         </>)}
 
