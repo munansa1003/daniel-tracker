@@ -7,13 +7,13 @@
 > `api/_lib/import-rules.js`입니다. 이 문서는 그 정의를 옮겨 적은 것이며, 어긋나면
 > 계약 테스트(`src/__tests__/health-import.test.js` §7)가 잡습니다.
 
-## 0. 준비물 — 실값 (Phase 4 머지 후 치환)
+## 0. 준비물 — 실값
 
 | 항목 | 값 |
 |---|---|
-| 엔드포인트 URL | `⟨배포 URL⟩/api/health-import` ← **머지 후 실값으로 치환** |
+| 엔드포인트 URL | `https://daniel-tracker.vercel.app/api/health-import` |
 | 인증 헤더 이름 | `X-Import-Token` |
-| 인증 헤더 값 | `⟨IMPORT_TOKEN 비밀값⟩` ← Vercel에 설정한 것과 동일하게 |
+| 인증 헤더 값 | `⟨IMPORT_TOKEN 비밀값⟩` ← Vercel에 설정한 것과 동일하게 (비밀이라 문서에 안 적음) |
 | HTTP 메서드 | `POST` |
 | 본문 형식 | JSON (아래 1.3) |
 
@@ -87,7 +87,7 @@
    | `workouts` | 배열 | 변수 `workoutList` |
 
 6. **"URL 콘텐츠 가져오기"** (Get Contents of URL):
-   - URL: `⟨배포 URL⟩/api/health-import`
+   - URL: `https://daniel-tracker.vercel.app/api/health-import`
    - 방법: **POST**
    - 헤더: `X-Import-Token` = `⟨IMPORT_TOKEN 비밀값⟩`
    - 본문 요청: **JSON** → 위 5번 사전
@@ -154,10 +154,13 @@
 설정 → 데이터 탭 → **"자동 가져오기 (애플워치)"** 카드에서 컷오버 날짜와 최근 수신 5건을
 확인할 수 있습니다.
 
-## 8. curl 실전 시뮬레이션 (배포 검증용 — Phase 4)
+## 8. curl 실전 시뮬레이션 (배포 검증용)
+
+환경변수 설정 **전**에는 모든 POST가 `503`(잠금)으로 답합니다 — 그것도 정상 동작 확인입니다.
+설정 + 재배포 후 아래 4케이스를 순서대로:
 
 ```bash
-URL="⟨배포 URL⟩/api/health-import"
+URL="https://daniel-tracker.vercel.app/api/health-import"
 TOKEN="⟨IMPORT_TOKEN 비밀값⟩"
 
 # ① 정상 1건 → {"accepted":1,...,"message":"1건 추가"}
