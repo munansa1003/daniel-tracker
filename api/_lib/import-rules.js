@@ -17,9 +17,9 @@ export const DUR_MAX = 600;
 // ── 유형 화이트리스트 (한국어/영어 병기 — 기기 언어에 따라 어느 쪽이든 온다) ──
 // n = 저장용 대표 이름. 통계 분류(analysisExport의 exCategory)가 이름 키워드 기반이므로
 // 유산소 대표 이름은 유산소 키워드(러닝·사이클·걷·축구·계단·하이킹·수영)에 걸리게 유지한다.
-// 예외: "식히기"(워치 쿨다운 유형)는 걸리는 키워드가 없어 '기타'로 잡힌다 —
-// 2026-08-06 사용자 실측(당일 워치 기록 4건 전부 식히기)으로 편입 결정, 근력 운동과
-// 같은 총량 관리 항목.
+// 예외: "스트레칭"(워치 '식히기'/쿨다운·유연성 유형)은 걸리는 키워드가 없어 '기타'로
+// 잡힌다 — 2026-08-06 사용자 실측(당일 워치 기록 전부 식히기)으로 편입했고, 그 기록의
+// 실제 내용이 스트레칭이라는 사용자 확인에 따라 대표 이름을 "스트레칭"으로 정함.
 export const AEROBIC_GROUPS = [
   { n: "러닝", aliases: ["달리기", "실외 달리기", "실내 달리기", "야외 달리기", "야외 운동", "러닝", "런닝", "트레드밀 달리기", "running", "outdoor run", "indoor run", "run"] },
   { n: "사이클링", aliases: ["사이클링", "실외 사이클링", "실내 사이클링", "자전거", "자전거 타기", "cycling", "outdoor cycling", "indoor cycling", "cycle", "bike", "biking"] },
@@ -28,7 +28,7 @@ export const AEROBIC_GROUPS = [
   { n: "계단 오르기", aliases: ["계단 오르기", "계단오르기", "계단", "stair climbing", "stair-climbing", "stairs", "stair stepper"] },
   { n: "하이킹", aliases: ["하이킹", "등산", "hiking", "hike"] },
   { n: "수영", aliases: ["수영", "실내 수영", "야외 수영", "swimming", "pool swim", "open water swim", "swim"] },
-  { n: "식히기", aliases: ["식히기", "쿨다운", "cooldown", "cool down"] },
+  { n: "스트레칭", aliases: ["식히기", "쿨다운", "cooldown", "cool down", "스트레칭", "stretching", "유연성", "flexibility"] },
 ];
 
 // 근력 계열 — 2026-08-06 사용자 결정으로 자동 저장 대상에 편입: 워치 덩어리를
