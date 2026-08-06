@@ -38,16 +38,21 @@ export function normalizeType(raw) {
   return String(raw || "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-const ALIAS_TO_NAME = new Map();
-for (const g of AEROBIC_GROUPS) for (const a of g.aliases) ALIAS_TO_NAME.set(normalizeType(a), g.n);
-const STRENGTH_SET = new Set(STRENGTH_ALIASES.map(normalizeType));
+const STRENGTH_KEYWORDS = STRENGTH_ALIASES.map(normalizeType);
+const AEROBIC_KEYWORDS = AEROBIC_GROUPS.map((g) => ({ n: g.n, kws: g.aliases.map(normalizeType) }));
 
 // 유형 분류: { kind:"aerobic", n } | { kind:"strength" } | { kind:"unknown" }
+// 정확 일치가 아니라 "키워드 포함" 판정 — 피트니스/HAE는 "오후 실외 걷기"처럼 수식어가
+// 붙은 이름을 보내므로(실측 확인) 포함 매칭이어야 한다. 근력을 먼저 검사해
+// "오후 근력 훈련" 류가 유산소로 새지 않게 한다(분류 우선순위는 analysisExport의
+// exCategory와 같은 철학).
 export function classifyType(rawType) {
   const t = normalizeType(rawType);
-  if (STRENGTH_SET.has(t)) return { kind: "strength" };
-  const n = ALIAS_TO_NAME.get(t);
-  if (n) return { kind: "aerobic", n };
+  if (!t) return { kind: "unknown" };
+  for (const kw of STRENGTH_KEYWORDS) if (t.includes(kw)) return { kind: "strength" };
+  for (const g of AEROBIC_KEYWORDS) {
+    for (const kw of g.kws) if (t.includes(kw)) return { kind: "aerobic", n: g.n };
+  }
   return { kind: "unknown" };
 }
 

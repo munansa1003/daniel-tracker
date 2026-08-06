@@ -195,11 +195,24 @@ describe("계약 3·4 — 화이트리스트(근력 제외 · 한/영 병기)", 
     expect(inboxSize()).toBe(0);
   });
 
-  it("미등록 유형(요가) → filtered(대상 외), 저장 0", async () => {
+  it("미등록 유형(요가) → filtered(대상 외) + 응답에 unknownTypes로 이름 노출", async () => {
     const res = await importPost(envelope([W({ type: "요가" })]));
-    expect(out(res)).toMatchObject({ accepted: 0, filtered: 1 });
+    expect(out(res)).toMatchObject({ accepted: 0, filtered: 1, unknownTypes: ["요가"] });
     expect(out(res).message).toContain("대상 외 1 제외");
     expect(inboxSize()).toBe(0);
+  });
+
+  it("수식어 붙은 이름(피트니스 실측: '오후 실외 걷기') → 키워드 포함 매칭으로 accepted", async () => {
+    const res = await importPost(envelope([W({ type: "오후 실외 걷기" })]));
+    expect(out(res).accepted).toBe(1);
+    const { entries } = await pullInbox();
+    expect(entries[0].n).toBe("걷기");
+  });
+
+  it("수식어 붙은 근력('저녁 기능성 근력 훈련')도 근력으로 filtered — 유산소로 새지 않음", async () => {
+    const res = await importPost(envelope([W({ type: "저녁 기능성 근력 훈련" })]));
+    expect(out(res)).toMatchObject({ accepted: 0, filtered: 1 });
+    expect(out(res).message).toContain("근력 1 제외");
   });
 
   it("4) 한국어('실외 달리기')·영어('Outdoor Run') 혼합 → 둘 다 같은 대표명으로 accepted", async () => {
