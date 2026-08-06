@@ -247,6 +247,13 @@ describe("계약 3·4 — 화이트리스트(근력 제외 · 한/영 병기)", 
     expect(entries[0].n).toBe("계단 오르기");
   });
 
+  it("HAE의 달리기 표기 '야외 운동' → 러닝으로 accepted (사용자 실측 확인)", async () => {
+    const res = await importPost(envelope([W({ type: "야외 운동" })]));
+    expect(out(res).accepted).toBe(1);
+    const { entries } = await pullInbox();
+    expect(entries[0].n).toBe("러닝");
+  });
+
   it("4) 한국어('실외 달리기')·영어('Outdoor Run') 혼합 → 둘 다 같은 대표명으로 accepted", async () => {
     const res = await importPost(envelope([
       W(),

@@ -18,7 +18,7 @@ export const DUR_MAX = 600;
 // n = 저장용 대표 이름. 통계 분류(analysisExport의 exCategory)가 이름 키워드 기반이므로
 // 대표 이름은 반드시 유산소 키워드(러닝·사이클·걷·축구·계단·하이킹·수영)에 걸리는 것으로 유지한다.
 export const AEROBIC_GROUPS = [
-  { n: "러닝", aliases: ["달리기", "실외 달리기", "실내 달리기", "러닝", "런닝", "트레드밀 달리기", "running", "outdoor run", "indoor run", "run"] },
+  { n: "러닝", aliases: ["달리기", "실외 달리기", "실내 달리기", "야외 달리기", "야외 운동", "러닝", "런닝", "트레드밀 달리기", "running", "outdoor run", "indoor run", "run"] },
   { n: "사이클링", aliases: ["사이클링", "실외 사이클링", "실내 사이클링", "자전거", "자전거 타기", "cycling", "outdoor cycling", "indoor cycling", "cycle", "bike", "biking"] },
   { n: "걷기", aliases: ["걷기", "실외 걷기", "실내 걷기", "walking", "outdoor walk", "indoor walk", "walk"] },
   { n: "축구", aliases: ["축구", "soccer", "football"] },
