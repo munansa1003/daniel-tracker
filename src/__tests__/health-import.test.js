@@ -256,6 +256,13 @@ describe("계약 3·4 — 화이트리스트(근력은 '근력 운동' 편입 ·
     expect(entries[0].n).toBe("러닝");
   });
 
+  it("'식히기'(워치 쿨다운) → accepted (2026-08-06 사용자 실측 편입 — 통계는 '기타')", async () => {
+    const res = await importPost(envelope([W({ type: "식히기" })]));
+    expect(out(res)).toMatchObject({ accepted: 1, filtered: 0 });
+    const { entries } = await pullInbox();
+    expect(entries[0].n).toBe("식히기");
+  });
+
   it("4) 한국어('실외 달리기')·영어('Outdoor Run') 혼합 → 둘 다 같은 대표명으로 accepted", async () => {
     const res = await importPost(envelope([
       W(),
