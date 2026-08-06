@@ -139,6 +139,9 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       accepted, ignored, filtered, rejected,
+      // 미등록 유형명 노출 — HAE 내보내기 기록 화면에서 바로 보여, 화이트리스트
+      // 확장이 필요한 이름을 사용자가 즉시 알 수 있다 (규칙 3의 로그와 같은 내용)
+      ...(unknownTypes.length > 0 ? { unknownTypes } : {}),
       message: buildMessage({ accepted, ignored, strength, unknown, rejected, firstRejectReason }),
     });
   } catch (e) {
