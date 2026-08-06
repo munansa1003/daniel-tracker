@@ -76,7 +76,7 @@ export default async function handler(req, res) {
       console.log(`[health-import] format=hae accepted=0 ignored=0 filtered=0 rejected=${haeDropped} (workouts empty)`);
       return res.status(200).json({
         accepted: 0, ignored: 0, filtered: 0, rejected: haeDropped,
-        message: buildMessage({ accepted: 0, ignored: 0, strength: 0, unknown: 0, rejected: haeDropped, firstRejectReason: haeDropped ? "HAE 항목 형식 오류" : "" }),
+        message: buildMessage({ accepted: 0, ignored: 0, unknown: 0, rejected: haeDropped, firstRejectReason: haeDropped ? "HAE 항목 형식 오류" : "" }),
       });
     }
     body = { source: "hae", sentAt: new Date().toISOString(), workouts: conv.workouts };
@@ -91,7 +91,7 @@ export default async function handler(req, res) {
   }
 
   // 운동 단위 판정 (부분 성공 허용)
-  let accepted = 0, ignored = 0, strength = 0, unknown = 0, rejected = 0;
+  let accepted = 0, ignored = 0, unknown = 0, rejected = 0;
   let firstRejectReason = "";
   const unknownTypes = [];
   const inboxKey = `import:inbox:${UID}`;
@@ -100,8 +100,8 @@ export default async function handler(req, res) {
     for (const w of body.workouts) {
       const plan = planWorkout(w, { cutoverDate: CUTOVER });
       if (plan.verdict === "filtered") {
-        if (plan.cause === "strength") strength++;
-        else { unknown++; if (unknownTypes.length < 10) unknownTypes.push(String(plan.type).slice(0, 40)); }
+        unknown++;
+        if (unknownTypes.length < 10) unknownTypes.push(String(plan.type).slice(0, 40));
         continue;
       }
       if (plan.verdict === "rejected") {
@@ -127,7 +127,7 @@ export default async function handler(req, res) {
     if (haeDropped > 0 && !firstRejectReason) firstRejectReason = "HAE 항목 형식 오류";
 
     // 관측성: 최근 수신 요약(설정 카드용) — 본문 전문 없음
-    const filtered = strength + unknown;
+    const filtered = unknown;
     try {
       await kv("LPUSH", `import:log:${UID}`, JSON.stringify({
         at: new Date().toISOString(), source: body.source, accepted, ignored, filtered, rejected,
@@ -142,7 +142,7 @@ export default async function handler(req, res) {
       // 미등록 유형명 노출 — HAE 내보내기 기록 화면에서 바로 보여, 화이트리스트
       // 확장이 필요한 이름을 사용자가 즉시 알 수 있다 (규칙 3의 로그와 같은 내용)
       ...(unknownTypes.length > 0 ? { unknownTypes } : {}),
-      message: buildMessage({ accepted, ignored, strength, unknown, rejected, firstRejectReason }),
+      message: buildMessage({ accepted, ignored, unknown, rejected, firstRejectReason }),
     });
   } catch (e) {
     console.error("[health-import] store error:", e);

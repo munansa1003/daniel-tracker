@@ -5,6 +5,7 @@ import { periodOf } from "../utils.js";
 export function EditExForm({ exercise, onSave, onCancel, onDelete, weight }) {
   const [duration, setDuration] = useState(String(exercise.duration));
   const [hour, setHour] = useState(exercise.hour || 0);
+  const [memo, setMemo] = useState(exercise.memo || "");
   const is = { width: "100%", padding: "10px 12px", background: "#252525", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, color: "#f5f5f0", fontSize: 14, boxSizing: "border-box", marginBottom: 8 };
   const estKcal = Math.round((exercise.m * (weight || 77.5) * (parseInt(duration) || 30)) / 60);
   return (
@@ -22,13 +23,15 @@ export function EditExForm({ exercise, onSave, onCancel, onDelete, weight }) {
           <option key={h} value={h}>{String(h).padStart(2, "0")}:00 {periodOf(h).name}</option>
         ))}
       </select>
+      <div style={{ fontSize: 12, color: "#707070", marginBottom: 4 }}>메모</div>
+      <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="선택사항 (예: 근력 세부 종목)" style={is} />
       <div style={{ background: "#252525", borderRadius: 6, padding: 10, marginBottom: 12, fontSize: 12, fontFamily: "monospace", color: "#8a8a8a" }}>
         예상 소모: -{estKcal} kcal
       </div>
       <div style={{ display: "flex", gap: 8 }}>
         <button onClick={onDelete} style={{ padding: 12, background: "rgba(224,82,82,0.15)", border: "1px solid rgba(224,82,82,0.3)", borderRadius: 8, color: "#e05252", fontSize: 14, cursor: "pointer" }}>삭제</button>
         <button onClick={onCancel} style={{ flex: 1, padding: 12, background: "#2a2a2a", border: "none", borderRadius: 8, color: "#8a8a8a", fontSize: 14, cursor: "pointer" }}>취소</button>
-        <button onClick={() => onSave({ duration: parseInt(duration) || 30, hour })}
+        <button onClick={() => onSave({ duration: parseInt(duration) || 30, hour, memo: memo.trim() })}
           style={{ flex: 1, padding: 12, background: "#5a9e6f", border: "none", borderRadius: 8, color: "#fff", fontSize: 14, fontWeight: 500, cursor: "pointer" }}>저장</button>
       </div>
     </div>

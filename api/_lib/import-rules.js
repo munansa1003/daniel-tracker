@@ -27,18 +27,22 @@ export const AEROBIC_GROUPS = [
   { n: "수영", aliases: ["수영", "실내 수영", "야외 수영", "swimming", "pool swim", "open water swim", "swim"] },
 ];
 
-// 근력 계열 — 1단계에서는 명시적으로 제외(filtered). 워치가 부위를 구분하지 못해
-// (전부 "기능성 근력 훈련" 한 덩어리) 자동 저장하면 상/하체 통계가 무너진다. 수동 유지.
+// 근력 계열 — 2026-08-06 사용자 결정으로 자동 저장 대상에 편입: 워치 덩어리를
+// "근력 운동" 한 건으로 받고, 세부 종목은 기록의 메모(비고)에 수동 기입한다.
+// (개별 종목 수동 입력과 병행하면 이중 계상 — 편입 후에는 메모 방식만 사용)
+// 대표 이름 "근력 운동"은 통계 분류(exCategory)에서 '기타'로 잡힌다 — 부위별
+// 구성비 대신 총량 관리로 전환하는 것을 사용자가 수용함.
 // HAE 실측 목록에는 "기능적 근력 훈련"·"전통적 근력 운동"처럼 표기 변형이 있어
 // 포괄 키워드 "근력"으로 전 변형을 잡는다.
 export const STRENGTH_ALIASES = [
   "근력", "기능성 근력 훈련", "전통적 근력 훈련", "웨이트 트레이닝",
   "functional strength training", "traditional strength training", "strength training", "weight training",
 ];
+export const STRENGTH_NAME = "근력 운동";
 
 // 유산소 키워드에 우연히 걸리지만 화이트리스트 대상이 아닌 이름(오인 수입 차단).
 // 예: "미식축구"·"호주 축구"는 "축구"를, "휠체어 걷기/달리기 속도"는 "걷기/달리기"를
-// 포함하지만 해당 종목이 아니다(HAE 실측 목록 전수 대조). 검사 순서: 근력 → 제외 → 유산소.
+// 포함하지만 해당 종목이 아니다(HAE 실측 목록 전수 대조). 검사 순서: 제외 → 근력 → 유산소.
 export const EXCLUDED_TYPES = ["미식축구", "호주 축구", "휠체어", "american football", "australian football", "wheelchair"];
 
 export function normalizeType(raw) {
@@ -49,16 +53,16 @@ const STRENGTH_KEYWORDS = STRENGTH_ALIASES.map(normalizeType);
 const EXCLUDED_KEYWORDS = EXCLUDED_TYPES.map(normalizeType);
 const AEROBIC_KEYWORDS = AEROBIC_GROUPS.map((g) => ({ n: g.n, kws: g.aliases.map(normalizeType) }));
 
-// 유형 분류: { kind:"aerobic", n } | { kind:"strength" } | { kind:"unknown" }
+// 유형 분류: { kind:"aerobic"|"strength", n } | { kind:"unknown" }
 // 정확 일치가 아니라 "키워드 포함" 판정 — 피트니스/HAE는 "오후 실외 걷기"처럼 수식어가
-// 붙은 이름을 보내므로(실측 확인) 포함 매칭이어야 한다. 근력을 먼저 검사해
-// "오후 근력 훈련" 류가 유산소로 새지 않게 한다(분류 우선순위는 analysisExport의
-// exCategory와 같은 철학).
+// 붙은 이름을 보내므로(실측 확인) 포함 매칭이어야 한다. 근력을 유산소보다 먼저 검사해
+// "저녁 기능성 근력 훈련" 류가 유산소 대표명으로 새지 않게 한다(분류 우선순위는
+// analysisExport의 exCategory와 같은 철학).
 export function classifyType(rawType) {
   const t = normalizeType(rawType);
   if (!t) return { kind: "unknown" };
-  for (const kw of STRENGTH_KEYWORDS) if (t.includes(kw)) return { kind: "strength" };
   for (const kw of EXCLUDED_KEYWORDS) if (t.includes(kw)) return { kind: "unknown" };
+  for (const kw of STRENGTH_KEYWORDS) if (t.includes(kw)) return { kind: "strength", n: STRENGTH_NAME };
   for (const g of AEROBIC_KEYWORDS) {
     for (const kw of g.kws) if (t.includes(kw)) return { kind: "aerobic", n: g.n };
   }
@@ -100,12 +104,11 @@ export function validateWorkoutSchema(w, i) {
 }
 
 // ── 운동 1건 판정 계획 (스키마 통과본 대상 — 규칙 2·3·6·7) ──
-// { verdict:"filtered", cause:"strength"|"unknown", type }
+// { verdict:"filtered", cause:"unknown", type } — 화이트리스트 밖 유형(요가 등)
 // { verdict:"rejected", reason }
 // { verdict:"candidate", entry } — dedup(규칙 4·5)은 저장소 계층(KV)에서 판정
 export function planWorkout(w, { cutoverDate }) {
   const cls = classifyType(w.type);
-  if (cls.kind === "strength") return { verdict: "filtered", cause: "strength", type: w.type };
   if (cls.kind === "unknown") return { verdict: "filtered", cause: "unknown", type: w.type };
 
   const kcal = Math.round(w.kcal);
@@ -214,10 +217,9 @@ export function convertHae(body, tzOffsetMin = HAE_TZ_OFFSET_MIN_DEFAULT) {
 }
 
 // ── 응답 message(한국어 한 줄 — 단축어가 알림으로 그대로 표시) ──
-export function buildMessage({ accepted, ignored, strength, unknown, rejected, firstRejectReason }) {
+export function buildMessage({ accepted, ignored, unknown, rejected, firstRejectReason }) {
   const parts = [`${accepted}건 추가`];
   if (ignored > 0) parts.push(`중복 ${ignored} 무시`);
-  if (strength > 0) parts.push(`근력 ${strength} 제외`);
   if (unknown > 0) parts.push(`대상 외 ${unknown} 제외`);
   if (rejected > 0) parts.push(`거부 ${rejected}(${firstRejectReason || "검증 실패"})`);
   return parts.join(" · ");
