@@ -22,23 +22,30 @@ export const AEROBIC_GROUPS = [
   { n: "사이클링", aliases: ["사이클링", "실외 사이클링", "실내 사이클링", "자전거", "자전거 타기", "cycling", "outdoor cycling", "indoor cycling", "cycle", "bike", "biking"] },
   { n: "걷기", aliases: ["걷기", "실외 걷기", "실내 걷기", "walking", "outdoor walk", "indoor walk", "walk"] },
   { n: "축구", aliases: ["축구", "soccer", "football"] },
-  { n: "계단 오르기", aliases: ["계단 오르기", "계단오르기", "stair climbing", "stair-climbing", "stairs", "stair stepper"] },
+  { n: "계단 오르기", aliases: ["계단 오르기", "계단오르기", "계단", "stair climbing", "stair-climbing", "stairs", "stair stepper"] },
   { n: "하이킹", aliases: ["하이킹", "등산", "hiking", "hike"] },
   { n: "수영", aliases: ["수영", "실내 수영", "야외 수영", "swimming", "pool swim", "open water swim", "swim"] },
 ];
 
 // 근력 계열 — 1단계에서는 명시적으로 제외(filtered). 워치가 부위를 구분하지 못해
 // (전부 "기능성 근력 훈련" 한 덩어리) 자동 저장하면 상/하체 통계가 무너진다. 수동 유지.
+// HAE 실측 목록에는 "기능적 근력 훈련"·"전통적 근력 운동"처럼 표기 변형이 있어
+// 포괄 키워드 "근력"으로 전 변형을 잡는다.
 export const STRENGTH_ALIASES = [
-  "기능성 근력 훈련", "전통적 근력 훈련", "근력 훈련", "웨이트 트레이닝",
+  "근력", "기능성 근력 훈련", "전통적 근력 훈련", "웨이트 트레이닝",
   "functional strength training", "traditional strength training", "strength training", "weight training",
 ];
+
+// 유산소 키워드에 우연히 걸리지만 화이트리스트 대상이 아닌 이름(오인 수입 차단).
+// 예: "미식축구"는 "축구"를 포함하지만 축구가 아니다. 검사 순서: 근력 → 제외 → 유산소.
+export const EXCLUDED_TYPES = ["미식축구", "american football"];
 
 export function normalizeType(raw) {
   return String(raw || "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 const STRENGTH_KEYWORDS = STRENGTH_ALIASES.map(normalizeType);
+const EXCLUDED_KEYWORDS = EXCLUDED_TYPES.map(normalizeType);
 const AEROBIC_KEYWORDS = AEROBIC_GROUPS.map((g) => ({ n: g.n, kws: g.aliases.map(normalizeType) }));
 
 // 유형 분류: { kind:"aerobic", n } | { kind:"strength" } | { kind:"unknown" }
@@ -50,6 +57,7 @@ export function classifyType(rawType) {
   const t = normalizeType(rawType);
   if (!t) return { kind: "unknown" };
   for (const kw of STRENGTH_KEYWORDS) if (t.includes(kw)) return { kind: "strength" };
+  for (const kw of EXCLUDED_KEYWORDS) if (t.includes(kw)) return { kind: "unknown" };
   for (const g of AEROBIC_KEYWORDS) {
     for (const kw of g.kws) if (t.includes(kw)) return { kind: "aerobic", n: g.n };
   }

@@ -215,6 +215,28 @@ describe("계약 3·4 — 화이트리스트(근력 제외 · 한/영 병기)", 
     expect(out(res).message).toContain("근력 1 제외");
   });
 
+  it("HAE 실측 표기 변형 — '기능적 근력 훈련'·'전통적 근력 운동' 모두 근력으로 filtered", async () => {
+    const res = await importPost(envelope([
+      W({ type: "기능적 근력 훈련" }),
+      W({ type: "전통적 근력 운동", start: "2026-08-06T20:00:00+09:00", end: "2026-08-06T20:40:00+09:00" }),
+    ]));
+    expect(out(res)).toMatchObject({ accepted: 0, filtered: 2 });
+    expect(out(res).message).toContain("근력 2 제외");
+  });
+
+  it("'미식축구'는 '축구' 포함이지만 오인 수입되지 않는다 (제외 목록)", async () => {
+    const res = await importPost(envelope([W({ type: "미식축구" })]));
+    expect(out(res)).toMatchObject({ accepted: 0, filtered: 1, unknownTypes: ["미식축구"] });
+    expect(inboxSize()).toBe(0);
+  });
+
+  it("맨몸 '계단'도 계단 오르기로 accepted (HAE 목록에 '계단'·'계단 오르기' 별도 존재)", async () => {
+    const res = await importPost(envelope([W({ type: "계단" })]));
+    expect(out(res).accepted).toBe(1);
+    const { entries } = await pullInbox();
+    expect(entries[0].n).toBe("계단 오르기");
+  });
+
   it("4) 한국어('실외 달리기')·영어('Outdoor Run') 혼합 → 둘 다 같은 대표명으로 accepted", async () => {
     const res = await importPost(envelope([
       W(),
