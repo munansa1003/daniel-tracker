@@ -6,7 +6,7 @@
 // 순수 모듈 — KV/네트워크 접근 없음. HAE 등 다른 브릿지로 갈아탈 때는 이 모듈을
 // 재사용하고 페이로드 → {type,start,end,durationMin,kcal} 변환 파서만 추가하면 된다.
 
-export const IMPORT_SOURCES = ["workout-end", "evening-backup", "manual-tap"];
+export const IMPORT_SOURCES = ["workout-end", "evening-backup", "manual-tap", "hae"];
 export const MAX_BODY_BYTES = 100 * 1024; // 정상 페이로드는 수 KB
 export const MAX_WORKOUTS = 100;
 export const KCAL_MIN = 1;
@@ -127,6 +127,76 @@ export function planWorkout(w, { cutoverDate }) {
       ...(w.device ? { device: String(w.device).slice(0, 60) } : {}),
     },
   };
+}
+
+/* ── HAE(Health Auto Export) 폴백 파서 ─────────────────────────────
+   iOS 단축어에 '운동 찾기' 동작이 없는 기기용 브릿지. HAE 앱의 REST API 자동화가
+   { data: { workouts: [...] } } 형태로 POST하는 것을 표준 봉투로 변환해, 이후의
+   검문 규칙 8종·insert-only·dedup 키가 네이티브 경로와 완전히 동일하게 적용되게 한다.
+   (dedup 키가 유형+시각(epoch) 기반이라 두 경로가 섞여도 같은 운동은 1건만 저장됨)
+   형식 근거: github.com/Lybron/health-auto-export/wiki — workouts v1/v2,
+   날짜 "yyyy-MM-dd HH:mm:ss Z|±HHmm", duration은 초, 에너지 { qty, units("kcal"|"kJ") }. */
+export const HAE_DEVICE = "HAE";
+// 귀속일(규칙 7)은 "시작 시각의 로컬 날짜" — HAE가 UTC(Z)로 보내는 경우를 대비해
+// 사용자 시간대 벽시계로 재표기한다. 기본 +09:00(KST), env IMPORT_TZ_OFFSET("+09:00")로 변경 가능.
+export const HAE_TZ_OFFSET_MIN_DEFAULT = 540;
+
+export function parseTzOffset(s) {
+  const m = /^([+-])(\d{2}):(\d{2})$/.exec(String(s || "").trim());
+  if (!m) return null;
+  const v = Number(m[2]) * 60 + Number(m[3]);
+  return m[1] === "-" ? -v : v;
+}
+
+export function isHaePayload(body) {
+  return !!(body && typeof body === "object" && !Array.isArray(body) &&
+    body.workouts === undefined &&
+    body.data && typeof body.data === "object" && Array.isArray(body.data.workouts));
+}
+
+// HAE 날짜 문자열 → 지정 오프셋 벽시계의 ISO 8601. 실패 시 null.
+export function haeDateToIso(s, tzOffsetMin = HAE_TZ_OFFSET_MIN_DEFAULT) {
+  const m = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?)\s*(Z|[+-]\d{2}:?\d{2})$/.exec(String(s || "").trim());
+  if (!m) return null;
+  const tz = m[3] === "Z" ? "Z" : (m[3].includes(":") ? m[3] : m[3].slice(0, 3) + ":" + m[3].slice(3));
+  const ms = Date.parse(`${m[1]}T${m[2]}${tz}`);
+  if (!Number.isFinite(ms)) return null;
+  const local = new Date(ms + tzOffsetMin * 60000);
+  const p = (n) => String(n).padStart(2, "0");
+  const sign = tzOffsetMin < 0 ? "-" : "+";
+  const abs = Math.abs(tzOffsetMin);
+  return `${local.getUTCFullYear()}-${p(local.getUTCMonth() + 1)}-${p(local.getUTCDate())}` +
+    `T${p(local.getUTCHours())}:${p(local.getUTCMinutes())}:${p(local.getUTCSeconds())}` +
+    `${sign}${p(Math.floor(abs / 60))}:${p(abs % 60)}`;
+}
+
+function haeEnergyKcal(w) {
+  const e = w.activeEnergyBurned || w.activeEnergy || w.totalEnergy;
+  if (!e || typeof e !== "object" || typeof e.qty !== "number" || !Number.isFinite(e.qty)) return null;
+  return String(e.units || "kcal").toLowerCase().includes("kj") ? e.qty / 4.184 : e.qty;
+}
+
+// HAE 페이로드 → 표준 workouts 배열. 필수값이 깨진 항목은 dropped로 집계(응답에서 rejected로 보고).
+export function convertHae(body, tzOffsetMin = HAE_TZ_OFFSET_MIN_DEFAULT) {
+  const workouts = [];
+  let dropped = 0;
+  for (const w of body.data.workouts) {
+    if (!w || typeof w !== "object") { dropped++; continue; }
+    const start = haeDateToIso(w.start, tzOffsetMin);
+    const end = haeDateToIso(w.end, tzOffsetMin);
+    const kcal = haeEnergyKcal(w);
+    const name = typeof w.name === "string" ? w.name.trim() : "";
+    if (!start || !end || !name || kcal === null) { dropped++; continue; }
+    // duration: v2는 초 단위, v1은 필드 없음(벽시계로 유도). 단위가 애매한 값은 벽시계 우선.
+    const wallMin = (Date.parse(end) - Date.parse(start)) / 60000;
+    let durationMin = wallMin;
+    if (typeof w.duration === "number" && Number.isFinite(w.duration) && w.duration > 0) {
+      const asMin = w.duration / 60;
+      if (asMin >= wallMin * 0.25 && asMin <= wallMin + 1) durationMin = asMin;
+    }
+    workouts.push({ type: name, start, end, durationMin, kcal, device: HAE_DEVICE });
+  }
+  return { workouts, dropped };
 }
 
 // ── 응답 message(한국어 한 줄 — 단축어가 알림으로 그대로 표시) ──

@@ -336,3 +336,75 @@ describe("사서함 ack — 병합 완료 후 제거(접수 도장은 유지)", 
     expect(out(res)).toMatchObject({ accepted: 0, ignored: 1 });
   });
 });
+
+// ── HAE(Health Auto Export) 폴백 — 플랜 C (단축어에 '운동 찾기'가 없는 기기) ──
+// 형식 근거: github.com/Lybron/health-auto-export/wiki (workouts v1/v2)
+describe("HAE 폴백 — { data: { workouts } } 페이로드", () => {
+  const HAE = (workouts) => ({ data: { workouts, metrics: [] } });
+  const haeW = (over = {}) => ({
+    id: "hae-1",
+    name: "Outdoor Run",
+    start: "2026-08-06 18:20:00 +0900",
+    end: "2026-08-06 18:50:00 +0900",
+    duration: 1800, // v2: 초 단위
+    activeEnergyBurned: { qty: 445.83, units: "kcal" },
+    ...over,
+  });
+
+  it("v2 정상 1건 → accepted (초→분 변환 · kcal 반올림 · 귀속일·시각 정상 · device=HAE)", async () => {
+    const res = await importPost(HAE([haeW()]));
+    expect(res.statusCode).toBe(200);
+    expect(out(res)).toMatchObject({ accepted: 1, ignored: 0, filtered: 0, rejected: 0 });
+    const { entries } = await pullInbox();
+    expect(entries[0]).toMatchObject({ n: "러닝", kcal: 446, duration: 30, date: "2026-08-06", hour: 18, device: "HAE" });
+  });
+
+  it("UTC(Z) 날짜도 한국시간 벽시계로 귀속 — 09:20Z = 18:20 KST (규칙 7 보존)", async () => {
+    const res = await importPost(HAE([haeW({ start: "2026-08-06 09:20:00 Z", end: "2026-08-06 09:50:00 Z" })]));
+    expect(out(res).accepted).toBe(1);
+    const { entries } = await pullInbox();
+    expect(entries[0]).toMatchObject({ date: "2026-08-06", hour: 18 });
+  });
+
+  it("네이티브(단축어)로 이미 접수된 운동은 HAE로 다시 와도 ignored — 경로 무관 dedup", async () => {
+    await importPost(envelope([W()])); // 실외 달리기 18:20~18:50 +09:00 → canon 러닝
+    const res = await importPost(HAE([haeW()])); // Outdoor Run, 같은 시각 → 같은 dedup 키
+    expect(out(res)).toMatchObject({ accepted: 0, ignored: 1 });
+    expect(inboxSize()).toBe(1);
+  });
+
+  it("빈 workouts(주기 동기화에 새 운동 없음) → 400이 아니라 200 '0건 추가'", async () => {
+    const res = await importPost(HAE([]));
+    expect(res.statusCode).toBe(200);
+    expect(out(res)).toMatchObject({ accepted: 0, ignored: 0, filtered: 0, rejected: 0 });
+    expect(out(res).message).toBe("0건 추가");
+  });
+
+  it("kJ 단위 에너지는 kcal로 환산 후 수용 — 1,866kJ ≈ 446kcal (거부 아님)", async () => {
+    const res = await importPost(HAE([haeW({ activeEnergyBurned: { qty: 1866, units: "kJ" } })]));
+    expect(out(res).accepted).toBe(1);
+    const { entries } = await pullInbox();
+    expect(entries[0].kcal).toBe(446);
+  });
+
+  it("근력(Functional Strength Training)은 HAE 경로에서도 filtered", async () => {
+    const res = await importPost(HAE([haeW({ name: "Functional Strength Training" })]));
+    expect(out(res)).toMatchObject({ accepted: 0, filtered: 1 });
+    expect(out(res).message).toContain("근력 1 제외");
+  });
+
+  it("v1 형식(duration 없음 · activeEnergy) → 벽시계로 시간 유도해 수용", async () => {
+    const w = { name: "걷기", start: "2026-08-06 07:00:00 +0900", end: "2026-08-06 07:40:00 +0900", activeEnergy: { qty: 180.4, units: "kcal" } };
+    const res = await importPost(HAE([w]));
+    expect(out(res).accepted).toBe(1);
+    const { entries } = await pullInbox();
+    expect(entries[0]).toMatchObject({ n: "걷기", duration: 40, kcal: 180 });
+  });
+
+  it("형식 깨진 항목(날짜 파싱 불가)은 rejected 집계 + message에 사유", async () => {
+    const bad = { name: "Running", start: "2026년 8월 6일", end: "bad", activeEnergyBurned: { qty: 100, units: "kcal" } };
+    const res = await importPost(HAE([haeW(), bad]));
+    expect(out(res)).toMatchObject({ accepted: 1, rejected: 1 });
+    expect(out(res).message).toContain("HAE 항목 형식 오류");
+  });
+});

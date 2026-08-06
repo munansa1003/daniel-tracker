@@ -28,6 +28,7 @@ import { rateLimit } from "./_lib/security.js";
 import { kv, kvConfigured } from "./_lib/kv.js";
 import {
   MAX_BODY_BYTES, validateEnvelope, validateWorkoutSchema, planWorkout, buildMessage,
+  isHaePayload, convertHae, parseTzOffset, HAE_TZ_OFFSET_MIN_DEFAULT,
 } from "./_lib/import-rules.js";
 
 export default async function handler(req, res) {
@@ -62,8 +63,26 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "bad-request", message: `본문 ${Math.round(MAX_BODY_BYTES / 1024)}KB 초과` });
   }
 
+  // HAE 폴백(단축어에 '운동 찾기' 동작이 없는 기기): { data:{ workouts:[...] } } 페이로드를
+  // 표준 봉투로 변환해, 이후의 검문 규칙·insert-only·dedup을 네이티브 경로와 동일하게 태운다.
+  let body = req.body;
+  let haeDropped = 0;
+  if (isHaePayload(body)) {
+    const tz = parseTzOffset(process.env.IMPORT_TZ_OFFSET) ?? HAE_TZ_OFFSET_MIN_DEFAULT;
+    const conv = convertHae(body, tz);
+    haeDropped = conv.dropped;
+    if (conv.workouts.length === 0) {
+      // 주기 동기화에서 '새 운동 없음'은 정상 — 400이 아니라 0건 응답(HAE가 에러로 표시하지 않게)
+      console.log(`[health-import] format=hae accepted=0 ignored=0 filtered=0 rejected=${haeDropped} (workouts empty)`);
+      return res.status(200).json({
+        accepted: 0, ignored: 0, filtered: 0, rejected: haeDropped,
+        message: buildMessage({ accepted: 0, ignored: 0, strength: 0, unknown: 0, rejected: haeDropped, firstRejectReason: haeDropped ? "HAE 항목 형식 오류" : "" }),
+      });
+    }
+    body = { source: "hae", sentAt: new Date().toISOString(), workouts: conv.workouts };
+  }
+
   // 규칙 1: 스키마 엄격 검증 — 봉투/필드 형식 오류는 400 (단축어 조립 디버깅용 메시지 포함)
-  const body = req.body;
   const envErr = validateEnvelope(body);
   if (envErr) return res.status(400).json({ error: "bad-request", message: envErr });
   for (let i = 0; i < body.workouts.length; i++) {
@@ -103,6 +122,9 @@ export default async function handler(req, res) {
       if (nx === null) { ignored++; continue; } // 동시 도착 race 패자 — 사서함 field는 동일 내용 1개
       accepted++;
     }
+
+    rejected += haeDropped; // HAE 변환 단계에서 형식이 깨져 떨어진 항목도 거부로 집계
+    if (haeDropped > 0 && !firstRejectReason) firstRejectReason = "HAE 항목 형식 오류";
 
     // 관측성: 최근 수신 요약(설정 카드용) — 본문 전문 없음
     const filtered = strength + unknown;
