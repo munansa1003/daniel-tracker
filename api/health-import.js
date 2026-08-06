@@ -66,6 +66,14 @@ export default async function handler(req, res) {
   // HAE 폴백(단축어에 '운동 찾기' 동작이 없는 기기): { data:{ workouts:[...] } } 페이로드를
   // 표준 봉투로 변환해, 이후의 검문 규칙·insert-only·dedup을 네이티브 경로와 동일하게 태운다.
   let body = req.body;
+  // 단축어 'URL 콘텐츠 가져오기'가 본문을 파일로 첨부하면 Content-Type이 JSON이 아니라서
+  // Vercel이 파싱하지 않은 문자열/버퍼로 도착한다 — 여기서 직접 파싱해 이후 검문
+  // (봉투 검증·HAE 변환)이 전송 방식과 무관하게 동일하게 동작하도록 한다.
+  if (typeof body === "string" || Buffer.isBuffer(body)) {
+    try { body = JSON.parse(String(body)); } catch {
+      return res.status(400).json({ error: "bad-request", message: "본문 JSON 파싱 실패 — 본문이 JSON 텍스트인지 확인" });
+    }
+  }
   let haeDropped = 0;
   if (isHaePayload(body)) {
     const tz = parseTzOffset(process.env.IMPORT_TZ_OFFSET) ?? HAE_TZ_OFFSET_MIN_DEFAULT;

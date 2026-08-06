@@ -4,6 +4,7 @@
 // 병합(src/importMerge.js) 결과는 기존 단일 출처 함수(aggregateDay·effectiveDayMode·isCalOk)로
 // 검산해 "수동 입력과 동일 경로 반영"을 증명한다 — 목표 재계산 사본 코드 없음.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { Buffer } from "node:buffer";
 
 // KV(Upstash REST) 인메모리 에뮬레이터 — 검문소가 쓰는 명령만 재현.
 // SET NX는 단일 스레드에서 원자적으로 판정되므로 race 테스트(+α)가 결정적이다.
@@ -468,5 +469,26 @@ describe("HAE 폴백 — { data: { workouts } } 페이로드", () => {
     const res = await importPost(HAE([haeW(), bad]));
     expect(out(res)).toMatchObject({ accepted: 1, rejected: 1 });
     expect(out(res).message).toContain("HAE 항목 형식 오류");
+  });
+});
+
+// ── 본문 인코딩 — 단축어 'URL 콘텐츠 가져오기'가 파일 첨부로 보내는 경우 ──
+// Content-Type이 JSON이 아니면 Vercel이 파싱하지 않은 문자열/버퍼로 도착한다.
+describe("본문 인코딩 — 문자열/버퍼 본문(비JSON Content-Type) 수용", () => {
+  it("문자열 본문(표준 봉투)도 JSON 파싱해 동일 검문 — accepted", async () => {
+    const res = await importPost(JSON.stringify(envelope([W()])));
+    expect(out(res)).toMatchObject({ accepted: 1, filtered: 0, rejected: 0 });
+  });
+
+  it("Buffer 본문(HAE 형식)도 파싱·변환해 accepted", async () => {
+    const hae = { data: { workouts: [{ name: "Outdoor Run", start: "2026-08-06 18:20:00 +0900", end: "2026-08-06 18:50:00 +0900", duration: 1800, activeEnergyBurned: { qty: 445.83, units: "kcal" } }], metrics: [] } };
+    const res = await importPost(Buffer.from(JSON.stringify(hae)));
+    expect(out(res)).toMatchObject({ accepted: 1 });
+  });
+
+  it("JSON이 아닌 문자열은 400 '파싱 실패'", async () => {
+    const res = await importPost("운동 데이터가 아닌 텍스트");
+    expect(res.statusCode).toBe(400);
+    expect(out(res).message).toContain("파싱 실패");
   });
 });
