@@ -37,8 +37,9 @@ export const STRENGTH_ALIASES = [
 ];
 
 // 유산소 키워드에 우연히 걸리지만 화이트리스트 대상이 아닌 이름(오인 수입 차단).
-// 예: "미식축구"는 "축구"를 포함하지만 축구가 아니다. 검사 순서: 근력 → 제외 → 유산소.
-export const EXCLUDED_TYPES = ["미식축구", "american football"];
+// 예: "미식축구"·"호주 축구"는 "축구"를, "휠체어 걷기/달리기 속도"는 "걷기/달리기"를
+// 포함하지만 해당 종목이 아니다(HAE 실측 목록 전수 대조). 검사 순서: 근력 → 제외 → 유산소.
+export const EXCLUDED_TYPES = ["미식축구", "호주 축구", "휠체어", "american football", "australian football", "wheelchair"];
 
 export function normalizeType(raw) {
   return String(raw || "").trim().toLowerCase().replace(/\s+/g, " ");

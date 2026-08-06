@@ -230,6 +230,16 @@ describe("계약 3·4 — 화이트리스트(근력 제외 · 한/영 병기)", 
     expect(inboxSize()).toBe(0);
   });
 
+  it("'호주 축구'·'휠체어 걷기 속도'·'휠체어 달리기 속도'도 오인 수입되지 않는다 (HAE 실측 목록)", async () => {
+    const res = await importPost(envelope([
+      W({ type: "호주 축구" }),
+      W({ type: "휠체어 걷기 속도", start: "2026-08-06T20:00:00+09:00", end: "2026-08-06T20:30:00+09:00" }),
+      W({ type: "휠체어 달리기 속도", start: "2026-08-06T21:00:00+09:00", end: "2026-08-06T21:30:00+09:00" }),
+    ]));
+    expect(out(res)).toMatchObject({ accepted: 0, filtered: 3 });
+    expect(inboxSize()).toBe(0);
+  });
+
   it("맨몸 '계단'도 계단 오르기로 accepted (HAE 목록에 '계단'·'계단 오르기' 별도 존재)", async () => {
     const res = await importPost(envelope([W({ type: "계단" })]));
     expect(out(res).accepted).toBe(1);
