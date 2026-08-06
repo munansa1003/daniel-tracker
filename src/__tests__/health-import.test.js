@@ -187,12 +187,12 @@ describe("계약 1·2 — 정상 수신과 insert-only 재전송", () => {
   });
 });
 
-describe("계약 3·4 — 화이트리스트(근력 제외 · 한/영 병기)", () => {
-  it("3) '기능성 근력 훈련' → filtered 1, 저장 0", async () => {
+describe("계약 3·4 — 화이트리스트(근력은 '근력 운동' 편입 · 한/영 병기)", () => {
+  it("3) '기능성 근력 훈련' → '근력 운동' 한 건으로 accepted (2026-08-06 정책 전환 — 세부는 메모로)", async () => {
     const res = await importPost(envelope([W({ type: "기능성 근력 훈련" })]));
-    expect(out(res)).toMatchObject({ accepted: 0, filtered: 1 });
-    expect(out(res).message).toContain("근력 1 제외");
-    expect(inboxSize()).toBe(0);
+    expect(out(res)).toMatchObject({ accepted: 1, filtered: 0 });
+    const { entries } = await pullInbox();
+    expect(entries[0].n).toBe("근력 운동");
   });
 
   it("미등록 유형(요가) → filtered(대상 외) + 응답에 unknownTypes로 이름 노출", async () => {
@@ -209,19 +209,21 @@ describe("계약 3·4 — 화이트리스트(근력 제외 · 한/영 병기)", 
     expect(entries[0].n).toBe("걷기");
   });
 
-  it("수식어 붙은 근력('저녁 기능성 근력 훈련')도 근력으로 filtered — 유산소로 새지 않음", async () => {
+  it("수식어 붙은 근력('저녁 기능성 근력 훈련')도 '근력 운동'으로 accepted — 유산소로 새지 않음", async () => {
     const res = await importPost(envelope([W({ type: "저녁 기능성 근력 훈련" })]));
-    expect(out(res)).toMatchObject({ accepted: 0, filtered: 1 });
-    expect(out(res).message).toContain("근력 1 제외");
+    expect(out(res)).toMatchObject({ accepted: 1, filtered: 0 });
+    const { entries } = await pullInbox();
+    expect(entries[0].n).toBe("근력 운동");
   });
 
-  it("HAE 실측 표기 변형 — '기능적 근력 훈련'·'전통적 근력 운동' 모두 근력으로 filtered", async () => {
+  it("HAE 실측 표기 변형 — '기능적 근력 훈련'·'전통적 근력 운동' 모두 '근력 운동'으로 accepted", async () => {
     const res = await importPost(envelope([
       W({ type: "기능적 근력 훈련" }),
       W({ type: "전통적 근력 운동", start: "2026-08-06T20:00:00+09:00", end: "2026-08-06T20:40:00+09:00" }),
     ]));
-    expect(out(res)).toMatchObject({ accepted: 0, filtered: 2 });
-    expect(out(res).message).toContain("근력 2 제외");
+    expect(out(res)).toMatchObject({ accepted: 2, filtered: 0 });
+    const { entries } = await pullInbox();
+    expect(entries.map((e) => e.n)).toEqual(["근력 운동", "근력 운동"]);
   });
 
   it("'미식축구'는 '축구' 포함이지만 오인 수입되지 않는다 (제외 목록)", async () => {
@@ -439,10 +441,11 @@ describe("HAE 폴백 — { data: { workouts } } 페이로드", () => {
     expect(entries[0].kcal).toBe(446);
   });
 
-  it("근력(Functional Strength Training)은 HAE 경로에서도 filtered", async () => {
+  it("근력(Functional Strength Training)은 HAE 경로에서도 '근력 운동'으로 accepted", async () => {
     const res = await importPost(HAE([haeW({ name: "Functional Strength Training" })]));
-    expect(out(res)).toMatchObject({ accepted: 0, filtered: 1 });
-    expect(out(res).message).toContain("근력 1 제외");
+    expect(out(res)).toMatchObject({ accepted: 1, filtered: 0 });
+    const { entries } = await pullInbox();
+    expect(entries[0].n).toBe("근력 운동");
   });
 
   it("v1 형식(duration 없음 · activeEnergy) → 벽시계로 시간 유도해 수용", async () => {
