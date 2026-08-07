@@ -22,6 +22,11 @@ import { pullRecentMetrics } from "./_lib/inbody-cloud.js";
 // — 이 두 변수가 클라우드 경로의 독립 롤백 스위치다(HAE·운동 경로 무영향).
 // 스로틀 30분: 인바디 서버에는 실제 앱 수준의 호출 빈도만 발생시킨다.
 const CLOUD_PULL_INTERVAL_MS = 30 * 60 * 1000;
+// 연속 실패 상한 — 이 횟수를 넘기면 "지금 확인"(force)도 쿨다운을 지킨다.
+// 근거: 인바디는 로그인 실패가 반복되면 계정을 잠근다(공식 FAQ의 3-strike). 실패 중에
+// 사용자가 버튼을 연타하면 우리 서버가 계정을 잠가버릴 수 있으므로, 실패가 쌓이면
+// 자동·수동 모두 30분 창을 지키게 해 계정을 보호한다. 성공하면 카운터는 0으로 리셋.
+const CLOUD_FAIL_CEILING = 3;
 
 async function cloudPullIfDue(uid, force = false) {
   // trim: Vercel 환경변수에 붙여넣기 공백·개행이 섞이는 사고 방어(토큰 오염 사례의 교훈)
@@ -33,8 +38,11 @@ async function cloudPullIfDue(uid, force = false) {
 
   // force = 설정 카드의 "지금 확인"(명시적 사용자 의도) — 스로틀을 건너뛰고 즉시 당긴다.
   // 자동 pull(앱 시작 동기화)만 30분 간격을 지켜 인바디 서버에 앱 수준 빈도를 유지.
+  // 단 연속 실패가 상한을 넘으면 force도 창을 지킨다 — 계정 잠금 방어(위 상수 주석).
   const throttleKey = `import:body-cloud-at:${uid}`;
-  if (!force) {
+  const failKey = `import:body-cloud-fail:${uid}`;
+  const fails = parseInt((await kv("GET", failKey)) || "0", 10) || 0;
+  if (!force || fails >= CLOUD_FAIL_CEILING) {
     const last = await kv("GET", throttleKey);
     if (last && Date.now() - Date.parse(last) < CLOUD_PULL_INTERVAL_MS) return;
   }
@@ -50,12 +58,14 @@ async function cloudPullIfDue(uid, force = false) {
     const { entries, summary } = planBodyImport(payload, { cutoverDate: CUTOVER, tzOffsetMin: tz });
     const { accepted, ignored } = await storeBodyEntries(uid, entries);
     await pushBodyLog(uid, "cloud", { accepted, ignored, summary });
+    try { await kv("SET", failKey, "0"); } catch { /* 무시 */ } // 성공 — 실패 카운터 리셋
     console.log(`[import-inbox] cloud pull accepted=${accepted} ignored=${ignored} rejected=${summary.rejected} excluded=${summary.excluded}`);
   } catch (e) {
     // 실패도 카드에 보인다 — "지금 확인"이 성공이든 실패든 반드시 로그 한 줄을 남긴다(관측성)
     await pushBodyLogError(uid, "cloud", e);
-    // 실패 시 스로틀 해제 — 다음 앱 열기에서 즉시 재시도 (HAE·수동 경로는 그대로 살아 있음)
-    try { await kv("DEL", throttleKey); } catch { /* 무시 */ }
+    // 실패 시 스로틀 도장은 "유지"한다(해제 금지) — 실패 상태에서 즉시 재시도를 반복하면
+    // 인바디가 계정을 잠글 수 있다. 카운터를 올려 상한을 넘으면 force도 창을 지키게 한다.
+    try { await kv("SET", failKey, String(fails + 1)); } catch { /* 무시 */ }
     throw e;
   }
 }

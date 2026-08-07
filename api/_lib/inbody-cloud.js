@@ -92,16 +92,53 @@ export function scansToMetricsPayload(scans, tzOffsetMin = 540) {
 }
 
 // ── 네트워크 계층 ──────────────────────────────────────────────
-async function postJson(url, body, headers, ua) {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json; charset=utf-8", "User-Agent": ua, ...headers },
-    body: JSON.stringify(body),
+// ⚠️ 전역 fetch(undici)를 쓰지 않는다 — Node의 fetch는 요청에 브라우저 지문 헤더
+// (sec-fetch-mode: cors · accept-language: * · accept: */*)를 자동 주입하는데, 실제 앱
+// (okhttp)도 검증에 성공한 PowerShell도 이 헤더를 보내지 않는다. 인바디 서버가 그 차이를
+// 보고 로그인을 ID_BLOCK으로 거절하는 것이, 2026-08-07 실패의 유력 원인이다
+// (집 IP PowerShell 성공 / Vercel Node fetch 실패 — 두 요청의 입증된 유일한 비-IP 차이).
+// node:https.request는 우리가 준 헤더 + Host/Content-Length만 보내므로 성공한 요청과 동일해진다.
+import https from "node:https";
+
+const REQUEST_TIMEOUT_MS = 20000;
+
+function postJson(url, body, headers, ua) {
+  return new Promise((resolve, reject) => {
+    const payload = Buffer.from(JSON.stringify(body), "utf8");
+    const u = new URL(url);
+    const req = https.request({
+      hostname: u.hostname,
+      port: 443,
+      path: u.pathname + u.search,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Length": payload.length,
+        "User-Agent": ua,
+        ...headers,
+      },
+    }, (res) => {
+      const chunks = [];
+      res.on("data", (c) => chunks.push(c));
+      res.on("end", () => {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          reject(new InBodyCloudError(`인바디 API ${res.statusCode}`));
+          return;
+        }
+        let data;
+        try { data = JSON.parse(Buffer.concat(chunks).toString("utf8")); }
+        catch { reject(new InBodyCloudError("인바디 응답 파싱 실패")); return; }
+        if (data && data.IsSuccess === false) {
+          reject(new InBodyCloudError(`인바디 API 오류: ${data.ErrorMsg || "unknown"}`));
+          return;
+        }
+        resolve(data);
+      });
+    });
+    req.setTimeout(REQUEST_TIMEOUT_MS, () => { req.destroy(new InBodyCloudError("인바디 API 응답 시간 초과")); });
+    req.on("error", (e) => reject(e instanceof InBodyCloudError ? e : new InBodyCloudError(`인바디 연결 실패: ${e.message}`)));
+    req.end(payload);
   });
-  if (!res.ok) throw new InBodyCloudError(`인바디 API ${res.status}`);
-  const data = await res.json();
-  if (data && data.IsSuccess === false) throw new InBodyCloudError(`인바디 API 오류: ${data.ErrorMsg || "unknown"}`);
-  return data;
 }
 
 // 지역 호스트 + 숫자 국가코드 해석 (ISO Code2 기준 — 숫자 코드는 US/CA가 공유해 모호)
