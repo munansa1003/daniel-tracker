@@ -26,7 +26,9 @@ export function checkSmmLbm(muscle, lbm) {
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const FIELDS = ["weight", "fatPct", "lbm"];
+// muscle·score는 인바디 클라우드 직수신 전용 필드 — HAE(애플 건강) 경로에는 존재하지 않는다.
+// 여기 담기는 muscle은 추정치가 아니라 인바디가 측정한 실측 SMM(금지사항의 '추정 기입'과 무관).
+const FIELDS = ["weight", "fatPct", "lbm", "muscle", "score"];
 
 function retentionCutoff(todayStr) {
   const d = new Date(todayStr + "T12:00:00");
@@ -92,4 +94,30 @@ export function draftToRecord(date, draft, muscle, score) {
     ...(draft.lbm > 0 ? { lbm: draft.lbm } : {}),
     source: "import",
   };
+}
+
+// ── 자동 확정 (A안 스펙 개정 — 2026-08-07 사용자 승인) ──────────────
+// 클라우드 직수신으로 4종(체중·체지방률·골격근·점수)이 전부 "실측"으로 도착한 초안은
+// 사용자 입력 없이 확정한다. 단 전부 통과해야 한다:
+//   ① muscle·weight 실측 존재  ② 잠금 아님(그 날짜 레코드 없음 — 이중 방어)
+//   ③ LBM 오타 가드(0.53~0.61) 통과 — 비율 이상이면 자동 확정을 "보류"하고 초안으로
+//     남긴다(카드에서 사용자가 검토 후 수동 확정) — 가드가 차단이 아니라 자동화의
+//     승격 조건으로 동작한다. score는 선택(없으면 0 — 기존 수동 스키마와 동일).
+// 반환: { drafts, bodyLog, confirmed, changed } — 입력 불변, 호출측(App)이 저장을 수행.
+export function autoConfirmDrafts(drafts, bodyLog) {
+  const nextDrafts = { ...(drafts || {}) };
+  let log = Array.isArray(bodyLog) ? [...bodyLog] : [];
+  const confirmed = [];
+  for (const [date, draft] of Object.entries(nextDrafts)) {
+    if (!draft || !(draft.muscle > 0) || !(draft.weight > 0)) continue;
+    if (log.some((b) => b && b.date === date)) continue;
+    if (checkSmmLbm(draft.muscle, draft.lbm).warn) continue;
+    const rec = draftToRecord(date, draft, draft.muscle, draft.score);
+    if (!rec) continue;
+    log = [...log.filter((b) => b && b.date !== date), { ...rec, auto: true }];
+    delete nextDrafts[date];
+    confirmed.push(date);
+  }
+  log.sort((a, b) => a.date.localeCompare(b.date));
+  return { drafts: nextDrafts, bodyLog: log, confirmed, changed: confirmed.length > 0 };
 }

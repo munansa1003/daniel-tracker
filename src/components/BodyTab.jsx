@@ -207,7 +207,15 @@ export function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user
               체중 <b>{df.weight > 0 ? df.weight : "—"}</b>kg · 체지방률 <b>{df.fatPct > 0 ? df.fatPct : "—"}</b>%
               {df.lbm > 0 && <span style={{ fontSize: 11, color: "#707070" }}> · 제지방 {df.lbm}kg</span>}
             </div>
-            <div style={{ fontSize: 10, color: "#707070", marginBottom: 8 }}>체중·체지방률 자동 수신됨 — 골격근·점수 입력하면 확정</div>
+            {df.muscle > 0 ? (
+              // 클라우드 직수신으로 골격근까지 왔지만 LBM 비율 가드에 걸려 자동 확정이 보류된 초안 —
+              // 수신값을 보여주고 사용자가 검토 후 입력·확정한다(가드는 차단이 아니라 승격 조건)
+              <div style={{ background: "rgba(224,82,82,0.08)", border: "1px solid rgba(224,82,82,0.2)", borderRadius: 6, padding: "6px 8px", marginBottom: 8, fontSize: 10, color: "#e05252" }}>
+                수신된 골격근 {df.muscle}kg{df.score > 0 ? ` · 점수 ${df.score}` : ""} — 제지방 대비 비율이 평소 범위 밖이라 자동 확정 보류. 값을 확인하고 아래에 입력해 확정하세요
+              </div>
+            ) : (
+              <div style={{ fontSize: 10, color: "#707070", marginBottom: 8 }}>체중·체지방률 자동 수신됨 — 골격근·점수 입력하면 확정</div>
+            )}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
               <input type="number" step="0.1" placeholder="골격근량 (kg)" value={cur.m} onChange={e => setCur({ m: e.target.value })} style={is} />
               <input type="number" step="1" placeholder="인바디 점수" value={cur.sc} onChange={e => setCur({ sc: e.target.value })} style={is} />

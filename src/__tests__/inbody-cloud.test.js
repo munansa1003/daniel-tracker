@@ -1,0 +1,302 @@
+// 인바디 클라우드 직수신(A안) — 계약 테스트 (골든셋).
+// 픽스처는 2026-08-07 실계정 검증(inbody-probe)에서 확보한 실제 응답 구조 그대로:
+// BCA.WT 75.7 · MFA.SMM 35.1 · MFA.PBF 18.2 · BCA.FFM 61.9 · WC.FS 82 · EQUIP H20N.
+// 점수 필드는 FS — 같은 날 인바디 앱 표시 점수(82점)와 실측 대조로 확정.
+// 검증 대상: ① 스캔→표준 지표 변환(순수) ② 기존 검문 규칙 무수정 통과 ③ pull 시
+// 클라우드 합류(스로틀·실패 격리) ④ 4종 완비 초안의 자동 확정(LBM 가드 = 승격 조건).
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+vi.mock("../../api/_lib/kv.js", () => {
+  const strs = new Map();
+  const hashes = new Map();
+  const lists = new Map();
+  async function kv(cmd, ...args) {
+    const c = String(cmd).toUpperCase();
+    switch (c) {
+      case "GET":
+        return strs.has(args[0]) ? strs.get(args[0]) : null;
+      case "SET": {
+        const [key, value, ...flags] = args;
+        if (flags.map((f) => String(f).toUpperCase()).includes("NX") && strs.has(key)) return null;
+        strs.set(key, String(value));
+        return "OK";
+      }
+      case "DEL": {
+        let n = 0;
+        for (const k of args) if (strs.delete(k)) n++;
+        return n;
+      }
+      case "HSET": {
+        const [key, field, value] = args;
+        if (!hashes.has(key)) hashes.set(key, new Map());
+        const had = hashes.get(key).has(field);
+        hashes.get(key).set(field, String(value));
+        return had ? 0 : 1;
+      }
+      case "HGETALL": {
+        const h = hashes.get(args[0]);
+        if (!h) return [];
+        const flat = [];
+        for (const [f, v] of h) flat.push(f, v);
+        return flat;
+      }
+      case "HDEL": {
+        const [key, ...fields] = args;
+        const h = hashes.get(key);
+        if (!h) return 0;
+        let n = 0;
+        for (const f of fields) if (h.delete(f)) n++;
+        return n;
+      }
+      case "LPUSH": {
+        const [key, ...vals] = args;
+        if (!lists.has(key)) lists.set(key, []);
+        for (const v of vals) lists.get(key).unshift(String(v));
+        return lists.get(key).length;
+      }
+      case "LTRIM": {
+        const [key, s, e] = args;
+        const arr = lists.get(key) || [];
+        const stop = Number(e);
+        lists.set(key, arr.slice(Number(s), stop === -1 ? undefined : stop + 1));
+        return "OK";
+      }
+      case "LRANGE": {
+        const arr = lists.get(args[0]) || [];
+        const stop = Number(args[2]);
+        return arr.slice(Number(args[1]), stop === -1 ? undefined : stop + 1);
+      }
+      default:
+        throw new Error("kv mock: unsupported " + c);
+    }
+  }
+  return {
+    kv,
+    kvConfigured: () => true,
+    __kvReset: () => { strs.clear(); hashes.clear(); lists.clear(); },
+    __kvState: () => ({ strs, hashes, lists }),
+  };
+});
+
+vi.mock("../../api/_lib/verify-uid.js", () => ({
+  verifyUid: async (idToken) => idToken === "id-token-good",
+}));
+
+// 네트워크 함수(pullRecentMetrics)만 대체 — 순수 변환 함수들은 실제 구현 그대로 검증한다.
+vi.mock("../../api/_lib/inbody-cloud.js", async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, pullRecentMetrics: vi.fn() };
+});
+
+import inboxHandler from "../../api/import-inbox.js";
+import { __kvReset, __kvState } from "../../api/_lib/kv.js";
+import {
+  inbodyDatetimeToHae, scanToSamples, scansToMetricsPayload, pullRecentMetrics,
+} from "../../api/_lib/inbody-cloud.js";
+import { planBodyImport, classifyBodyMetric } from "../../api/_lib/body-import-rules.js";
+import { mergeBodyDrafts, autoConfirmDrafts } from "../bodyDraft.js";
+
+const UID = "uid-1";
+const TODAY = "2026-08-07";
+const TS = Date.parse("2026-08-07T08:20:33+09:00");
+
+// 실계정 검증에서 확보한 응답 구조 — 값이 문자열로 오는 경우까지 재현(관대한 숫자 파싱 검증)
+const SCAN = {
+  DATETIMES: "20260807082033",
+  BCA: { DATETIMES: "20260807082033", WT: "75.7", FFM: "61.9", BFM: "13.8", EQUIP: "H20N" },
+  MFA: { Datetimes: "20260807082033", SMM: "35.1", PBF: "18.2", BMI: "24.7" },
+  WC: { Datetimes: "20260807082033", FS: "82", HScore: "80.1", MScore: "79.7", SScore: "78.4" },
+};
+
+function makeRes() {
+  const res = {
+    statusCode: 0, headers: {}, body: "",
+    status(c) { res.statusCode = c; return res; },
+    setHeader() { return res; }, end() { return res; },
+    send(b) { res.body = typeof b === "string" ? b : JSON.stringify(b); return res; },
+    json(o) { res.body = JSON.stringify(o); return res; },
+  };
+  return res;
+}
+const out = (res) => JSON.parse(res.body);
+async function inboxCall(body) {
+  const res = makeRes();
+  await inboxHandler({ method: "POST", headers: { origin: "http://localhost:5173" }, body }, res);
+  return res;
+}
+const pullInbox = async () => out(await inboxCall({ uid: UID, idToken: "id-token-good", action: "pull" }));
+const lastBodyLog = () => JSON.parse((__kvState().lists.get(`import:body-log:${UID}`) || [])[0]);
+
+beforeEach(() => {
+  __kvReset();
+  pullRecentMetrics.mockReset();
+  vi.stubEnv("IMPORT_TOKEN", "tok-secret");
+  vi.stubEnv("IMPORT_UID", UID);
+  vi.stubEnv("IMPORT_CUTOVER_DATE", "2026-08-01");
+  vi.stubEnv("IMPORT_BODY_CUTOVER_DATE", "2026-08-01");
+  vi.stubEnv("INBODY_LOGIN_ID", "01000000000");
+  vi.stubEnv("INBODY_LOGIN_PW", "pw");
+});
+afterEach(() => { vi.unstubAllEnvs(); });
+
+describe("스캔 → 표준 지표 변환 (순수 계층)", () => {
+  it("인바디 날짜(20260807082033) → HAE 형식(2026-08-07 08:20:33 +0900)", () => {
+    expect(inbodyDatetimeToHae("20260807082033")).toBe("2026-08-07 08:20:33 +0900");
+    expect(inbodyDatetimeToHae("bad")).toBe(null);
+  });
+
+  it("실측 스캔 1건 → 5종 샘플 (WT·PBF·FFM·SMM·FS, 문자열 값도 수용)", () => {
+    const r = scanToSamples(SCAN);
+    expect(r.date).toBe("2026-08-07 08:20:33 +0900");
+    expect(r.equip).toBe("H20N");
+    expect(r.samples).toEqual([
+      { kind: "weight", qty: 75.7, units: "kg" },
+      { kind: "fatPct", qty: 18.2, units: "%" },
+      { kind: "lbm", qty: 61.9, units: "kg" },
+      { kind: "muscle", qty: 35.1, units: "kg" },
+      { kind: "score", qty: 82, units: "point" },
+    ]);
+  });
+
+  it("지표명 매칭 — skeletal_muscle_mass→muscle, inbody_score→score (기존 3종 유지)", () => {
+    expect(classifyBodyMetric("skeletal_muscle_mass")).toBe("muscle");
+    expect(classifyBodyMetric("inbody_score")).toBe("score");
+    expect(classifyBodyMetric("골격근량")).toBe("muscle");
+    expect(classifyBodyMetric("인바디 점수")).toBe("score");
+    expect(classifyBodyMetric("weight_body_mass")).toBe("weight");
+    expect(classifyBodyMetric("체질량지수")).toBe(null); // BMI 제외 불변
+  });
+
+  it("변환 페이로드가 기존 검문(planBodyImport)을 무수정 통과 — 5필드 entry + 소스 필터", () => {
+    const payload = scansToMetricsPayload([SCAN]);
+    const { entries, summary } = planBodyImport(payload, { cutoverDate: "2026-08-01", tzOffsetMin: 540 });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toEqual({
+      key: `${TODAY}|${TS}`, date: TODAY, sampleTs: TS,
+      weight: 75.7, fatPct: 18.2, lbm: 61.9, muscle: 35.1, score: 82,
+    });
+    expect(summary.rejected).toBe(0);
+    expect(summary.sources).toEqual(["InBody H20N"]); // B6: InBody 소스 통과 + 관찰 기록
+    expect(summary.fatPctForm).toBe("18.2");          // §1.4-⑵ 관측 유지
+  });
+
+  it("범위 방어 — 골격근 200kg·점수 5점은 거부(B5 확장)", () => {
+    const bad = { data: { metrics: [
+      { name: "skeletal_muscle_mass", units: "kg", data: [{ date: "2026-08-07 08:20:33 +0900", qty: 200 }] },
+      { name: "inbody_score", units: "point", data: [{ date: "2026-08-07 08:20:33 +0900", qty: 5 }] },
+    ] } };
+    const { entries, summary } = planBodyImport(bad, { cutoverDate: "2026-08-01", tzOffsetMin: 540 });
+    expect(entries).toHaveLength(0);
+    expect(summary.rejected).toBe(2);
+  });
+
+  it("저녁 재측정은 클라우드 경로에서도 아침 창 가드(B1)에 걸린다", () => {
+    const evening = { ...SCAN, DATETIMES: "20260807210000", BCA: { ...SCAN.BCA, DATETIMES: "20260807210000" } };
+    const { entries, summary } = planBodyImport(scansToMetricsPayload([evening]), { cutoverDate: "2026-08-01", tzOffsetMin: 540 });
+    expect(entries).toHaveLength(0);
+    expect(summary.excluded).toBe(5); // 5개 지표 샘플 전부 창밖 제외
+  });
+});
+
+describe("자동 확정 — 4종 실측 완비 + LBM 가드 통과 시에만 (스펙 개정 2026-08-07)", () => {
+  const fullDraft = { weight: 75.7, fatPct: 18.2, lbm: 61.9, muscle: 35.1, score: 82, sampleTs: TS };
+
+  it("완비 초안 → 사용자 입력 없이 확정 (auto·source 마커, 초안 제거)", () => {
+    const r = autoConfirmDrafts({ [TODAY]: fullDraft }, []);
+    expect(r.confirmed).toEqual([TODAY]);
+    expect(r.drafts[TODAY]).toBeUndefined();
+    expect(r.bodyLog).toEqual([{
+      date: TODAY, weight: 75.7, muscle: 35.1, fatPct: 18.2, score: 82,
+      lbm: 61.9, source: "import", auto: true,
+    }]);
+  });
+
+  it("LBM 가드 위반(43.7/61.9=0.71) → 자동 확정 보류, 초안 유지(카드 폴백)", () => {
+    const r = autoConfirmDrafts({ [TODAY]: { ...fullDraft, muscle: 43.7 } }, []);
+    expect(r.changed).toBe(false);
+    expect(r.drafts[TODAY]).toMatchObject({ muscle: 43.7 }); // 수신값 보존 — 카드에 표시
+    expect(r.bodyLog).toEqual([]);
+  });
+
+  it("잠금 — 그 날짜 레코드가 이미 있으면(수동 선입력 포함) 자동 확정하지 않는다", () => {
+    const manual = { date: TODAY, weight: 75.7, muscle: 34.7, fatPct: 18.2, score: 81 };
+    const r = autoConfirmDrafts({ [TODAY]: fullDraft }, [manual]);
+    expect(r.changed).toBe(false);
+    expect(r.bodyLog).toEqual([manual]); // 수동 기록 불변
+  });
+
+  it("muscle 없는 초안(HAE 경로)은 대상 아님 — 기존 수동 확정 플로우 유지", () => {
+    const r = autoConfirmDrafts({ [TODAY]: { weight: 75.7, fatPct: 18.2, lbm: 61.9, sampleTs: TS } }, []);
+    expect(r.changed).toBe(false);
+  });
+
+  it("score 없이 muscle만 완비돼도 확정(score 0) — 부분 수신 B8 일관", () => {
+    const r = autoConfirmDrafts({ [TODAY]: { weight: 75.7, muscle: 35.1, lbm: 61.9, sampleTs: TS } }, []);
+    expect(r.bodyLog[0]).toMatchObject({ muscle: 35.1, score: 0, auto: true });
+  });
+});
+
+describe("사서함 pull 합류 — 클라우드 직수신·스로틀·실패 격리", () => {
+  const cloudResult = () => ({ payload: scansToMetricsPayload([SCAN]), scanCount: 1 });
+
+  it("pull 한 번에 클라우드 측정이 검문을 거쳐 bodyEntries로 착지 + 로그 source=cloud", async () => {
+    pullRecentMetrics.mockResolvedValue(cloudResult());
+    const { bodyEntries } = await pullInbox();
+    expect(pullRecentMetrics).toHaveBeenCalledTimes(1);
+    expect(bodyEntries).toHaveLength(1);
+    expect(bodyEntries[0]).toMatchObject({ weight: 75.7, fatPct: 18.2, lbm: 61.9, muscle: 35.1, score: 82 });
+    expect(lastBodyLog()).toMatchObject({ source: "cloud", accepted: 1, samplesToday: 1 });
+  });
+
+  it("30분 스로틀 — 연속 pull은 인바디를 다시 호출하지 않는다(사서함은 정상 반환)", async () => {
+    pullRecentMetrics.mockResolvedValue(cloudResult());
+    await pullInbox();
+    const second = await pullInbox();
+    expect(pullRecentMetrics).toHaveBeenCalledTimes(1);
+    expect(second.bodyEntries).toHaveLength(1); // 아직 ack 전 — 사서함 내용은 그대로 온다
+  });
+
+  it("클라우드 실패 → pull은 200으로 계속(격리) + 스로틀 해제로 다음 pull에서 재시도", async () => {
+    pullRecentMetrics.mockRejectedValueOnce(new Error("inbody down"));
+    const first = await pullInbox();
+    expect(first.bodyEntries).toHaveLength(0);
+    pullRecentMetrics.mockResolvedValue(cloudResult());
+    const second = await pullInbox();
+    expect(pullRecentMetrics).toHaveBeenCalledTimes(2); // DEL로 스로틀 풀려 재시도
+    expect(second.bodyEntries).toHaveLength(1);
+  });
+
+  it("INBODY 크리덴셜 미설정 → 클라우드 경로만 조용히 꺼짐(독립 롤백 스위치)", async () => {
+    vi.stubEnv("INBODY_LOGIN_ID", "");
+    const r = await pullInbox();
+    expect(pullRecentMetrics).not.toHaveBeenCalled();
+    expect(r.bodyEntries).toHaveLength(0);
+    expect(r.bodyCloudEnabled).toBe(false);
+    expect(r.bodyEnabled).toBe(true); // HAE 경로는 그대로 활성
+  });
+
+  it("주인 아닌 uid의 pull은 클라우드를 트리거하지 못한다", async () => {
+    vi.stubEnv("IMPORT_UID", "someone-else");
+    pullRecentMetrics.mockResolvedValue(cloudResult());
+    await pullInbox();
+    expect(pullRecentMetrics).not.toHaveBeenCalled();
+  });
+
+  it("완전 무접촉 E2E — pull→병합→자동 확정: 4종 실측이 bodylog 레코드로", async () => {
+    pullRecentMetrics.mockResolvedValue(cloudResult());
+    const { bodyEntries } = await pullInbox();
+    const bd = mergeBodyDrafts({}, [], bodyEntries, { todayStr: TODAY });
+    const ac = autoConfirmDrafts(bd.drafts, []);
+    expect(ac.confirmed).toEqual([TODAY]);
+    expect(ac.bodyLog).toEqual([{
+      date: TODAY, weight: 75.7, muscle: 35.1, fatPct: 18.2, score: 82,
+      lbm: 61.9, source: "import", auto: true,
+    }]);
+    expect(Object.keys(ac.drafts)).toHaveLength(0);
+    // 같은 측정의 재pull(스로틀 밖 재호출 가정)도 seen 멱등 — 새 접수 없음
+    __kvState().strs.delete(`import:body-cloud-at:${UID}`);
+    pullRecentMetrics.mockResolvedValue(cloudResult());
+    await pullInbox();
+    expect(lastBodyLog()).toMatchObject({ source: "cloud", accepted: 0, ignored: 1 });
+  });
+});

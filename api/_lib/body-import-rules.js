@@ -28,6 +28,11 @@ export const LBM_MIN = 30;
 export const LBM_MAX = 80;
 export const FAT_MIN = 3;
 export const FAT_MAX = 60;
+// 인바디 클라우드 직수신(inbody-cloud.js)이 나르는 2종 — HealthKit에 없는 값이라 HAE로는 안 온다
+export const MUSCLE_MIN = 10;   // 골격근량(SMM) kg
+export const MUSCLE_MAX = 60;
+export const SCORE_MIN = 20;    // 인바디 점수(FS) — 실측 82, 근육형은 100 초과 가능
+export const SCORE_MAX = 120;
 export const LB_TO_KG = 0.4536;
 export const MORNING_END_HOUR = 12; // B1: 시각 < 12시만 초안 후보
 
@@ -35,20 +40,25 @@ const r1 = (v) => Math.round(v * 10) / 10;
 const norm = (s) => String(s || "").trim().toLowerCase();
 
 // ── 지표 이름 매칭 (관대한 키워드 파서 — §1.1) ──
-// 검사 순서가 정확성의 핵심: 제외 → lean → fat → weight.
+// 검사 순서가 정확성의 핵심: 제외 → score → muscle → lean → fat → weight.
 //  · "체질량지수"(BMI)는 "체질량"(lean 키워드)을 포함 → "지수"/"index"/"bmi" 제외를 먼저
 //  · "제지방체질량"(lean)은 "체지방"(fat 키워드)을 포함 → lean을 fat보다 먼저
+//  · "skeletal_muscle_mass"(클라우드 직수신)는 muscle을 lean보다 먼저 검사
 // 정확한 실전 필드명은 첫 실전송에서 확정 — 미매칭 name은 로그에 남겨 별칭 확장 재료로 쓴다.
 const EXCLUDED_KEYWORDS = ["bmi", "지수", "index"];
+const SCORE_KEYWORDS = ["score", "점수"];
+const MUSCLE_KEYWORDS = ["skeletal", "muscle", "골격근"];
 const LEAN_KEYWORDS = ["lean", "제지방", "체질량"];
 const FAT_KEYWORDS = ["fat", "체지방"];
 const WEIGHT_KEYWORDS = ["weight", "체중"];
 
-// → "weight" | "fatPct" | "lbm" | null(대상 외 — 이름을 로그에 기록)
+// → "weight" | "fatPct" | "lbm" | "muscle" | "score" | null(대상 외 — 이름을 로그에 기록)
 export function classifyBodyMetric(rawName) {
   const n = norm(rawName);
   if (!n) return null;
   for (const kw of EXCLUDED_KEYWORDS) if (n.includes(kw)) return null;
+  for (const kw of SCORE_KEYWORDS) if (n.includes(kw)) return "score";
+  for (const kw of MUSCLE_KEYWORDS) if (n.includes(kw)) return "muscle";
   for (const kw of LEAN_KEYWORDS) if (n.includes(kw)) return "lbm";
   for (const kw of FAT_KEYWORDS) if (n.includes(kw)) return "fatPct";
   for (const kw of WEIGHT_KEYWORDS) if (n.includes(kw)) return "weight";
@@ -124,10 +134,15 @@ export function planBodyImport(body, { cutoverDate, tzOffsetMin }) {
         if (qty > 0 && qty <= 1) { reject("소수형 의심(0~1) 체지방률"); continue; } // B4
         if (qty < FAT_MIN || qty > FAT_MAX) { reject(`체지방률 범위(${FAT_MIN}~${FAT_MAX}) 밖`); continue; }
         value = r1(qty);
+      } else if (kind === "score") {
+        // 인바디 점수 — 무단위 정수. 범위만 방어(FS 실측 82, 근육형 100 초과 허용)
+        if (qty < SCORE_MIN || qty > SCORE_MAX) { reject(`점수 범위(${SCORE_MIN}~${SCORE_MAX}) 밖`); continue; }
+        value = Math.round(qty);
       } else {
         const kg = toKg(qty, m.units);
         if (kg === null) { reject(`${kind} 단위(${String(m.units).slice(0, 10) || "없음"}) 수용 불가`); continue; }
-        const [lo, hi] = kind === "weight" ? [WEIGHT_MIN, WEIGHT_MAX] : [LBM_MIN, LBM_MAX];
+        const [lo, hi] = kind === "weight" ? [WEIGHT_MIN, WEIGHT_MAX]
+          : kind === "muscle" ? [MUSCLE_MIN, MUSCLE_MAX] : [LBM_MIN, LBM_MAX];
         if (kg < lo || kg > hi) { reject(`${kind} 범위(${lo}~${hi}kg) 밖`); continue; }
         value = r1(kg);
       }
@@ -152,6 +167,8 @@ export function planBodyImport(body, { cutoverDate, tzOffsetMin }) {
     if (f.weight) entry.weight = f.weight.v;
     if (f.fatPct) entry.fatPct = f.fatPct.v;
     if (f.lbm) entry.lbm = f.lbm.v;
+    if (f.muscle) entry.muscle = f.muscle.v; // 클라우드 직수신 전용 — HAE 경로에는 없음
+    if (f.score) entry.score = f.score.v;
     return entry;
   });
 

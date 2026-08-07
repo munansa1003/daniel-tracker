@@ -3,7 +3,7 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, 
 import store, { getCurrentUserId, setUserId, logout, getMembership, joinWithInvite, getMigratedMark, getSharedFoods, addSharedFood, getSharedExercises, addSharedExercise } from "./store.js";
 import { watchAuth, signInWithGoogle, signOutUser, isOwnerEmail, getIdToken } from "./auth.js";
 import { mergeImports } from "./importMerge.js";
-import { mergeBodyDrafts, draftToRecord } from "./bodyDraft.js";
+import { mergeBodyDrafts, draftToRecord, autoConfirmDrafts } from "./bodyDraft.js";
 import { APP_NAME, DEFAULT_FOODS, DEFAULT_EX, TARGETS as DEFAULT_TARGETS, COLORS } from "./data.js";
 import { THEME, GlobalStyles } from "./theme.jsx";
 import { today, nowHour, isCompletedDay, calcTargets, sortByHour, periodOf, groupMealsByTime, groupExercisesByTime, aggregateDay, exFeedback, isCalOk, adjustForDate, REST_K, restTargets, effectiveDayMode, isRestStamp } from "./utils.js";
@@ -701,6 +701,7 @@ function MainApp({ user, onLogout }) {
     setImportInfo({
       cutover: data.cutover || null, log: Array.isArray(data.log) ? data.log : [], enabled: !!data.enabled,
       bodyCutover: data.bodyCutover || null, bodyLog: Array.isArray(data.bodyLog) ? data.bodyLog : [], bodyEnabled: !!data.bodyEnabled,
+      bodyCloudEnabled: !!data.bodyCloudEnabled,
     });
     // 병합 기준은 localStorage 미러(세션 중 항상 최신 진실) — state 스냅샷 지연과 무관
     const local = store.getLocalAll();
@@ -724,7 +725,11 @@ function MainApp({ user, onLogout }) {
     const curLog = Array.isArray(local["bodylog"]) ? local["bodylog"] : [];
     if (bodyEntries.length || Object.keys(curDrafts).length) {
       const bd = mergeBodyDrafts(curDrafts, curLog, bodyEntries, { todayStr: today() });
-      if (bd.changed) { setBodyDrafts(bd.drafts); await store.set("body-drafts", bd.drafts); }
+      // 자동 확정(A안): 클라우드 직수신으로 4종 실측이 완비되고 LBM 가드를 통과한 초안은
+      // 사용자 입력 없이 확정. 가드 보류분은 초안으로 남아 기존 카드(수동 확정)로 폴백.
+      const ac = autoConfirmDrafts(bd.drafts, curLog);
+      if (ac.changed) { setBodyLog(ac.bodyLog); await store.set("bodylog", ac.bodyLog); }
+      if (bd.changed || ac.changed) { setBodyDrafts(ac.drafts); await store.set("body-drafts", ac.drafts); }
       if (bd.ackKeys.length) {
         try {
           await fetch("/api/import-inbox", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ uid, idToken, action: "ack", bodyKeys: bd.ackKeys }) });
@@ -2037,7 +2042,7 @@ function MainApp({ user, onLogout }) {
                 <div style={{ fontSize: 12, color: "#f5f5f0" }}>🧬 인바디 체성분 자동 수신</div>
                 <div style={{ fontSize: 10, color: "#707070", marginTop: 2 }}>
                   {importInfo === null ? "상태 미확인 — '지금 확인'을 눌러 주세요"
-                    : importInfo.bodyEnabled ? `켜짐 · 컷오버 ${importInfo.bodyCutover || "-"} 이후 측정만 · 아침 창(00~12시)`
+                    : importInfo.bodyEnabled ? `켜짐 · 컷오버 ${importInfo.bodyCutover || "-"} 이후 측정만 · 아침 창(00~12시)${importInfo.bodyCloudEnabled ? " · 클라우드 직수신(4종 자동 확정)" : ""}`
                     : "꺼짐 — IMPORT_BODY_CUTOVER_DATE 설정 필요 (docs/inbody-setup.md)"}
                 </div>
               </div>
@@ -2046,6 +2051,7 @@ function MainApp({ user, onLogout }) {
               <div key={i} style={{ padding: "7px 12px", borderBottom: i < arr.length - 1 ? "0.5px solid rgba(255,255,255,0.04)" : "none", fontSize: 10, fontFamily: "monospace", color: "#8a8a8a" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
                   <span>{String(g.at || "").slice(5, 16).replace("T", " ")}</span>
+                  <span>{({ hae: "단축어", cloud: "클라우드" })[g.source] || ""}</span>
                   <span>샘플{g.samplesToday ?? "-"} +{g.accepted} 중복{g.ignored} 거부{g.rejected} 창밖{g.excluded}</span>
                 </div>
                 {(g.matchedNames?.length || g.unmatchedNames?.length || g.fatPctForm) && (
