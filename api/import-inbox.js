@@ -23,16 +23,20 @@ import { pullRecentMetrics } from "./_lib/inbody-cloud.js";
 // 스로틀 30분: 인바디 서버에는 실제 앱 수준의 호출 빈도만 발생시킨다.
 const CLOUD_PULL_INTERVAL_MS = 30 * 60 * 1000;
 
-async function cloudPullIfDue(uid) {
+async function cloudPullIfDue(uid, force = false) {
   const ID = process.env.INBODY_LOGIN_ID;
   const PW = process.env.INBODY_LOGIN_PW;
   const CUTOVER = process.env.IMPORT_BODY_CUTOVER_DATE;
   // 크리덴셜은 기록 주인 것 — 주인 uid의 pull에서만 동작(다른 계정이 트리거 불가)
   if (!ID || !PW || !CUTOVER || uid !== process.env.IMPORT_UID) return;
 
+  // force = 설정 카드의 "지금 확인"(명시적 사용자 의도) — 스로틀을 건너뛰고 즉시 당긴다.
+  // 자동 pull(앱 시작 동기화)만 30분 간격을 지켜 인바디 서버에 앱 수준 빈도를 유지.
   const throttleKey = `import:body-cloud-at:${uid}`;
-  const last = await kv("GET", throttleKey);
-  if (last && Date.now() - Date.parse(last) < CLOUD_PULL_INTERVAL_MS) return;
+  if (!force) {
+    const last = await kv("GET", throttleKey);
+    if (last && Date.now() - Date.parse(last) < CLOUD_PULL_INTERVAL_MS) return;
+  }
   await kv("SET", throttleKey, new Date().toISOString()); // 선점 — 동시 pull의 중복 호출 방지
 
   try {
@@ -76,7 +80,7 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "Not configured" });
   }
 
-  const { uid, idToken, action, keys, bodyKeys } = req.body || {};
+  const { uid, idToken, action, keys, bodyKeys, force } = req.body || {};
   if (!uid || typeof uid !== "string" || uid.length > 128) {
     return res.status(400).json({ error: "uid required" });
   }
@@ -104,7 +108,7 @@ export default async function handler(req, res) {
 
       // 인바디 클라우드 직수신 — 사서함을 읽기 "전"에 당겨와 이번 응답에 바로 실린다.
       // 실패해도 pull 전체는 계속(운동·HAE 경로 격리). 30분 스로틀은 함수 내부에서.
-      try { await cloudPullIfDue(uid); } catch (e) { console.error("[import-inbox] cloud pull failed:", e); }
+      try { await cloudPullIfDue(uid, force === true); } catch (e) { console.error("[import-inbox] cloud pull failed:", e); }
 
       // 체성분 사서함(별도 키) — additive 확장: 구 클라이언트는 이 필드들을 무시한다(계약 불변)
       const bodyEntries = [];
