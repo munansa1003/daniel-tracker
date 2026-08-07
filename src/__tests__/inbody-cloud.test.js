@@ -265,16 +265,42 @@ describe("사서함 pull 합류 — 클라우드 직수신·스로틀·실패 �
     expect(pullRecentMetrics).toHaveBeenCalledTimes(2);    // force는 즉시 호출
   });
 
-  it("클라우드 실패 → 카드용 오류 로그 한 줄 + 스로틀 해제(다음 pull에서 즉시 재시도)", async () => {
+  it("클라우드 실패 → 카드용 오류 로그 한 줄 (성공이든 실패든 흔적을 남긴다)", async () => {
     // "지금 확인"이 성공이든 실패든 반드시 흔적을 남긴다 — 무반응이 곧 관측성 구멍이었던 회귀 방지
-    pullRecentMetrics.mockRejectedValueOnce(new Error("인바디 API 403"));
+    pullRecentMetrics.mockRejectedValueOnce(new Error("인바디 API 오류: ID_BLOCK"));
     const first = await pullInbox();
     expect(first.entries).toBeDefined();                   // 실패해도 pull 응답은 정상(격리)
-    expect(lastBodyLog()).toMatchObject({ source: "cloud", error: "인바디 API 403" });
+    expect(lastBodyLog()).toMatchObject({ source: "cloud", error: "인바디 API 오류: ID_BLOCK" });
+  });
+
+  it("실패해도 스로틀 도장은 유지 — 자동 pull이 실패 상태에서 인바디를 두드리지 않는다(계정 보호)", async () => {
+    // 인바디는 로그인 실패 반복 시 계정을 잠근다(공식 FAQ 3-strike). 실패 후 즉시 재시도하던
+    // 옛 동작은 우리 서버가 계정을 잠그는 경로였다 — 이제 창을 지킨다.
+    pullRecentMetrics.mockRejectedValueOnce(new Error("인바디 API 오류: ID_BLOCK"));
+    await pullInbox();
     pullRecentMetrics.mockResolvedValue(cloudResult());
-    await pullInbox();                                     // 스로틀이 해제됐으므로 즉시 재시도
-    expect(pullRecentMetrics).toHaveBeenCalledTimes(2);
-    expect(lastBodyLog()).toMatchObject({ source: "cloud", accepted: 1 });
+    await pullInbox();                                     // 자동 pull — 30분 창에 걸려 호출 안 함
+    expect(pullRecentMetrics).toHaveBeenCalledTimes(1);
+  });
+
+  it("연속 실패 상한(3회) 도달 → ' 지금 확인'(force)도 창을 지킨다 (연타로 계정 잠금 유발 차단)", async () => {
+    pullRecentMetrics.mockRejectedValue(new Error("인바디 API 오류: ID_BLOCK"));
+    const forcePull = () => inboxCall({ uid: UID, idToken: "id-token-good", action: "pull", force: true });
+    await forcePull(); await forcePull(); await forcePull(); // 1·2·3회차: force가 창을 무시하고 시도
+    expect(pullRecentMetrics).toHaveBeenCalledTimes(3);
+    await forcePull();                                      // 상한 도달 — 이번엔 창을 지켜 호출 안 함
+    expect(pullRecentMetrics).toHaveBeenCalledTimes(3);
+  });
+
+  it("성공하면 실패 카운터 리셋 — 일시적 장애 뒤 정상 복귀 시 force가 다시 즉시 동작", async () => {
+    pullRecentMetrics.mockRejectedValue(new Error("일시 오류"));
+    const forcePull = () => inboxCall({ uid: UID, idToken: "id-token-good", action: "pull", force: true });
+    await forcePull(); await forcePull();                   // 실패 2회 — 아직 상한 미만
+    pullRecentMetrics.mockResolvedValue(cloudResult());
+    await forcePull();                                      // 3회차에서 성공 → 카운터 0
+    expect(pullRecentMetrics).toHaveBeenCalledTimes(3);
+    await forcePull();                                      // 카운터가 리셋됐으므로 force는 다시 즉시
+    expect(pullRecentMetrics).toHaveBeenCalledTimes(4);
   });
 
   it("env 공백 오염 방어 — 앞뒤 공백·개행이 섞여도 트림된 크리덴셜로 호출", async () => {
@@ -285,13 +311,14 @@ describe("사서함 pull 합류 — 클라우드 직수신·스로틀·실패 �
     expect(pullRecentMetrics).toHaveBeenCalledWith(expect.objectContaining({ loginId: "01000000000", loginPw: "pw" }));
   });
 
-  it("클라우드 실패 → pull은 200으로 계속(격리) + 스로틀 해제로 다음 pull에서 재시도", async () => {
+  it("클라우드 실패 → pull은 200으로 계속(격리) + 사용자가 '지금 확인'하면 즉시 재시도", async () => {
     pullRecentMetrics.mockRejectedValueOnce(new Error("inbody down"));
     const first = await pullInbox();
-    expect(first.bodyEntries).toHaveLength(0);
+    expect(first.bodyEntries).toHaveLength(0);   // 클라우드가 죽어도 운동·HAE pull은 정상 응답
     pullRecentMetrics.mockResolvedValue(cloudResult());
-    const second = await pullInbox();
-    expect(pullRecentMetrics).toHaveBeenCalledTimes(2); // DEL로 스로틀 풀려 재시도
+    // 자동 pull은 창을 지키지만(계정 보호), 상한 미만이면 force는 즉시 재시도할 수 있다
+    const second = out(await inboxCall({ uid: UID, idToken: "id-token-good", action: "pull", force: true }));
+    expect(pullRecentMetrics).toHaveBeenCalledTimes(2);
     expect(second.bodyEntries).toHaveLength(1);
   });
 
