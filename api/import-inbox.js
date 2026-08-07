@@ -38,13 +38,18 @@ const AUTH_BLOCK_MS = 24 * 60 * 60 * 1000;
 const AUTH_ERROR_RE = /PW_FAIL|ID_BLOCK|로그인 실패/i;
 const credFingerprint = (id, pw) => createHash("sha256").update(`${id}\n${pw}`).digest("hex").slice(0, 16);
 
+// 반환값은 이번 pull에서 클라우드가 "무엇을 했는지"를 알리는 상태 문자열이다.
+// 조용한 return은 UX 사고였다 — 사용자가 "지금 확인"을 눌러도 아무 표시가 없으면
+// 버튼이 고장 난 것과 구분할 수 없다(실사용 신고). 건너뛴 이유까지 화면에 보여준다.
+//   off: 크리덴셜 미설정 · authBlocked: 비밀번호 오류로 봉인 · throttled: 최근 확인함
+//   ok: 이번에 실행함 · failed: 실행했으나 오류(로그에 사유)
 async function cloudPullIfDue(uid, force = false) {
   // trim: Vercel 환경변수에 붙여넣기 공백·개행이 섞이는 사고 방어(토큰 오염 사례의 교훈)
   const ID = (process.env.INBODY_LOGIN_ID || "").trim();
   const PW = (process.env.INBODY_LOGIN_PW || "").trim();
   const CUTOVER = process.env.IMPORT_BODY_CUTOVER_DATE;
   // 크리덴셜은 기록 주인 것 — 주인 uid의 pull에서만 동작(다른 계정이 트리거 불가)
-  if (!ID || !PW || !CUTOVER || uid !== process.env.IMPORT_UID) return;
+  if (!ID || !PW || !CUTOVER || uid !== process.env.IMPORT_UID) return "off";
 
   // force = 설정 카드의 "지금 확인"(명시적 사용자 의도) — 스로틀을 건너뛰고 즉시 당긴다.
   // 자동 pull(앱 시작 동기화)만 30분 간격을 지켜 인바디 서버에 앱 수준 빈도를 유지.
@@ -59,13 +64,13 @@ async function cloudPullIfDue(uid, force = false) {
   const authBlock = await kv("GET", authBlockKey);
   if (authBlock) {
     const [blockedFp, blockedAt] = String(authBlock).split("|");
-    if (blockedFp === fp && Date.now() - Date.parse(blockedAt) < AUTH_BLOCK_MS) return;
+    if (blockedFp === fp && Date.now() - Date.parse(blockedAt) < AUTH_BLOCK_MS) return "authBlocked";
   }
 
   const fails = parseInt((await kv("GET", failKey)) || "0", 10) || 0;
   if (!force || fails >= CLOUD_FAIL_CEILING) {
     const last = await kv("GET", throttleKey);
-    if (last && Date.now() - Date.parse(last) < CLOUD_PULL_INTERVAL_MS) return;
+    if (last && Date.now() - Date.parse(last) < CLOUD_PULL_INTERVAL_MS) return "throttled";
   }
   await kv("SET", throttleKey, new Date().toISOString()); // 선점 — 동시 pull의 중복 호출 방지
 
@@ -82,6 +87,7 @@ async function cloudPullIfDue(uid, force = false) {
     // 성공 — 실패 카운터·인증 봉인 모두 해제
     try { await kv("SET", failKey, "0"); await kv("DEL", authBlockKey); } catch { /* 무시 */ }
     console.log(`[import-inbox] cloud pull accepted=${accepted} ignored=${ignored} rejected=${summary.rejected} excluded=${summary.excluded}`);
+    return "ok";
   } catch (e) {
     // 실패도 카드에 보인다 — "지금 확인"이 성공이든 실패든 반드시 로그 한 줄을 남긴다(관측성).
     // 인증 실패면 크리덴셜 "형태"(길이·앞 3자)를 덧붙인다 — 서버에 저장된 값이 사용자가
@@ -157,7 +163,9 @@ export default async function handler(req, res) {
 
       // 인바디 클라우드 직수신 — 사서함을 읽기 "전"에 당겨와 이번 응답에 바로 실린다.
       // 실패해도 pull 전체는 계속(운동·HAE 경로 격리). 30분 스로틀은 함수 내부에서.
-      try { await cloudPullIfDue(uid, force === true); } catch (e) { console.error("[import-inbox] cloud pull failed:", e); }
+      let bodyCloudStatus = "off";
+      try { bodyCloudStatus = (await cloudPullIfDue(uid, force === true)) || "off"; }
+      catch (e) { bodyCloudStatus = "failed"; console.error("[import-inbox] cloud pull failed:", e); }
 
       // 체성분 사서함(별도 키) — additive 확장: 구 클라이언트는 이 필드들을 무시한다(계약 불변)
       const bodyEntries = [];
@@ -186,6 +194,9 @@ export default async function handler(req, res) {
         bodyEnabled: !!(process.env.IMPORT_TOKEN && process.env.IMPORT_UID && process.env.IMPORT_BODY_CUTOVER_DATE),
         // 인바디 클라우드 직수신 활성 여부 — INBODY_LOGIN_ID·PW가 롤백 스위치
         bodyCloudEnabled: !!(process.env.INBODY_LOGIN_ID && process.env.INBODY_LOGIN_PW && process.env.IMPORT_BODY_CUTOVER_DATE),
+        // 이번 pull에서 클라우드가 무엇을 했는지 — 버튼을 눌러도 아무 반응이 없어 보이는
+        // 상황(미설정·봉인·스로틀)을 사용자가 화면에서 바로 구분할 수 있게 한다.
+        bodyCloudStatus,
       });
     }
 

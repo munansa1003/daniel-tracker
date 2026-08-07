@@ -41,6 +41,16 @@ import { BodyTab } from "./components/BodyTab.jsx";
 import { StatsTab } from "./components/StatsTab.jsx";
 import { ClaudeExport } from "./components/ClaudeExport.jsx";
 
+// 인바디 클라우드 pull의 이번 결과 표시 — 설정 카드에서 "왜 아무 일도 안 일어났는지"를
+// 사용자가 구분할 수 있게 한다(조용한 skip이 버튼 고장으로 오인된 실사용 신고 대응).
+const CLOUD_STATUS_TEXT = {
+  off: { t: "⚠ 클라우드 미설정 — INBODY_LOGIN_ID·PW 확인 후 재배포", c: "#e0a052" },
+  authBlocked: { t: "🔒 비밀번호 오류로 잠금 — Vercel에서 비밀번호를 고치면 자동 해제", c: "#e05252" },
+  throttled: { t: "⏳ 최근에 확인함 — 잠시 후 다시 시도", c: "#707070" },
+  ok: { t: "✓ 방금 인바디 클라우드 확인함", c: "#5a9e6f" },
+  failed: { t: "✗ 확인 실패 — 아래 오류 줄 참조", c: "#e05252" },
+};
+
 
 
 /* ═══════════════════════════════════════════════ */
@@ -687,6 +697,7 @@ function MainApp({ user, onLogout }) {
   // 유효목표·휴식일 복귀·통계가 수동 입력과 같은 단일 출처 경로로 자동 반영된다.
   // 병합은 importKey 멱등 — ack 유실·다중 기기 동시 병합에도 중복이 생기지 않는다.
   const [importInfo, setImportInfo] = useState(null); // 설정 카드용 { cutover, log, enabled }
+  const [syncingImports, setSyncingImports] = useState(false); // '지금 확인' 진행 표시(무반응 오인 방지)
   // opts.force: 설정 카드 "지금 확인" — 서버가 인바디 클라우드 스로틀(30분)을 건너뛰고 즉시 당긴다
   const syncImports = useCallback(async (opts) => {
     const force = !!(opts && opts.force === true);
@@ -695,14 +706,17 @@ function MainApp({ user, onLogout }) {
     const idToken = await getIdToken();
     if (!idToken) return; // 미로그인·오프라인 — 조용히 스킵(다음 시작에 재시도)
     let data;
+    if (force) setSyncingImports(true);
     try {
       const r = await fetch("/api/import-inbox", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ uid, idToken, action: "pull", ...(force ? { force: true } : {}) }) });
       if (!r.ok) return;
       data = await r.json();
     } catch { return; }
+    finally { if (force) setSyncingImports(false); }
     setImportInfo({
       cutover: data.cutover || null, log: Array.isArray(data.log) ? data.log : [], enabled: !!data.enabled,
       bodyCutover: data.bodyCutover || null, bodyLog: Array.isArray(data.bodyLog) ? data.bodyLog : [], bodyEnabled: !!data.bodyEnabled,
+      bodyCloudEnabled: !!data.bodyCloudEnabled, bodyCloudStatus: data.bodyCloudStatus || "off",
       bodyCloudEnabled: !!data.bodyCloudEnabled,
     });
     // 병합 기준은 localStorage 미러(세션 중 항상 최신 진실) — state 스냅샷 지연과 무관
@@ -2047,9 +2061,15 @@ function MainApp({ user, onLogout }) {
                     : importInfo.bodyEnabled ? `켜짐 · 컷오버 ${importInfo.bodyCutover || "-"} 이후 측정만 · 아침 창(00~12시)${importInfo.bodyCloudEnabled ? " · 클라우드 직수신(4종 자동 확정)" : ""}`
                     : "꺼짐 — IMPORT_BODY_CUTOVER_DATE 설정 필요 (docs/inbody-setup.md)"}
                 </div>
+                {/* 클라우드가 이번에 무엇을 했는지 — "눌러도 아무 반응 없음"을 구분 가능하게 */}
+                {importInfo !== null && CLOUD_STATUS_TEXT[importInfo.bodyCloudStatus] && (
+                  <div style={{ fontSize: 10, marginTop: 3, color: CLOUD_STATUS_TEXT[importInfo.bodyCloudStatus].c }}>
+                    {CLOUD_STATUS_TEXT[importInfo.bodyCloudStatus].t}
+                  </div>
+                )}
               </div>
               {/* 체성분 전용 '지금 확인' — 클라우드 직수신을 즉시(스로틀 무시) 당긴다. 운동 카드 버튼과 동일 동작 */}
-              <div onClick={() => syncImports({ force: true })} style={{ background: "#2f2f2f", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: "#f5f5f0", cursor: "pointer", flexShrink: 0 }}>지금 확인</div>
+              <div onClick={() => { if (!syncingImports) syncImports({ force: true }); }} style={{ background: "#2f2f2f", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: syncingImports ? "#707070" : "#f5f5f0", cursor: syncingImports ? "default" : "pointer", flexShrink: 0 }}>{syncingImports ? "확인 중…" : "지금 확인"}</div>
             </div>
             {(importInfo?.bodyLog || []).slice(0, 5).map((g, i, arr) => (
               <div key={i} style={{ padding: "7px 12px", borderBottom: i < arr.length - 1 ? "0.5px solid rgba(255,255,255,0.04)" : "none", fontSize: 10, fontFamily: "monospace", color: "#8a8a8a" }}>
