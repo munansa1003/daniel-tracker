@@ -22,9 +22,10 @@
 //   import:body-inbox:{uid}                   (Hash) 사서함 — field=`${date}|${sampleTs}`, 앱이 병합 후 HDEL
 //   import:body-log:{uid}                     (List) 최근 수신 요약 20건 — 첫 실전송 확인 3종의 판별 창구(§1.4)
 import { rateLimit } from "./_lib/security.js";
-import { kv, kvConfigured } from "./_lib/kv.js";
+import { kvConfigured } from "./_lib/kv.js";
 import { MAX_BODY_BYTES, parseTzOffset, HAE_TZ_OFFSET_MIN_DEFAULT } from "./_lib/import-rules.js";
 import { isHaeMetricsPayload, planBodyImport, buildBodyMessage } from "./_lib/body-import-rules.js";
+import { storeBodyEntries, pushBodyLog } from "./_lib/body-inbox-store.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
@@ -75,35 +76,10 @@ export default async function handler(req, res) {
   const tz = parseTzOffset(process.env.IMPORT_TZ_OFFSET) ?? HAE_TZ_OFFSET_MIN_DEFAULT;
   const { entries, summary } = planBodyImport(body, { cutoverDate: CUTOVER, tzOffsetMin: tz });
 
-  let accepted = 0, ignored = 0;
-  const inboxKey = `import:body-inbox:${UID}`;
-
   try {
-    for (const entry of entries) {
-      // 사서함 기입 → seen SET NX 순서(운동 검문소와 동일한 3단): 도장은 찍혔는데 사서함에
-      // 없는 영구 유실 창을 없앤다. field가 불변 키라 재기입은 같은 내용 1개(멱등).
-      const seenKey = `import:body-seen:${UID}:${entry.key}`;
-      const already = await kv("GET", seenKey);
-      if (already) { ignored++; continue; }
-      await kv("HSET", inboxKey, entry.key, JSON.stringify({ ...entry, receivedAt: new Date().toISOString() }));
-      const nx = await kv("SET", seenKey, new Date().toISOString(), "NX");
-      if (nx === null) { ignored++; continue; } // 동시 도착 race 패자
-      accepted++;
-    }
-
-    // 관측성(§1.4) — 첫 실전송 확인 3종이 이 로그만으로 판별되도록 요약 저장. 본문 전문 금지(B9).
-    try {
-      await kv("LPUSH", `import:body-log:${UID}`, JSON.stringify({
-        at: new Date().toISOString(),
-        accepted, ignored,
-        rejected: summary.rejected, excluded: summary.excluded, sourceFiltered: summary.sourceFiltered,
-        samplesToday: summary.samplesToday,
-        matchedNames: summary.matchedNames, unmatchedNames: summary.unmatchedNames,
-        sources: summary.sources,
-        ...(summary.fatPctForm ? { fatPctForm: summary.fatPctForm } : {}),
-      }));
-      await kv("LTRIM", `import:body-log:${UID}`, "0", "19");
-    } catch (e) { console.error("[body-import] log write failed:", e); }
+    // 기입·로그는 공유 저장 계층(body-inbox-store.js) — 클라우드 직수신 pull과 동일 순서·동일 키
+    const { accepted, ignored } = await storeBodyEntries(UID, entries);
+    await pushBodyLog(UID, "hae", { accepted, ignored, summary });
 
     console.log(`[body-import] accepted=${accepted} ignored=${ignored} rejected=${summary.rejected} excluded=${summary.excluded} samplesToday=${summary.samplesToday}${summary.unmatchedNames.length ? ` unmatched=${summary.unmatchedNames.join(",")}` : ""}`);
 
