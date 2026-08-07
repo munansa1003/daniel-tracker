@@ -256,6 +256,15 @@ describe("사서함 pull 합류 — 클라우드 직수신·스로틀·실패 �
     expect(second.bodyEntries).toHaveLength(1); // 아직 ack 전 — 사서함 내용은 그대로 온다
   });
 
+  it("'지금 확인'(force) — 스로틀 중이어도 즉시 재pull (명시적 사용자 의도)", async () => {
+    pullRecentMetrics.mockResolvedValue(cloudResult());
+    await pullInbox();                                     // 1회차 — 스로틀 도장
+    await pullInbox();                                     // 자동 pull — 스로틀에 걸림
+    expect(pullRecentMetrics).toHaveBeenCalledTimes(1);
+    await inboxCall({ uid: UID, idToken: "id-token-good", action: "pull", force: true });
+    expect(pullRecentMetrics).toHaveBeenCalledTimes(2);    // force는 즉시 호출
+  });
+
   it("클라우드 실패 → pull은 200으로 계속(격리) + 스로틀 해제로 다음 pull에서 재시도", async () => {
     pullRecentMetrics.mockRejectedValueOnce(new Error("inbody down"));
     const first = await pullInbox();

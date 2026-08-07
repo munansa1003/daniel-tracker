@@ -687,14 +687,16 @@ function MainApp({ user, onLogout }) {
   // 유효목표·휴식일 복귀·통계가 수동 입력과 같은 단일 출처 경로로 자동 반영된다.
   // 병합은 importKey 멱등 — ack 유실·다중 기기 동시 병합에도 중복이 생기지 않는다.
   const [importInfo, setImportInfo] = useState(null); // 설정 카드용 { cutover, log, enabled }
-  const syncImports = useCallback(async () => {
+  // opts.force: 설정 카드 "지금 확인" — 서버가 인바디 클라우드 스로틀(30분)을 건너뛰고 즉시 당긴다
+  const syncImports = useCallback(async (opts) => {
+    const force = !!(opts && opts.force === true);
     const uid = getCurrentUserId();
     if (!uid) return;
     const idToken = await getIdToken();
     if (!idToken) return; // 미로그인·오프라인 — 조용히 스킵(다음 시작에 재시도)
     let data;
     try {
-      const r = await fetch("/api/import-inbox", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ uid, idToken, action: "pull" }) });
+      const r = await fetch("/api/import-inbox", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ uid, idToken, action: "pull", ...(force ? { force: true } : {}) }) });
       if (!r.ok) return;
       data = await r.json();
     } catch { return; }
@@ -2021,7 +2023,7 @@ function MainApp({ user, onLogout }) {
                     : "꺼짐 — 서버 환경변수 설정 필요 (docs/shortcut-recipe.md)"}
                 </div>
               </div>
-              <div onClick={syncImports} style={{ background: "#2f2f2f", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: "#f5f5f0", cursor: "pointer", flexShrink: 0 }}>지금 확인</div>
+              <div onClick={() => syncImports({ force: true })} style={{ background: "#2f2f2f", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: "#f5f5f0", cursor: "pointer", flexShrink: 0 }}>지금 확인</div>
             </div>
             {(importInfo?.log || []).slice(0, 5).map((g, i, arr) => (
               <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "7px 12px", borderBottom: i < arr.length - 1 ? "0.5px solid rgba(255,255,255,0.04)" : "none", fontSize: 10, fontFamily: "monospace", color: "#8a8a8a" }}>
