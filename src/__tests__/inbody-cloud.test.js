@@ -265,6 +265,26 @@ describe("사서함 pull 합류 — 클라우드 직수신·스로틀·실패 �
     expect(pullRecentMetrics).toHaveBeenCalledTimes(2);    // force는 즉시 호출
   });
 
+  it("클라우드 실패 → 카드용 오류 로그 한 줄 + 스로틀 해제(다음 pull에서 즉시 재시도)", async () => {
+    // "지금 확인"이 성공이든 실패든 반드시 흔적을 남긴다 — 무반응이 곧 관측성 구멍이었던 회귀 방지
+    pullRecentMetrics.mockRejectedValueOnce(new Error("인바디 API 403"));
+    const first = await pullInbox();
+    expect(first.entries).toBeDefined();                   // 실패해도 pull 응답은 정상(격리)
+    expect(lastBodyLog()).toMatchObject({ source: "cloud", error: "인바디 API 403" });
+    pullRecentMetrics.mockResolvedValue(cloudResult());
+    await pullInbox();                                     // 스로틀이 해제됐으므로 즉시 재시도
+    expect(pullRecentMetrics).toHaveBeenCalledTimes(2);
+    expect(lastBodyLog()).toMatchObject({ source: "cloud", accepted: 1 });
+  });
+
+  it("env 공백 오염 방어 — 앞뒤 공백·개행이 섞여도 트림된 크리덴셜로 호출", async () => {
+    vi.stubEnv("INBODY_LOGIN_ID", " 01000000000\n");
+    vi.stubEnv("INBODY_LOGIN_PW", " pw ");
+    pullRecentMetrics.mockResolvedValue(cloudResult());
+    await pullInbox();
+    expect(pullRecentMetrics).toHaveBeenCalledWith(expect.objectContaining({ loginId: "01000000000", loginPw: "pw" }));
+  });
+
   it("클라우드 실패 → pull은 200으로 계속(격리) + 스로틀 해제로 다음 pull에서 재시도", async () => {
     pullRecentMetrics.mockRejectedValueOnce(new Error("inbody down"));
     const first = await pullInbox();
