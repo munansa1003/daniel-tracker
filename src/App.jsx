@@ -2048,6 +2048,8 @@ function MainApp({ user, onLogout }) {
                     : "꺼짐 — IMPORT_BODY_CUTOVER_DATE 설정 필요 (docs/inbody-setup.md)"}
                 </div>
               </div>
+              {/* 체성분 전용 '지금 확인' — 클라우드 직수신을 즉시(스로틀 무시) 당긴다. 운동 카드 버튼과 동일 동작 */}
+              <div onClick={() => syncImports({ force: true })} style={{ background: "#2f2f2f", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: "#f5f5f0", cursor: "pointer", flexShrink: 0 }}>지금 확인</div>
             </div>
             {(importInfo?.bodyLog || []).slice(0, 5).map((g, i, arr) => (
               <div key={i} style={{ padding: "7px 12px", borderBottom: i < arr.length - 1 ? "0.5px solid rgba(255,255,255,0.04)" : "none", fontSize: 10, fontFamily: "monospace", color: "#8a8a8a" }}>
