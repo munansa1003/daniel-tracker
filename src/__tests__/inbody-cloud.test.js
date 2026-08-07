@@ -332,6 +332,22 @@ describe("사서함 pull 합류 — 클라우드 직수신·스로틀·실패 �
     expect(pullRecentMetrics).toHaveBeenCalledTimes(4);
   });
 
+  it("bodyCloudStatus — 건너뛴 이유가 응답에 실린다 (조용한 skip을 버튼 고장으로 오인하지 않게)", async () => {
+    pullRecentMetrics.mockResolvedValue(cloudResult());
+    expect((await pullInbox()).bodyCloudStatus).toBe("ok");          // 실행함
+    expect((await pullInbox()).bodyCloudStatus).toBe("throttled");   // 30분 창
+
+    vi.stubEnv("INBODY_LOGIN_PW", "");                               // 크리덴셜 미설정
+    expect((await pullInbox()).bodyCloudStatus).toBe("off");
+
+    __kvReset();
+    vi.stubEnv("INBODY_LOGIN_PW", "pw");
+    pullRecentMetrics.mockRejectedValue(new Error("인바디 API 오류: PW_FAIL_2"));
+    expect((await pullInbox()).bodyCloudStatus).toBe("failed");      // 시도했으나 인증 실패
+    const forced = out(await inboxCall({ uid: UID, idToken: "id-token-good", action: "pull", force: true }));
+    expect(forced.bodyCloudStatus).toBe("authBlocked");              // 봉인 — 화면에 이유가 보인다
+  });
+
   it("env 공백 오염 방어 — 앞뒤 공백·개행이 섞여도 트림된 크리덴셜로 호출", async () => {
     vi.stubEnv("INBODY_LOGIN_ID", " 01000000000\n");
     vi.stubEnv("INBODY_LOGIN_PW", " pw ");
