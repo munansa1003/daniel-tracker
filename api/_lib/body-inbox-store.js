@@ -21,6 +21,19 @@ export async function storeBodyEntries(uid, entries) {
   return { accepted, ignored };
 }
 
+// 실패도 관측 대상(§1.4 "로그만으로 판별") — 클라우드 pull 실패 사유를 설정 카드에 노출한다.
+// "지금 확인"을 눌렀을 때 성공이든 실패든 반드시 로그 한 줄이 남아야 사용자가 판별할 수 있다.
+// 메시지는 코드가 만든 사유 문자열만 기록(크리덴셜·응답 본문 없음), 80자 절단.
+export async function pushBodyLogError(uid, source, error) {
+  try {
+    await kv("LPUSH", `import:body-log:${uid}`, JSON.stringify({
+      at: new Date().toISOString(), source,
+      error: String((error && error.message) || error || "unknown").slice(0, 80),
+    }));
+    await kv("LTRIM", `import:body-log:${uid}`, "0", "19");
+  } catch (e) { console.error(`[body-inbox-store] error log write failed:`, e); }
+}
+
 // 수신 로그(관측성 §1.4) — source: "hae"(단축어) | "cloud"(인바디 클라우드 직수신)
 export async function pushBodyLog(uid, source, { accepted, ignored, summary }) {
   try {

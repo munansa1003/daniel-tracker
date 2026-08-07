@@ -2056,7 +2056,9 @@ function MainApp({ user, onLogout }) {
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
                   <span>{String(g.at || "").slice(5, 16).replace("T", " ")}</span>
                   <span>{({ hae: "단축어", cloud: "클라우드" })[g.source] || ""}</span>
-                  <span>샘플{g.samplesToday ?? "-"} +{g.accepted} 중복{g.ignored} 거부{g.rejected} 창밖{g.excluded}</span>
+                  {g.error
+                    ? <span style={{ color: "#e05252", overflowWrap: "anywhere" }}>오류 — {g.error}</span>
+                    : <span>샘플{g.samplesToday ?? "-"} +{g.accepted} 중복{g.ignored} 거부{g.rejected} 창밖{g.excluded}</span>}
                 </div>
                 {(g.matchedNames?.length || g.unmatchedNames?.length || g.fatPctForm) && (
                   <div style={{ marginTop: 2, fontSize: 9, color: "#5a5a5a", overflowWrap: "anywhere" }}>
