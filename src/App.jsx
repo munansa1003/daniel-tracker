@@ -3,6 +3,7 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, 
 import store, { getCurrentUserId, setUserId, logout, getMembership, joinWithInvite, getMigratedMark, getSharedFoods, addSharedFood, getSharedExercises, addSharedExercise } from "./store.js";
 import { watchAuth, signInWithGoogle, signOutUser, isOwnerEmail, getIdToken } from "./auth.js";
 import { mergeImports } from "./importMerge.js";
+import { mergeBodyDrafts, draftToRecord } from "./bodyDraft.js";
 import { APP_NAME, DEFAULT_FOODS, DEFAULT_EX, TARGETS as DEFAULT_TARGETS, COLORS } from "./data.js";
 import { THEME, GlobalStyles } from "./theme.jsx";
 import { today, nowHour, isCompletedDay, calcTargets, sortByHour, periodOf, groupMealsByTime, groupExercisesByTime, aggregateDay, exFeedback, isCalOk, adjustForDate, REST_K, restTargets, effectiveDayMode, isRestStamp } from "./utils.js";
@@ -133,6 +134,7 @@ function MainApp({ user, onLogout }) {
   const [meals, setMeals] = useState([]);
   const [exercises, setExercises] = useState([]);
   const [bodyLog, setBodyLog] = useState([]);
+  const [bodyDrafts, setBodyDrafts] = useState({}); // 체성분 완성 대기 초안 — bodylog 밖 별도 키(body-drafts)
   const [allDays, setAllDays] = useState({});
   const [customFoods, setCustomFoods] = useState([]);
   const [customEx, setCustomEx] = useState([]);
@@ -204,6 +206,7 @@ function MainApp({ user, onLogout }) {
     if (local["custom-foods"]) setCustomFoods(local["custom-foods"]);
     if (local["custom-exercises"]) setCustomEx(local["custom-exercises"]);
     if (local["bodylog"]) setBodyLog([...local["bodylog"]].sort((a, b) => a.date.localeCompare(b.date)));
+    if (local["body-drafts"]) setBodyDrafts(local["body-drafts"]);
     if (local["lastBackup"]) setLastBackup(local["lastBackup"]);
     if (local["goals"]) setGoals(local["goals"]);
     const localDays = {};
@@ -238,6 +241,7 @@ function MainApp({ user, onLogout }) {
       if (remote["custom-foods"]) setCustomFoods(remote["custom-foods"]);
       if (remote["custom-exercises"]) setCustomEx(remote["custom-exercises"]);
       if (remote["bodylog"]) setBodyLog([...remote["bodylog"]].sort((a, b) => a.date.localeCompare(b.date)));
+      if (remote["body-drafts"]) setBodyDrafts(remote["body-drafts"]);
       if (remote["lastBackup"]) setLastBackup(remote["lastBackup"]);
       if (remote["goals"]) setGoals(remote["goals"]);
       const remoteDays = {};
@@ -329,6 +333,22 @@ function MainApp({ user, onLogout }) {
   const deleteBody = async (idx) => {
     const nl = bodyLog.filter((_, i) => i !== idx);
     setBodyLog(nl); await store.set("bodylog", nl);
+  };
+
+  // 완성 대기 초안 확정 — 골격근(+점수) 입력 시 정식 bodylog 레코드로 승격 + 초안 제거.
+  // 날짜는 명시 인자(선택 날짜 클로저 아님 — 자정 넘김·과거 초안에도 초안 날짜로 기록).
+  // muscle 없으면 draftToRecord가 null — muscle:0이 bodylog에 들어가는 경로를 계약으로 차단.
+  // 기준은 localStorage 미러 — 다른 기기의 확정을 낡은 state로 되덮는 사고 방지.
+  const confirmBodyDraft = async (d, muscle, score) => {
+    const local = store.getLocalAll();
+    const drafts = local["body-drafts"] || bodyDrafts;
+    const entry = draftToRecord(d, drafts[d], muscle, score);
+    if (!entry) return;
+    const base = Array.isArray(local["bodylog"]) ? local["bodylog"] : bodyLog;
+    const nl = [...base.filter(b => b.date !== d), entry].sort((a, b) => a.date.localeCompare(b.date));
+    setBodyLog(nl); await store.set("bodylog", nl);
+    const nd = { ...drafts }; delete nd[d];
+    setBodyDrafts(nd); await store.set("body-drafts", nd);
   };
 
   const saveCustomFood = async (food) => {
@@ -484,7 +504,7 @@ function MainApp({ user, onLogout }) {
 
   // JSON 전체 백업 — 복원 가능한 유일한 형태 (CSV는 열람용)
   const exportJson = async () => {
-    const backup = buildBackup({ allDays, bodyLog, goals, customFoods, customExercises: customEx }, new Date().toISOString());
+    const backup = buildBackup({ allDays, bodyLog, goals, customFoods, customExercises: customEx, bodyDrafts }, new Date().toISOString());
     downloadFile(JSON.stringify(backup, null, 2), `daniel_backup_${today()}.json`, "application/json");
     const now = today();
     setLastBackup(now); setJustBacked(true);
@@ -512,7 +532,7 @@ function MainApp({ user, onLogout }) {
     );
     if (!ok) return;
     // 1) 현재 상태 안전본 — 실수로 옛 백업을 넣어도 되돌릴 길을 남긴다
-    const safety = buildBackup({ allDays, bodyLog, goals, customFoods, customExercises: customEx }, new Date().toISOString());
+    const safety = buildBackup({ allDays, bodyLog, goals, customFoods, customExercises: customEx, bodyDrafts }, new Date().toISOString());
     downloadFile(JSON.stringify(safety), `daniel_safety_${today()}.json`, "application/json");
     // 2) 적용 — 상태 즉시 교체 후 store 반영(로컬 우선이라 즉시 안전)
     const d = obj.data;
@@ -521,6 +541,7 @@ function MainApp({ user, onLogout }) {
     const staleDays = Object.keys(allDays).filter((k) => !newDays[k]);
     setAllDays(newDays);
     setBodyLog(sortedLog);
+    setBodyDrafts(d.bodyDrafts || {});
     setGoals(d.goals || {});
     setCustomFoods(d.customFoods || []);
     setCustomEx(d.customExercises || []);
@@ -528,6 +549,7 @@ function MainApp({ user, onLogout }) {
       for (const [k, rec] of Object.entries(newDays)) await store.set(`day:${k}`, rec);
       for (const k of staleDays) await store.delete(`day:${k}`);
       await store.set("bodylog", sortedLog);
+      await store.set("body-drafts", d.bodyDrafts || {});
       await store.set("goals", d.goals || {});
       await store.set("custom-foods", d.customFoods || []);
       await store.set("custom-exercises", d.customExercises || []);
@@ -676,20 +698,38 @@ function MainApp({ user, onLogout }) {
       if (!r.ok) return;
       data = await r.json();
     } catch { return; }
-    setImportInfo({ cutover: data.cutover || null, log: Array.isArray(data.log) ? data.log : [], enabled: !!data.enabled });
-    const entries = Array.isArray(data.entries) ? data.entries : [];
-    if (!entries.length) return;
+    setImportInfo({
+      cutover: data.cutover || null, log: Array.isArray(data.log) ? data.log : [], enabled: !!data.enabled,
+      bodyCutover: data.bodyCutover || null, bodyLog: Array.isArray(data.bodyLog) ? data.bodyLog : [], bodyEnabled: !!data.bodyEnabled,
+    });
     // 병합 기준은 localStorage 미러(세션 중 항상 최신 진실) — state 스냅샷 지연과 무관
     const local = store.getLocalAll();
-    const days = {};
-    for (const k in local) { if (k.startsWith("day:")) days[k.slice(4)] = local[k]; }
-    const { updatedDays, ackKeys } = mergeImports(days, entries, { weight: monthWeight, todayStr: today(), mode });
-    for (const d of Object.keys(updatedDays)) await store.set(`day:${d}`, updatedDays[d]);
-    if (Object.keys(updatedDays).length > 0) setAllDays(prev => ({ ...prev, ...updatedDays }));
-    if (ackKeys.length) {
-      try {
-        await fetch("/api/import-inbox", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ uid, idToken, action: "ack", keys: ackKeys }) });
-      } catch { /* ack 실패 → 사서함에 남아 다음 pull에서 멱등 재처리 */ }
+    const entries = Array.isArray(data.entries) ? data.entries : [];
+    if (entries.length) {
+      const days = {};
+      for (const k in local) { if (k.startsWith("day:")) days[k.slice(4)] = local[k]; }
+      const { updatedDays, ackKeys } = mergeImports(days, entries, { weight: monthWeight, todayStr: today(), mode });
+      for (const d of Object.keys(updatedDays)) await store.set(`day:${d}`, updatedDays[d]);
+      if (Object.keys(updatedDays).length > 0) setAllDays(prev => ({ ...prev, ...updatedDays }));
+      if (ackKeys.length) {
+        try {
+          await fetch("/api/import-inbox", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ uid, idToken, action: "ack", keys: ackKeys }) });
+        } catch { /* ack 실패 → 사서함에 남아 다음 pull에서 멱등 재처리 */ }
+      }
+    }
+    // 체성분 초안 병합(별도 사서함·별도 저장 키) — 잠금·스윕은 순수 모듈(bodyDraft.js).
+    // 항목이 없어도 스윕은 돈다: 다른 기기가 확정한 날짜의 잔존 초안(유령)을 재동기화마다 청소.
+    const bodyEntries = Array.isArray(data.bodyEntries) ? data.bodyEntries : [];
+    const curDrafts = local["body-drafts"] || {};
+    const curLog = Array.isArray(local["bodylog"]) ? local["bodylog"] : [];
+    if (bodyEntries.length || Object.keys(curDrafts).length) {
+      const bd = mergeBodyDrafts(curDrafts, curLog, bodyEntries, { todayStr: today() });
+      if (bd.changed) { setBodyDrafts(bd.drafts); await store.set("body-drafts", bd.drafts); }
+      if (bd.ackKeys.length) {
+        try {
+          await fetch("/api/import-inbox", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ uid, idToken, action: "ack", bodyKeys: bd.ackKeys }) });
+        } catch { /* ack 실패 → 다음 pull에서 멱등 재처리 */ }
+      }
     }
   }, [monthWeight, mode]);
   useEffect(() => { syncImportsRef.current = syncImports; }, [syncImports]);
@@ -1728,7 +1768,7 @@ function MainApp({ user, onLogout }) {
         </div>)}
 
         {/* 가로모드 폭 캡(홈과 동일 960) — 초광폭 창에서 히어로 차트·2컬럼 카드 무제한 확장 방지 */}
-        {tab === "body" && <div style={landscape ? { maxWidth: 960, margin: "0 auto" } : undefined}><BodyTab bodyLog={bodyLog} addBody={addBody} date={date} onEditBody={editBody} onDeleteBody={deleteBody} user={user} goals={goals} onSaveGoals={saveGoals} allDays={allDays} /></div>}
+        {tab === "body" && <div style={landscape ? { maxWidth: 960, margin: "0 auto" } : undefined}><BodyTab bodyLog={bodyLog} addBody={addBody} date={date} onEditBody={editBody} onDeleteBody={deleteBody} user={user} goals={goals} onSaveGoals={saveGoals} allDays={allDays} bodyDrafts={bodyDrafts} onConfirmDraft={confirmBodyDraft} /></div>}
         {tab === "stats" && <div style={landscape ? { maxWidth: 960, margin: "0 auto" } : undefined}><StatsTab bodyLog={bodyLog} allDays={allDays} goals={goals} onSaveGoals={saveGoals} appTargets={TARGETS} targetsByMode={targetsByMode} mode={mode} appAdjust={appAdjust} tdeeHistory={tdeeHistory} /></div>}
       </div>
 
@@ -1986,6 +2026,38 @@ function MainApp({ user, onLogout }) {
               </div>
             ))}
             {importInfo !== null && (importInfo.log || []).length === 0 && (
+              <div style={{ padding: "8px 12px", fontSize: 10, color: "#4a4a4a" }}>아직 수신 기록이 없어요</div>
+            )}
+          </div>
+          {/* 인바디 체성분 자동 수신 관측 — 첫 실전송 확인 3종(§1.4: 매칭 지표명·체지방 수신형·샘플 수)이
+              이 로그만으로 판별되도록 표시. 수신 파이프라인은 운동과 완전 분리(별도 함수·사서함·로그) */}
+          <div style={{ background: "#252525", borderRadius: 10, marginTop: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", borderBottom: "0.5px solid rgba(255,255,255,0.04)" }}>
+              <div>
+                <div style={{ fontSize: 12, color: "#f5f5f0" }}>🧬 인바디 체성분 자동 수신</div>
+                <div style={{ fontSize: 10, color: "#707070", marginTop: 2 }}>
+                  {importInfo === null ? "상태 미확인 — '지금 확인'을 눌러 주세요"
+                    : importInfo.bodyEnabled ? `켜짐 · 컷오버 ${importInfo.bodyCutover || "-"} 이후 측정만 · 아침 창(00~12시)`
+                    : "꺼짐 — IMPORT_BODY_CUTOVER_DATE 설정 필요 (docs/inbody-setup.md)"}
+                </div>
+              </div>
+            </div>
+            {(importInfo?.bodyLog || []).slice(0, 5).map((g, i, arr) => (
+              <div key={i} style={{ padding: "7px 12px", borderBottom: i < arr.length - 1 ? "0.5px solid rgba(255,255,255,0.04)" : "none", fontSize: 10, fontFamily: "monospace", color: "#8a8a8a" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                  <span>{String(g.at || "").slice(5, 16).replace("T", " ")}</span>
+                  <span>샘플{g.samplesToday ?? "-"} +{g.accepted} 중복{g.ignored} 거부{g.rejected} 창밖{g.excluded}</span>
+                </div>
+                {(g.matchedNames?.length || g.unmatchedNames?.length || g.fatPctForm) && (
+                  <div style={{ marginTop: 2, fontSize: 9, color: "#5a5a5a", overflowWrap: "anywhere" }}>
+                    {g.matchedNames?.length ? `수신 ${g.matchedNames.join(",")}` : ""}
+                    {g.fatPctForm ? ` · 체지방형 ${g.fatPctForm}` : ""}
+                    {g.unmatchedNames?.length ? ` · 미매칭 ${g.unmatchedNames.join(",")}` : ""}
+                  </div>
+                )}
+              </div>
+            ))}
+            {importInfo !== null && (importInfo.bodyLog || []).length === 0 && (
               <div style={{ padding: "8px 12px", fontSize: 10, color: "#4a4a4a" }}>아직 수신 기록이 없어요</div>
             )}
           </div>

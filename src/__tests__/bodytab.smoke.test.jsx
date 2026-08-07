@@ -27,3 +27,32 @@ describe("BodyTab 렌더 스모크", () => {
     expect(typeof h).toBe("string");
   });
 });
+
+describe("완성 대기 초안 카드 (인바디 자동 수신 — §1.5 UI 요구)", () => {
+  const drafts = { "2026-07-06": { weight: 73.6, fatPct: 18.7, lbm: 60.5, sampleTs: 1 } };
+
+  it("미확정 초안 → 자동 수신 배지·프리필 값·확정 안내가 렌더 (선택 날짜와 무관)", () => {
+    const h = renderToStaticMarkup(<BodyTab {...props} bodyDrafts={drafts} />);
+    expect(h).toContain("자동 수신");
+    expect(h).toContain("2026-07-06");
+    expect(h).toContain("73.6");
+    expect(h).toContain("18.7");
+    expect(h).toContain("골격근·점수 입력하면 확정");
+  });
+
+  it("확정된 날짜의 잔존 초안(다중기기 유령)은 스윕 전에도 표시하지 않는다(이중 방어)", () => {
+    const h = renderToStaticMarkup(<BodyTab {...props} bodyDrafts={{ "2026-07-05": { weight: 73.6, sampleTs: 1 } }} />);
+    expect(h).not.toContain("자동 수신");
+  });
+
+  it("bodyDrafts 프롭 없이도 기존과 동일 렌더(하위 호환)", () => {
+    const h = renderToStaticMarkup(<BodyTab {...props} />);
+    expect(h).not.toContain("자동 수신");
+  });
+
+  it("확정 레코드(source:import)는 히스토리에 🧬 배지", () => {
+    const log = [...props.bodyLog, { date: "2026-07-06", weight: 73.6, muscle: 34.7, fatPct: 18.7, score: 85, lbm: 60.5, source: "import" }];
+    const h = renderToStaticMarkup(<BodyTab {...props} bodyLog={log} />);
+    expect(h).toContain("🧬");
+  });
+});

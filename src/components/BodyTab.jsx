@@ -3,17 +3,19 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, ReferenceL
 import store, { getCurrentUserId } from "../store.js";
 import { isCompletedDay } from "../utils.js";
 import { bodyMetrics } from "../bodyMetrics.js";
+import { checkSmmLbm } from "../bodyDraft.js";
 import { useLongPress } from "../hooks/useLongPress.js";
 import { useOrientation } from "../hooks/useOrientation.js";
 import { LongPressActionBar } from "./LongPressActionBar.jsx";
 import { ProgressPhotos } from "./ProgressPhotos.jsx";
 
-export function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals, onSaveGoals, allDays }) {
+export function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals, onSaveGoals, allDays, bodyDrafts = {}, onConfirmDraft }) {
   const [w, setW] = useState("");
   const [m, setM] = useState("");
   const [fp, setFp] = useState("");
   const [sc, setSc] = useState("");
   const [showForm, setShowForm] = useState(false);
+  const [draftIn, setDraftIn] = useState({}); // 초안별 확정 입력 {date: {m, sc}} — 프리필 주입 없음(열린 폼 덮어쓰기 금지)
   const [editIdx, setEditIdx] = useState(null);
   const [ew, setEw] = useState("");
   const [em, setEm] = useState("");
@@ -178,6 +180,56 @@ export function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user
   const adjustGoal = (key, delta) => { if (onSaveGoals && goals) { const v = Math.round(((goals[key] || 0) + delta) * 10) / 10; if (v > 0) onSaveGoals({ ...goals, [key]: v }); } };
 
   const displayHistory = showAllHistory ? bodyLog.slice(-30).reverse() : bodyLog.slice(-3).reverse();
+
+  // ── 완성 대기 초안 (인바디 자동 수신) ──
+  // 선택 날짜와 무관하게 전부 노출 — 과거 초안이 비가시로 적체되지 않게. 확정된 날짜는
+  // 병합 스윕 이전이라도 표시하지 않는다(이중 방어). 확정은 골격근 필수 — muscle:0 유입 차단.
+  const pendingDrafts = useMemo(() =>
+    Object.entries(bodyDrafts || {})
+      .filter(([d]) => !bodyLog.some(b => b.date === d))
+      .sort((a, b) => b[0].localeCompare(a[0])),
+    [bodyDrafts, bodyLog]);
+
+  const draftCards = pendingDrafts.length > 0 && (
+    <div>
+      {pendingDrafts.map(([d, df]) => {
+        const cur = draftIn[d] || { m: "", sc: "" };
+        const setCur = (patch) => setDraftIn(prev => ({ ...prev, [d]: { ...cur, ...patch } }));
+        const guard = checkSmmLbm(parseFloat(cur.m), df.lbm);
+        const canConfirm = parseFloat(cur.m) > 0 && df.weight > 0;
+        return (
+          <div key={d} style={{ background: "#1e1e1e", border: "1px solid rgba(212,175,55,0.25)", borderRadius: 16, padding: 14, marginBottom: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+              <span style={{ background: "rgba(212,175,55,0.15)", color: "#d4af37", fontSize: 9, padding: "2px 6px", borderRadius: 4, fontWeight: 500 }}>🧬 자동 수신</span>
+              <span style={{ fontSize: 11, color: "#707070", fontFamily: "monospace" }}>{d}</span>
+            </div>
+            <div style={{ fontSize: 13, color: "#f5f5f0", marginBottom: 2 }}>
+              체중 <b>{df.weight > 0 ? df.weight : "—"}</b>kg · 체지방률 <b>{df.fatPct > 0 ? df.fatPct : "—"}</b>%
+              {df.lbm > 0 && <span style={{ fontSize: 11, color: "#707070" }}> · 제지방 {df.lbm}kg</span>}
+            </div>
+            <div style={{ fontSize: 10, color: "#707070", marginBottom: 8 }}>체중·체지방률 자동 수신됨 — 골격근·점수 입력하면 확정</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+              <input type="number" step="0.1" placeholder="골격근량 (kg)" value={cur.m} onChange={e => setCur({ m: e.target.value })} style={is} />
+              <input type="number" step="1" placeholder="인바디 점수" value={cur.sc} onChange={e => setCur({ sc: e.target.value })} style={is} />
+            </div>
+            {guard.warn && (
+              <div style={{ background: "rgba(224,82,82,0.08)", border: "1px solid rgba(224,82,82,0.2)", borderRadius: 6, padding: "6px 8px", marginBottom: 8, fontSize: 10, color: "#e05252" }}>
+                ⚠ 골격근/제지방 비율 {guard.ratio} — 보통 0.53~0.61 범위입니다. 입력값을 확인하세요 (저장은 가능)
+              </div>
+            )}
+            {!(df.weight > 0) && (
+              <div style={{ fontSize: 10, color: "#e05252", marginBottom: 8 }}>체중이 없는 초안 — 아래 수동 기록을 사용하세요</div>
+            )}
+            <button onClick={() => { if (canConfirm && onConfirmDraft) { onConfirmDraft(d, cur.m, cur.sc); setDraftIn(prev => { const n = { ...prev }; delete n[d]; return n; }); } }}
+              disabled={!canConfirm}
+              style={{ width: "100%", padding: 10, background: canConfirm ? "#d4af37" : "#2a2a2a", border: "none", borderRadius: 8, color: canConfirm ? "#141414" : "#666", fontSize: 13, fontWeight: 500, cursor: canConfirm ? "pointer" : "not-allowed" }}>
+              확정 (잠금)
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
 
   // ── 카드 JSX 추출 (가로/세로 재배치용 — 카드 내부 코드·조건부 렌더 조건 무변경) ──
 
@@ -464,6 +516,10 @@ export function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user
                 <input type="number" step="0.1" placeholder="체지방률" value={efp} onChange={e => setEfp(e.target.value)} style={{ ...is, marginBottom: 4, fontSize: 12, padding: "8px 10px" }} />
                 <input type="number" step="1" placeholder="점수" value={esc} onChange={e => setEsc(e.target.value)} style={{ ...is, marginBottom: 4, fontSize: 12, padding: "8px 10px" }} />
               </div>
+              {/* LBM 오타 가드 — 자동 수신 레코드(lbm 보유)만 발동, 경고 전용(1.3) */}
+              {(() => { const g = checkSmmLbm(parseFloat(em), b.lbm); return g.warn ? (
+                <div style={{ fontSize: 10, color: "#e05252", marginBottom: 4 }}>⚠ 골격근/제지방 비율 {g.ratio} — 보통 0.53~0.61. 입력값을 확인하세요 (저장은 가능)</div>
+              ) : null; })()}
               <div style={{ display: "flex", gap: 4 }}>
                 <button onClick={() => setEditIdx(null)} style={{ flex: 1, padding: 6, background: "#2a2a2a", border: "none", borderRadius: 6, color: "#8a8a8a", fontSize: 11, cursor: "pointer" }}>취소</button>
                 <button onClick={saveEdit} style={{ flex: 1, padding: 6, background: "#4a8fc9", border: "none", borderRadius: 6, color: "#fff", fontSize: 11, fontWeight: 500, cursor: "pointer" }}>저장</button>
@@ -475,6 +531,7 @@ export function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user
                 <div style={{ flex: 1 }}>
                   <span style={{ fontFamily: "monospace", color: "#4a4a4a", marginRight: 6 }}>{b.date.slice(5)}</span>
                   <span>{b.weight}kg · {b.muscle}kg · {b.fatPct}%</span>
+                  {b.source === "import" && <span style={{ fontSize: 9, color: "#d4af37", marginLeft: 5 }}>🧬</span>}
                 </div>
                 <span style={{ color: "#d4af37", fontFamily: "monospace", fontSize: 10, minWidth: 28, textAlign: "right" }}>{b.score || "—"}</span>
               </div>
@@ -506,6 +563,7 @@ export function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user
   return (
     <div style={landscape ? { display: "grid", gridTemplateColumns: "1fr 1fr", columnGap: 12, rowGap: 0, alignItems: "start" } : undefined}>
       <div style={cell("1 / -1", "1")}>
+        {draftCards}
         {startButton}
         {formCard}
         {toastCard}
