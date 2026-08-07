@@ -83,8 +83,11 @@ async function cloudPullIfDue(uid, force = false) {
     try { await kv("SET", failKey, "0"); await kv("DEL", authBlockKey); } catch { /* 무시 */ }
     console.log(`[import-inbox] cloud pull accepted=${accepted} ignored=${ignored} rejected=${summary.rejected} excluded=${summary.excluded}`);
   } catch (e) {
-    // 실패도 카드에 보인다 — "지금 확인"이 성공이든 실패든 반드시 로그 한 줄을 남긴다(관측성)
-    await pushBodyLogError(uid, "cloud", e);
+    // 실패도 카드에 보인다 — "지금 확인"이 성공이든 실패든 반드시 로그 한 줄을 남긴다(관측성).
+    // 인증 실패면 크리덴셜 "형태"(길이·앞 3자)를 덧붙인다 — 서버에 저장된 값이 사용자가
+    // 아는 값과 다른지를 값 노출 없이 판별하는 유일한 창구.
+    const isAuthError = AUTH_ERROR_RE.test(String((e && e.message) || ""));
+    await pushBodyLogError(uid, "cloud", isAuthError ? `${e.message} — ${credShape(ID, PW)}` : e);
     // 실패 시 스로틀 도장은 "유지"한다(해제 금지) — 실패 상태에서 즉시 재시도를 반복하면
     // 인바디가 계정을 잠글 수 있다. 카운터를 올려 상한을 넘으면 force도 창을 지키게 한다.
     try { await kv("SET", failKey, String(fails + 1)); } catch { /* 무시 */ }
@@ -94,6 +97,13 @@ async function cloudPullIfDue(uid, force = false) {
     }
     throw e;
   }
+}
+
+// 인증 실패 진단용 크리덴셜 요약 — 값은 절대 남기지 않고 "형태"만 보여준다.
+// 서버에 저장된 값이 사용자가 아는 값과 다른지(오타·잘림·공백·앞자리 0 누락)를
+// 로그 한 줄로 판별하기 위한 것. 아이디는 앞 3자만(010 vs 10 구분), 나머지는 길이만.
+export function credShape(id, pw) {
+  return `ID ${id.length}자(${id.slice(0, 3)}…) · PW ${pw.length}자`;
 }
 
 // Upstash HGETALL은 REST 응답에서 [field, value, field, value, ...] 평탄 배열로 온다.

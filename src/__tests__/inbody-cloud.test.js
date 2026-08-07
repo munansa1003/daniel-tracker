@@ -270,7 +270,9 @@ describe("사서함 pull 합류 — 클라우드 직수신·스로틀·실패 �
     pullRecentMetrics.mockRejectedValueOnce(new Error("인바디 API 오류: ID_BLOCK"));
     const first = await pullInbox();
     expect(first.entries).toBeDefined();                   // 실패해도 pull 응답은 정상(격리)
-    expect(lastBodyLog()).toMatchObject({ source: "cloud", error: "인바디 API 오류: ID_BLOCK" });
+    // 인증 실패에는 크리덴셜 "형태"(길이·앞 3자)가 덧붙는다 — 값 노출 없이 오타·잘림 판별
+    expect(lastBodyLog().error).toBe("인바디 API 오류: ID_BLOCK — ID 11자(010…) · PW 2자");
+    expect(lastBodyLog().error).not.toContain("pw");   // 값 자체는 절대 남기지 않는다
   });
 
   it("실패해도 스로틀 도장은 유지 — 자동 pull이 실패 상태에서 인바디를 두드리지 않는다(계정 보호)", async () => {
@@ -300,7 +302,8 @@ describe("사서함 pull 합류 — 클라우드 직수신·스로틀·실패 �
     const forcePull = () => inboxCall({ uid: UID, idToken: "id-token-good", action: "pull", force: true });
     await forcePull();
     expect(pullRecentMetrics).toHaveBeenCalledTimes(1);
-    expect(lastBodyLog()).toMatchObject({ source: "cloud", error: "인바디 API 오류: PW_FAIL_2" });
+    expect(lastBodyLog().error).toContain("PW_FAIL_2");
+    expect(lastBodyLog().error).toContain("PW 2자");   // 저장된 비밀번호의 형태로 오타·잘림 판별
     await forcePull(); await forcePull();                   // 연타해도 인바디를 두드리지 않는다
     expect(pullRecentMetrics).toHaveBeenCalledTimes(1);
   });
