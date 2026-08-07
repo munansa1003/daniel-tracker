@@ -283,13 +283,39 @@ describe("사서함 pull 합류 — 클라우드 직수신·스로틀·실패 �
     expect(pullRecentMetrics).toHaveBeenCalledTimes(1);
   });
 
-  it("연속 실패 상한(3회) 도달 → ' 지금 확인'(force)도 창을 지킨다 (연타로 계정 잠금 유발 차단)", async () => {
-    pullRecentMetrics.mockRejectedValue(new Error("인바디 API 오류: ID_BLOCK"));
+  it("연속 실패 상한(3회) 도달 → '지금 확인'(force)도 창을 지킨다 (연타로 계정 잠금 유발 차단)", async () => {
+    // 일시적 오류(네트워크·5xx)는 재시도할 가치가 있으므로 상한까지는 force를 허용한다
+    pullRecentMetrics.mockRejectedValue(new Error("인바디 API 502"));
     const forcePull = () => inboxCall({ uid: UID, idToken: "id-token-good", action: "pull", force: true });
     await forcePull(); await forcePull(); await forcePull(); // 1·2·3회차: force가 창을 무시하고 시도
     expect(pullRecentMetrics).toHaveBeenCalledTimes(3);
     await forcePull();                                      // 상한 도달 — 이번엔 창을 지켜 호출 안 함
     expect(pullRecentMetrics).toHaveBeenCalledTimes(3);
+  });
+
+  it("인증 실패(PW_FAIL) → 단 1회로 크리덴셜 봉인, force도 즉시 차단 (남은 시도 횟수 보호)", async () => {
+    // 실측 2026-08-07: 잘못된 비밀번호로 재시도할수록 인바디가 PW_FAIL_4 → _3 → _2로
+    // 남은 횟수를 깎아 계정 잠금 직전까지 갔다. 인증 실패는 재시도로 낫지 않으므로 즉시 봉인한다.
+    pullRecentMetrics.mockRejectedValue(new Error("인바디 API 오류: PW_FAIL_2"));
+    const forcePull = () => inboxCall({ uid: UID, idToken: "id-token-good", action: "pull", force: true });
+    await forcePull();
+    expect(pullRecentMetrics).toHaveBeenCalledTimes(1);
+    expect(lastBodyLog()).toMatchObject({ source: "cloud", error: "인바디 API 오류: PW_FAIL_2" });
+    await forcePull(); await forcePull();                   // 연타해도 인바디를 두드리지 않는다
+    expect(pullRecentMetrics).toHaveBeenCalledTimes(1);
+  });
+
+  it("봉인은 크리덴셜 지문에 묶인다 — env에서 비밀번호를 고치면 24시간 대기 없이 즉시 재시도", async () => {
+    pullRecentMetrics.mockRejectedValue(new Error("인바디 API 오류: PW_FAIL_2"));
+    const forcePull = () => inboxCall({ uid: UID, idToken: "id-token-good", action: "pull", force: true });
+    await forcePull();
+    await forcePull();
+    expect(pullRecentMetrics).toHaveBeenCalledTimes(1);      // 봉인 중
+    vi.stubEnv("INBODY_LOGIN_PW", "고친-비밀번호");           // 지문이 바뀌면 다른 봉인으로 취급
+    pullRecentMetrics.mockResolvedValue(cloudResult());
+    await forcePull();
+    expect(pullRecentMetrics).toHaveBeenCalledTimes(2);      // 즉시 재시도되고
+    expect(lastBodyLog()).toMatchObject({ source: "cloud", accepted: 1 }); // 성공
   });
 
   it("성공하면 실패 카운터 리셋 — 일시적 장애 뒤 정상 복귀 시 force가 다시 즉시 동작", async () => {

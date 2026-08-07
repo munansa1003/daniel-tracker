@@ -13,6 +13,7 @@ import { parseTzOffset, HAE_TZ_OFFSET_MIN_DEFAULT } from "./_lib/import-rules.js
 import { planBodyImport } from "./_lib/body-import-rules.js";
 import { storeBodyEntries, pushBodyLog, pushBodyLogError } from "./_lib/body-inbox-store.js";
 import { pullRecentMetrics } from "./_lib/inbody-cloud.js";
+import { createHash } from "node:crypto";
 
 // ── 인바디 클라우드 직수신 (A안) ─────────────────────────────────
 // 앱이 사서함을 pull하는 순간 서버가 인바디 클라우드에서 최신 측정을 당겨, HAE 단축어와
@@ -28,6 +29,15 @@ const CLOUD_PULL_INTERVAL_MS = 30 * 60 * 1000;
 // 자동·수동 모두 30분 창을 지키게 해 계정을 보호한다. 성공하면 카운터는 0으로 리셋.
 const CLOUD_FAIL_CEILING = 3;
 
+// 인증 실패(비밀번호 불일치·ID 차단)는 "재시도하면 언젠가 되는" 오류가 아니다 — 같은
+// 크리덴셜로 다시 두드릴수록 인바디의 실패 카운터만 깎아 계정을 잠근다(실측: PW_FAIL_4 →
+// _3 → _2 카운트다운). 그래서 인증 실패가 나오면 그 크리덴셜을 24시간 봉인하고, 자동은
+// 물론 "지금 확인"(force)도 막는다. 봉인은 크리덴셜 지문에 묶여 있어 env에서 비밀번호를
+// 고치는 즉시 자동 해제된다(지문이 달라지면 다른 봉인으로 취급) — 24시간을 기다릴 필요 없음.
+const AUTH_BLOCK_MS = 24 * 60 * 60 * 1000;
+const AUTH_ERROR_RE = /PW_FAIL|ID_BLOCK|로그인 실패/i;
+const credFingerprint = (id, pw) => createHash("sha256").update(`${id}\n${pw}`).digest("hex").slice(0, 16);
+
 async function cloudPullIfDue(uid, force = false) {
   // trim: Vercel 환경변수에 붙여넣기 공백·개행이 섞이는 사고 방어(토큰 오염 사례의 교훈)
   const ID = (process.env.INBODY_LOGIN_ID || "").trim();
@@ -41,6 +51,17 @@ async function cloudPullIfDue(uid, force = false) {
   // 단 연속 실패가 상한을 넘으면 force도 창을 지킨다 — 계정 잠금 방어(위 상수 주석).
   const throttleKey = `import:body-cloud-at:${uid}`;
   const failKey = `import:body-cloud-fail:${uid}`;
+  const authBlockKey = `import:body-cloud-authblock:${uid}`;
+  const fp = credFingerprint(ID, PW);
+
+  // 인증 봉인 확인 — 같은 크리덴셜이 24시간 안에 인증 실패했으면 아예 시도하지 않는다.
+  // env를 고쳐 지문이 바뀌면 이 조건이 자연히 풀린다(즉시 재시도 가능).
+  const authBlock = await kv("GET", authBlockKey);
+  if (authBlock) {
+    const [blockedFp, blockedAt] = String(authBlock).split("|");
+    if (blockedFp === fp && Date.now() - Date.parse(blockedAt) < AUTH_BLOCK_MS) return;
+  }
+
   const fails = parseInt((await kv("GET", failKey)) || "0", 10) || 0;
   if (!force || fails >= CLOUD_FAIL_CEILING) {
     const last = await kv("GET", throttleKey);
@@ -58,7 +79,8 @@ async function cloudPullIfDue(uid, force = false) {
     const { entries, summary } = planBodyImport(payload, { cutoverDate: CUTOVER, tzOffsetMin: tz });
     const { accepted, ignored } = await storeBodyEntries(uid, entries);
     await pushBodyLog(uid, "cloud", { accepted, ignored, summary });
-    try { await kv("SET", failKey, "0"); } catch { /* 무시 */ } // 성공 — 실패 카운터 리셋
+    // 성공 — 실패 카운터·인증 봉인 모두 해제
+    try { await kv("SET", failKey, "0"); await kv("DEL", authBlockKey); } catch { /* 무시 */ }
     console.log(`[import-inbox] cloud pull accepted=${accepted} ignored=${ignored} rejected=${summary.rejected} excluded=${summary.excluded}`);
   } catch (e) {
     // 실패도 카드에 보인다 — "지금 확인"이 성공이든 실패든 반드시 로그 한 줄을 남긴다(관측성)
@@ -66,6 +88,10 @@ async function cloudPullIfDue(uid, force = false) {
     // 실패 시 스로틀 도장은 "유지"한다(해제 금지) — 실패 상태에서 즉시 재시도를 반복하면
     // 인바디가 계정을 잠글 수 있다. 카운터를 올려 상한을 넘으면 force도 창을 지키게 한다.
     try { await kv("SET", failKey, String(fails + 1)); } catch { /* 무시 */ }
+    // 인증 실패는 재시도로 낫지 않는다 — 이 크리덴셜을 즉시 봉인해 남은 시도 횟수를 지킨다.
+    if (AUTH_ERROR_RE.test(String((e && e.message) || ""))) {
+      try { await kv("SET", authBlockKey, `${fp}|${new Date().toISOString()}`); } catch { /* 무시 */ }
+    }
     throw e;
   }
 }
