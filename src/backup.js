@@ -7,7 +7,9 @@ export const BACKUP_SCHEMA = 1;
 const isDateStr = (s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
 
 // 전체 백업 객체 생성 (exportedAt은 호출측에서 주입 — 테스트 결정성)
-export function buildBackup({ allDays, bodyLog, goals, customFoods, customExercises }, exportedAt) {
+// bodyDrafts(체성분 완성 대기 초안)는 선택 필드 — 비어 있으면 키 자체를 생략해
+// 기존 백업과 바이트 단위 동일 유지(구버전 앱은 미지 키를 무시하므로 하위 호환).
+export function buildBackup({ allDays, bodyLog, goals, customFoods, customExercises, bodyDrafts }, exportedAt) {
   return {
     app: BACKUP_APP,
     schema: BACKUP_SCHEMA,
@@ -18,6 +20,7 @@ export function buildBackup({ allDays, bodyLog, goals, customFoods, customExerci
       goals: goals || {},
       customFoods: customFoods || [],
       customExercises: customExercises || [],
+      ...(bodyDrafts && Object.keys(bodyDrafts).length > 0 ? { bodyDrafts } : {}),
     },
   };
 }
@@ -40,6 +43,12 @@ export function validateBackup(obj) {
   if (!Array.isArray(d.bodylog)) return { ok: false, error: "체성분(bodylog) 형식 오류" };
   for (const b of d.bodylog) {
     if (!b || !isDateStr(b.date) || typeof b.weight !== "number") return { ok: false, error: "체성분 항목 형식 오류" };
+  }
+  if (d.bodyDrafts !== undefined) {
+    if (!d.bodyDrafts || typeof d.bodyDrafts !== "object" || Array.isArray(d.bodyDrafts)) return { ok: false, error: "체성분 초안(bodyDrafts) 형식 오류" };
+    for (const k in d.bodyDrafts) {
+      if (!isDateStr(k)) return { ok: false, error: `체성분 초안 날짜 키 오류: ${k}` };
+    }
   }
   if (!d.goals || typeof d.goals !== "object" || Array.isArray(d.goals)) return { ok: false, error: "목표(goals) 형식 오류" };
   if (d.customFoods && !Array.isArray(d.customFoods)) return { ok: false, error: "직접 추가 음식 형식 오류" };
