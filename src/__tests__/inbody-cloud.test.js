@@ -190,11 +190,12 @@ describe("스캔 → 표준 지표 변환 (순수 계층)", () => {
     expect(summary.rejected).toBe(2);
   });
 
-  it("저녁 재측정은 클라우드 경로에서도 아침 창 가드(B1)에 걸린다", () => {
+  it("저녁 재측정도 클라우드 경로에서 수용된다 (B1 완화 — 하루 종일 최신 채택)", () => {
     const evening = { ...SCAN, DATETIMES: "20260807210000", BCA: { ...SCAN.BCA, DATETIMES: "20260807210000" } };
     const { entries, summary } = planBodyImport(scansToMetricsPayload([evening]), { cutoverDate: "2026-08-01", tzOffsetMin: 540 });
-    expect(entries).toHaveLength(0);
-    expect(summary.excluded).toBe(5); // 5개 지표 샘플 전부 창밖 제외
+    expect(entries).toHaveLength(1);
+    expect(summary.excluded).toBe(0);
+    expect(entries[0]).toMatchObject({ date: "2026-08-07", sampleTs: Date.parse("2026-08-07T21:00:00+09:00") });
   });
 });
 
@@ -207,8 +208,30 @@ describe("자동 확정 — 4종 실측 완비 + LBM 가드 통과 시에만 (�
     expect(r.drafts[TODAY]).toBeUndefined();
     expect(r.bodyLog).toEqual([{
       date: TODAY, weight: 75.7, muscle: 35.1, fatPct: 18.2, score: 82,
-      lbm: 61.9, source: "import", auto: true,
+      lbm: 61.9, source: "import", auto: true, sampleTs: TS, // sampleTs: 더 최신 재측정 갱신 판별용
     }]);
+  });
+
+  it("자동 확정 레코드는 같은 날 '더 최신' 측정으로 갱신된다 (하루 종일 재측정 반영)", () => {
+    const first = autoConfirmDrafts({ [TODAY]: fullDraft }, []);
+    // 저녁 재측정(더 큰 sampleTs)이 초안으로 도착 → merge가 잠그지 않고, autoConfirm이 교체
+    const later = { weight: 76.2, fatPct: 18.9, lbm: 62.0, muscle: 35.4, score: 80, sampleTs: TS + 3600_000 };
+    const bd = mergeBodyDrafts({}, first.bodyLog, [{ key: `${TODAY}|${TS + 3600_000}`, date: TODAY, sampleTs: TS + 3600_000, ...later }], { todayStr: TODAY });
+    const ac = autoConfirmDrafts(bd.drafts, first.bodyLog);
+    expect(ac.confirmed).toEqual([TODAY]);
+    expect(ac.bodyLog).toHaveLength(1);
+    expect(ac.bodyLog[0]).toMatchObject({ weight: 76.2, muscle: 35.4, score: 80, sampleTs: TS + 3600_000, auto: true });
+  });
+
+  it("사용자가 편집한 레코드(auto 없음)는 잠금 — 더 최신 측정이 와도 덮지 않는다", () => {
+    const edited = [{ date: TODAY, weight: 75.0, muscle: 36.0, fatPct: 18.0, score: 85, lbm: 61.9, source: "import" }]; // auto 제거됨
+    const later = { weight: 76.2, muscle: 35.4, fatPct: 18.9, lbm: 62.0, score: 80, sampleTs: TS + 3600_000 };
+    const bd = mergeBodyDrafts({}, edited, [{ key: `${TODAY}|${TS + 3600_000}`, date: TODAY, sampleTs: TS + 3600_000, ...later }], { todayStr: TODAY });
+    expect(bd.drafts[TODAY]).toBeUndefined();        // 착지 없이
+    expect(bd.ackKeys).toEqual([`${TODAY}|${TS + 3600_000}`]); // 폐기
+    const ac = autoConfirmDrafts(bd.drafts, edited);
+    expect(ac.changed).toBe(false);
+    expect(ac.bodyLog[0]).toMatchObject({ weight: 75.0, muscle: 36.0 }); // 편집값 보존
   });
 
   it("LBM 가드 위반(43.7/61.9=0.71) → 자동 확정 보류, 초안 유지(카드 폴백)", () => {
@@ -391,7 +414,7 @@ describe("사서함 pull 합류 — 클라우드 직수신·스로틀·실패 �
     expect(ac.confirmed).toEqual([TODAY]);
     expect(ac.bodyLog).toEqual([{
       date: TODAY, weight: 75.7, muscle: 35.1, fatPct: 18.2, score: 82,
-      lbm: 61.9, source: "import", auto: true,
+      lbm: 61.9, source: "import", auto: true, sampleTs: TS,
     }]);
     expect(Object.keys(ac.drafts)).toHaveLength(0);
     // 같은 측정의 재pull(스로틀 밖 재호출 가정)도 seen 멱등 — 새 접수 없음

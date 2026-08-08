@@ -34,7 +34,12 @@ export const MUSCLE_MAX = 60;
 export const SCORE_MIN = 20;    // 인바디 점수(FS) — 실측 82, 근육형은 100 초과 가능
 export const SCORE_MAX = 120;
 export const LB_TO_KG = 0.4536;
-export const MORNING_END_HOUR = 12; // B1: 시각 < 12시만 초안 후보
+// B1 완화 — "하루 종일 최신 채택"(2026-08-08 사용자 결정). 원래 아침 창(00~12시)은 저녁
+// 비공복 측정이 아침 값을 덮는 사고를 막으려던 것이나, 실사용에서 "몇 번을 재든 마지막
+// 측정이 자동 반영"이 필요해 시각 상한을 해제했다. 시각 파싱 실패(NaN)만 방어한다.
+// 되돌리려면 이 값을 12로 낮추면 오전 측정만 채택된다. 값 자체 갱신·잠금은 여전히
+// 병합 계층(bodyDraft.js)이 "auto 확정분은 더 최신 sampleTs로 갱신, 사용자 편집분은 잠금"으로 처리.
+export const MORNING_END_HOUR = 24;
 
 const r1 = (v) => Math.round(v * 10) / 10;
 const norm = (s) => String(s || "").trim().toLowerCase();

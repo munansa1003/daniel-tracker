@@ -212,20 +212,24 @@ describe("계약 4·5 — 값·단위 방어(B4·B5)", () => {
   });
 });
 
-describe("계약 6 — 아침 창 가드(B1)", () => {
-  it("21:00 측정 샘플 → 초안 갱신 제외 + 로그 (저녁 비공복 측정이 아침 값을 못 덮는다)", async () => {
+describe("계약 6 — 하루 종일 최신 채택(B1 완화, 2026-08-08)", () => {
+  it("21:00 측정 샘플도 수용된다 (아침 창 제약 해제 — 하루 종일 재측정 반영)", async () => {
     const res = await bodyPost(metricsPayload([metric("weight_body_mass", "kg", [S(D("21:00:00"), 74.9)])]));
-    expect(out(res)).toMatchObject({ accepted: 0, excluded: 1, rejected: 0 });
-    expect(out(res).message).toContain("아침 창");
-    expect(bodyInboxSize()).toBe(0);
-    expect(lastBodyLog()).toMatchObject({ excluded: 1 });
+    expect(out(res)).toMatchObject({ accepted: 1, excluded: 0, rejected: 0 });
+    expect(bodyInboxSize()).toBe(1);
   });
 
-  it("아침 08:24 + 저녁 21:00 혼합 → 아침 값만 초안 후보", async () => {
+  it("아침 08:24 + 저녁 21:00 혼합 → 같은 날 '더 최신'인 저녁 값이 채택된다", async () => {
     await bodyPost(metricsPayload([metric("weight_body_mass", "kg", [S(D("08:24:00"), 73.6), S(D("21:00:00"), 74.9)])]));
     const { bodyEntries } = await pullInbox();
     expect(bodyEntries).toHaveLength(1);
-    expect(bodyEntries[0]).toMatchObject({ weight: 73.6, sampleTs: ts("08:24:00") });
+    expect(bodyEntries[0]).toMatchObject({ weight: 74.9, sampleTs: ts("21:00:00") });
+  });
+
+  it("시각 파싱 불가 샘플만 제외된다 (형태 방어는 유지)", async () => {
+    const res = await bodyPost(metricsPayload([metric("weight_body_mass", "kg", [S("나쁜날짜", 74.9)])]));
+    expect(out(res)).toMatchObject({ accepted: 0 });
+    expect(out(res).rejected + out(res).excluded).toBeGreaterThan(0);
   });
 });
 
