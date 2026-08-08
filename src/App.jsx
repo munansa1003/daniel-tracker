@@ -366,6 +366,18 @@ function MainApp({ user, onLogout }) {
     setBodyDrafts(nd); await store.set("body-drafts", nd);
   };
 
+  // 초안 폐기 — 확정하지 않고 버린다(잘못 도착한 측정·옷 입고 잰 값 등). bodylog는 건드리지
+  // 않으므로 골격근 0 오염 경로가 아니다. 사서함 항목은 병합 시점에 이미 ack되었고 접수 도장
+  // (import:body-seen, TTL 없음)이 영구라 같은 측정이 되돌아오지 않는다 — 그날 다시 재면
+  // 새 sampleTs라 새 초안으로 도착한다. 기준은 confirmBodyDraft와 동일하게 localStorage 미러.
+  const discardBodyDraft = async (d) => {
+    const local = store.getLocalAll();
+    const drafts = local["body-drafts"] || bodyDrafts;
+    if (!drafts || !(d in drafts)) return;
+    const nd = { ...drafts }; delete nd[d];
+    setBodyDrafts(nd); await store.set("body-drafts", nd);
+  };
+
   const saveCustomFood = async (food) => {
     const nf = [...customFoods, { ...food, custom: true }];
     setCustomFoods(nf); await store.set("custom-foods", nf); setShowAddFood(false);
@@ -1794,7 +1806,7 @@ function MainApp({ user, onLogout }) {
         </div>)}
 
         {/* 가로모드 폭 캡(홈과 동일 960) — 초광폭 창에서 히어로 차트·2컬럼 카드 무제한 확장 방지 */}
-        {tab === "body" && <div style={landscape ? { maxWidth: 960, margin: "0 auto" } : undefined}><BodyTab bodyLog={bodyLog} addBody={addBody} date={date} onEditBody={editBody} onDeleteBody={deleteBody} user={user} goals={goals} onSaveGoals={saveGoals} allDays={allDays} bodyDrafts={bodyDrafts} onConfirmDraft={confirmBodyDraft} /></div>}
+        {tab === "body" && <div style={landscape ? { maxWidth: 960, margin: "0 auto" } : undefined}><BodyTab bodyLog={bodyLog} addBody={addBody} date={date} onEditBody={editBody} onDeleteBody={deleteBody} user={user} goals={goals} onSaveGoals={saveGoals} allDays={allDays} bodyDrafts={bodyDrafts} onConfirmDraft={confirmBodyDraft} onDiscardDraft={discardBodyDraft} /></div>}
         {tab === "stats" && <div style={landscape ? { maxWidth: 960, margin: "0 auto" } : undefined}><StatsTab bodyLog={bodyLog} allDays={allDays} goals={goals} onSaveGoals={saveGoals} appTargets={TARGETS} targetsByMode={targetsByMode} mode={mode} appAdjust={appAdjust} tdeeHistory={tdeeHistory} /></div>}
       </div>
 

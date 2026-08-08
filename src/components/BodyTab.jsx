@@ -9,7 +9,7 @@ import { useOrientation } from "../hooks/useOrientation.js";
 import { LongPressActionBar } from "./LongPressActionBar.jsx";
 import { ProgressPhotos } from "./ProgressPhotos.jsx";
 
-export function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals, onSaveGoals, allDays, bodyDrafts = {}, onConfirmDraft }) {
+export function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user, goals, onSaveGoals, allDays, bodyDrafts = {}, onConfirmDraft, onDiscardDraft }) {
   const [w, setW] = useState("");
   const [m, setM] = useState("");
   const [fp, setFp] = useState("");
@@ -169,9 +169,17 @@ export function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user
     if (onEditBody && ew) onEditBody(realIdx, { weight: parseFloat(ew), muscle: parseFloat(em) || 0, fatPct: parseFloat(efp) || 0, score: parseInt(esc) || 0 });
     setEditIdx(null);
   };
+  // 삭제 — 꾹 누르기 액션바와 수정 폼 양쪽에서 부른다. displayIdx는 최신순 표시 인덱스라
+  // 실제 인덱스로 되돌린다(displayHistory가 slice(-N).reverse()이므로 length-1-i로 일대일).
+  // 수정 폼에서 부른 경우 삭제 후 그 인덱스가 다른 기록을 가리키므로 폼을 반드시 닫는다.
+  // 자동 확정분을 지워도 클라우드가 되살리지 않는다(접수 도장 import:body-seen이 영구).
   const handleDelete = (displayIdx) => {
     const realIdx = bodyLog.length - 1 - displayIdx;
-    if (onDeleteBody && confirm("이 기록을 삭제할까요?")) onDeleteBody(realIdx);
+    const b = bodyLog[realIdx];
+    if (!onDeleteBody || !b) return;
+    if (!confirm(`${b.date} 체성분 기록(${b.weight}kg)을 삭제할까요?\n되돌릴 수 없습니다.`)) return;
+    setEditIdx(null);
+    onDeleteBody(realIdx);
   };
 
   const chgColor = (v, reverse) => { if (v === null || v === 0) return "#707070"; if (reverse) return v < 0 ? "#5a9e6f" : "#e05252"; return v > 0 ? "#5a9e6f" : "#e05252"; };
@@ -228,11 +236,19 @@ export function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user
             {!(df.weight > 0) && (
               <div style={{ fontSize: 10, color: "#e05252", marginBottom: 8 }}>체중이 없는 초안 — 아래 수동 기록을 사용하세요</div>
             )}
-            <button onClick={() => { if (canConfirm && onConfirmDraft) { onConfirmDraft(d, cur.m, cur.sc); setDraftIn(prev => { const n = { ...prev }; delete n[d]; return n; }); } }}
-              disabled={!canConfirm}
-              style={{ width: "100%", padding: 10, background: canConfirm ? "#d4af37" : "#2a2a2a", border: "none", borderRadius: 8, color: canConfirm ? "#141414" : "#666", fontSize: 13, fontWeight: 500, cursor: canConfirm ? "pointer" : "not-allowed" }}>
-              확정 (잠금)
-            </button>
+            {/* 버리기 — 확정 말고는 초안을 치울 방법이 없어 잘못 도착한 측정(옷 입고 잰 값 등)이
+                30일 보존 기한까지 카드에 남던 구멍을 막는다. bodylog는 건드리지 않는다. */}
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={() => { if (onDiscardDraft && confirm(`${d} 자동 수신 초안을 버릴까요?\n같은 측정은 다시 도착하지 않습니다.`)) { onDiscardDraft(d); setDraftIn(prev => { const n = { ...prev }; delete n[d]; return n; }); } }}
+                style={{ padding: "10px 12px", background: "rgba(224,82,82,0.12)", border: "1px solid rgba(224,82,82,0.25)", borderRadius: 8, color: "#e05252", fontSize: 12, cursor: "pointer" }}>
+                버리기
+              </button>
+              <button onClick={() => { if (canConfirm && onConfirmDraft) { onConfirmDraft(d, cur.m, cur.sc); setDraftIn(prev => { const n = { ...prev }; delete n[d]; return n; }); } }}
+                disabled={!canConfirm}
+                style={{ flex: 1, padding: 10, background: canConfirm ? "#d4af37" : "#2a2a2a", border: "none", borderRadius: 8, color: canConfirm ? "#141414" : "#666", fontSize: 13, fontWeight: 500, cursor: canConfirm ? "pointer" : "not-allowed" }}>
+                확정 (잠금)
+              </button>
+            </div>
           </div>
         );
       })}
@@ -510,7 +526,8 @@ export function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user
     <div style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 12, padding: 12 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
         <span style={{ fontSize: 11, color: "#707070" }}>기록 히스토리 ({bodyLog.length}건)</span>
-        {bodyLog.length > 0 && <span style={{ fontSize: 10, color: "#4a4a4a" }}>꾹 눌러서 수정/삭제</span>}
+        {/* 안내는 실제 도달 경로를 그대로 적는다 — #4a4a4a는 #1e1e1e 배경에서 사실상 안 보였다 */}
+        {bodyLog.length > 0 && <span style={{ fontSize: 10, color: "#8a8a8a" }}>탭하면 수정·삭제</span>}
       </div>
       {bodyLog.length === 0 && <div style={{ fontSize: 12, color: "#4a4a4a", textAlign: "center", padding: 16 }}>체성분을 기록해보세요</div>}
       {displayHistory.map((b, i) => (
@@ -528,7 +545,10 @@ export function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user
               {(() => { const g = checkSmmLbm(parseFloat(em), b.lbm); return g.warn ? (
                 <div style={{ fontSize: 10, color: "#e05252", marginBottom: 4 }}>⚠ 골격근/제지방 비율 {g.ratio} — 보통 0.53~0.61. 입력값을 확인하세요 (저장은 가능)</div>
               ) : null; })()}
+              {/* 삭제는 식사(EditMealForm)·운동(EditExForm) 수정 폼과 같은 자리·같은 색.
+                  꾹 누르기 액션바에만 있으면 탭→수정 경로로 들어온 사용자가 영영 못 찾는다(실사용 신고). */}
               <div style={{ display: "flex", gap: 4 }}>
+                <button onClick={() => handleDelete(i)} style={{ padding: "6px 10px", background: "rgba(224,82,82,0.15)", border: "1px solid rgba(224,82,82,0.3)", borderRadius: 6, color: "#e05252", fontSize: 11, cursor: "pointer" }}>삭제</button>
                 <button onClick={() => setEditIdx(null)} style={{ flex: 1, padding: 6, background: "#2a2a2a", border: "none", borderRadius: 6, color: "#8a8a8a", fontSize: 11, cursor: "pointer" }}>취소</button>
                 <button onClick={saveEdit} style={{ flex: 1, padding: 6, background: "#4a8fc9", border: "none", borderRadius: 6, color: "#fff", fontSize: 11, fontWeight: 500, cursor: "pointer" }}>저장</button>
               </div>
