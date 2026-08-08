@@ -336,7 +336,12 @@ function MainApp({ user, onLogout }) {
   };
 
   const editBody = async (idx, updated) => {
-    const nl = bodyLog.map((b, i) => i === idx ? { ...b, ...updated } : b).sort((a, b) => a.date.localeCompare(b.date));
+    // 사용자가 직접 편집하면 자동 갱신 대상에서 뺀다(auto·sampleTs 제거) — 손댄 값을 이후
+    // 클라우드 자동 측정이 덮지 않게(잠금). 자동 확정분만 "더 최신이면 갱신" 대상이다.
+    const nl = bodyLog.map((b, i) => {
+      if (i !== idx) return b;
+      const m = { ...b, ...updated }; delete m.auto; delete m.sampleTs; return m;
+    }).sort((a, b) => a.date.localeCompare(b.date));
     setBodyLog(nl); await store.set("bodylog", nl);
   };
 
@@ -2058,7 +2063,7 @@ function MainApp({ user, onLogout }) {
                 <div style={{ fontSize: 12, color: "#f5f5f0" }}>🧬 인바디 체성분 자동 수신</div>
                 <div style={{ fontSize: 10, color: "#707070", marginTop: 2 }}>
                   {importInfo === null ? "상태 미확인 — '지금 확인'을 눌러 주세요"
-                    : importInfo.bodyEnabled ? `켜짐 · 컷오버 ${importInfo.bodyCutover || "-"} 이후 측정만 · 아침 창(00~12시)${importInfo.bodyCloudEnabled ? " · 클라우드 직수신(4종 자동 확정)" : ""}`
+                    : importInfo.bodyEnabled ? `켜짐 · 컷오버 ${importInfo.bodyCutover || "-"} 이후 · 하루 종일 최신 채택${importInfo.bodyCloudEnabled ? " · 클라우드 직수신(자동 확정)" : ""}`
                     : "꺼짐 — IMPORT_BODY_CUTOVER_DATE 설정 필요 (docs/inbody-setup.md)"}
                 </div>
                 {/* 클라우드가 이번에 무엇을 했는지 — "눌러도 아무 반응 없음"을 구분 가능하게 */}
