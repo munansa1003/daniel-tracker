@@ -939,7 +939,7 @@ last-write-wins**다: 두 기기가 각자 원격을 읽은 뒤 몇 초 안에 �
 |---|---|
 | ① `docs/system-audit-2026-08.md` — 인벤토리·전파 그래프·리스크 레지스터·정상 확인 목록·시나리오 결과·검증 로그·백로그 | ✅ 7개 항목 전부 |
 | ② `docs/ARCHITECTURE.md` — 유입 4경로·저장소·**소비처**·소급 전파·비공식 API 의존과 그 리스크 | ✅ — 단 **「소비처」가 빠져 있던 것을 PR 직전 대조에서 발견해 채웠다**(§3.5 소비처 14) |
-| ③ P0/P1 수정 PR (승인분 한정) | ✅ [#101](https://github.com/munansa1003/daniel-tracker/pull/101) — 13커밋 · 32파일 |
+| ③ P0/P1 수정 PR (승인분 한정) | ✅ [#101](https://github.com/munansa1003/daniel-tracker/pull/101) — CI 녹색(quality-gate) · mergeable clean |
 
 ### 처방 이행 대조 (레지스터에 적은 처방 vs 실제로 한 것)
 
