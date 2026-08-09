@@ -49,10 +49,13 @@ const CLOUD_LOCK_TTL_SEC = 60;  // 함수가 죽어도 이 시간 뒤 자동 해
 // 요청별 타임아웃만으로는 합이 함수 maxDuration(30초)을 넘을 수 있고, 그러면 504로
 // **운동 사서함 pull까지 함께 죽는다**. 클라우드는 예산을 넘기면 이번 회차를 포기한다.
 const CLOUD_BUDGET_MS = 12000;
-const withBudget = (p, ms) => Promise.race([
-  p,
-  new Promise((_, rej) => setTimeout(() => rej(new Error("인바디 시간 예산 초과")), ms)),
-]);
+function withBudget(p, ms) {
+  let timer;
+  const alarm = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error("인바디 시간 예산 초과")), ms); });
+  // finally에서 반드시 타이머를 해제한다 — 안 하면 pull이 빨리 끝나도 타이머가 이벤트 루프를
+  // 붙잡아 서버리스 함수가 예산(12초)만큼 더 살아 있는다.
+  return Promise.race([p, alarm]).finally(() => clearTimeout(timer));
+}
 
 // 반환값은 이번 pull에서 클라우드가 "무엇을 했는지"를 알리는 상태 문자열이다.
 // 조용한 return은 UX 사고였다 — 사용자가 "지금 확인"을 눌러도 아무 표시가 없으면

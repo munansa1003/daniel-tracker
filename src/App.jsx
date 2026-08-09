@@ -724,7 +724,9 @@ function MainApp({ user, onLogout }) {
       accountCreatedAt: accountCreatedAt ? accountCreatedAt.slice(0, 10) : null,
       weekReport: { weekStart: lastMon, recorded, calOk, protHit, workouts },
     };
-  }, [allDays, bodyLog, lastBackup, targetsByMode, appAdjust, tdeeHistory]);
+    // dayTargets가 의존성에 있어야 한다 — 키·나이(user)를 고치면 목표가 바뀌는데, 이것이
+    // 빠져 있으면 주간 성적표의 단백질 달성일이 옛 기준으로 굳어 크론 푸시까지 옛 값으로 나간다.
+  }, [allDays, bodyLog, lastBackup, targetsByMode, dayTargets, appAdjust, tdeeHistory]);
   const doEnablePush = () => enablePush({ state: pushState, reminders: goals.reminders });
   const doDisablePush = () => disablePush();
   // 구독돼 있으면 상태·토글 변화 시 KV 갱신(구독 없으면 no-op).
