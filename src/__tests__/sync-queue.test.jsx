@@ -4,24 +4,26 @@
 // ③ 성공 set은 대기분 해소 ④ 부분 실패 시 실패 키만 큐에 잔류
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { setDocMock } = vi.hoisted(() => ({ setDocMock: vi.fn() }));
+const { setDocMock, getDocMock } = vi.hoisted(() => ({ setDocMock: vi.fn(), getDocMock: vi.fn() }));
 vi.mock("../firebase.js", () => ({ db: {} }));
 vi.mock("firebase/firestore", () => ({
   doc: (_db, ...path) => path.join("/"),
-  getDoc: vi.fn(),
+  getDoc: (...a) => getDocMock(...a),
   setDoc: (...a) => setDocMock(...a),
   deleteDoc: vi.fn(),
   collection: vi.fn(),
   getDocs: vi.fn(),
 }));
 
-import store, { setUserId } from "../store.js";
-import { getPending, addPending, removePending } from "../syncQueue.js";
+import store, { setUserId, mergeForFlush } from "../store.js";
+import { getPending, addPending, removePending, addTombstone, getTombstoneIds } from "../syncQueue.js";
 
 beforeEach(() => {
   localStorage.clear();
   setUserId("t1");
   setDocMock.mockReset();
+  getDocMock.mockReset();
+  getDocMock.mockResolvedValue({ exists: () => false });
 });
 
 describe("syncQueue 헬퍼", () => {
@@ -117,5 +119,106 @@ describe("store.flushPendingSync", () => {
     const { logout } = await import("../store.js");
     logout();
     expect(await store.flushPendingSync()).toBe(0);
+  });
+});
+
+/* ── 재전송 병합 (2026-08 감사 R-02, P0) ────────────────────────────────
+   bodylog는 배열 하나가 문서 하나다. 오프라인 대기분을 그대로 재전송하면 그 사이 다른
+   기기가 확정한 날이 통째로 사라진다 — 자동 확정이 도입된 뒤로는 앱을 여는 것만으로
+   이 쓰기가 일어나 창이 넓다. 합치되, 사용자가 명시적으로 지운 것은 되살리지 않는다. */
+describe("mergeForFlush — 집합 문서 병합 규칙", () => {
+  const auto = (date, w, ts) => ({ date, weight: w, muscle: 35, fatPct: 18, score: 80, auto: true, sampleTs: ts, source: "import" });
+  const manual = (date, w) => ({ date, weight: w, muscle: 35, fatPct: 18, score: 80 });
+
+  it("다른 기기가 확정한 날이 살아남는다 (P0 유실 경로)", () => {
+    const local = [auto("2026-08-08", 75.0, 100)];
+    const remote = [auto("2026-08-09", 74.8, 200)];
+    expect(mergeForFlush("bodylog", local, remote).map((b) => b.date)).toEqual(["2026-08-08", "2026-08-09"]);
+  });
+
+  it("같은 날 충돌 — 사람이 손댄 값이 자동값을 이긴다 (잠금 철학과 같은 방향)", () => {
+    expect(mergeForFlush("bodylog", [manual("2026-08-09", 70)], [auto("2026-08-09", 99, 999)])[0].weight).toBe(70);
+    expect(mergeForFlush("bodylog", [auto("2026-08-09", 99, 999)], [manual("2026-08-09", 70)])[0].weight).toBe(70);
+  });
+
+  it("같은 날 둘 다 자동이면 더 최신 측정이 이긴다", () => {
+    expect(mergeForFlush("bodylog", [auto("2026-08-09", 75, 100)], [auto("2026-08-09", 76, 200)])[0].weight).toBe(76);
+    expect(mergeForFlush("bodylog", [auto("2026-08-09", 75, 300)], [auto("2026-08-09", 76, 200)])[0].weight).toBe(75);
+  });
+
+  it("지운 기록은 되살아나지 않는다 (흔적 존중)", () => {
+    const remote = [auto("2026-08-08", 75, 100), auto("2026-08-09", 74, 200)];
+    const merged = mergeForFlush("bodylog", [auto("2026-08-09", 74, 200)], remote, new Set(["2026-08-08"]));
+    expect(merged.map((b) => b.date)).toEqual(["2026-08-09"]);
+  });
+
+  it("body-drafts는 날짜 맵으로 합치고 더 최신 sampleTs가 이긴다", () => {
+    const local = { "2026-08-09": { weight: 75, sampleTs: 100 } };
+    const remote = { "2026-08-08": { weight: 74, sampleTs: 50 }, "2026-08-09": { weight: 76, sampleTs: 300 } };
+    const m = mergeForFlush("body-drafts", local, remote);
+    expect(Object.keys(m).sort()).toEqual(["2026-08-08", "2026-08-09"]);
+    expect(m["2026-08-09"].weight).toBe(76);
+  });
+
+  it("day 문서는 합치지 않는다 — 합치면 지운 끼니·운동이 되살아난다", () => {
+    const local = { meals: [], exercises: [] };
+    expect(mergeForFlush("day:2026-08-09", local, { meals: [{ n: "밥" }], exercises: [] })).toBe(local);
+  });
+
+  it("원격이 없거나 형식이 깨졌으면 로컬 그대로", () => {
+    const local = [auto("2026-08-09", 75, 100)];
+    expect(mergeForFlush("bodylog", local, undefined)).toBe(local);
+    expect(mergeForFlush("bodylog", local, "corrupt")).toBe(local);
+  });
+});
+
+describe("삭제 흔적(tombstone)", () => {
+  it("키별로 분리되고 기한(60일)이 지나면 사라진다", () => {
+    addTombstone("t1", "bodylog", "2026-08-08");
+    addTombstone("t1", "body-drafts", "2026-08-07");
+    expect([...getTombstoneIds("t1", "bodylog")]).toEqual(["2026-08-08"]);
+    expect([...getTombstoneIds("t1", "body-drafts")]).toEqual(["2026-08-07"]);
+    const later = Date.now() + 61 * 86400000;
+    expect(getTombstoneIds("t1", "bodylog", later).size).toBe(0);
+  });
+  it("데이터 프리픽스 밖에 저장돼 getLocalAll을 오염시키지 않는다", () => {
+    addTombstone("t1", "bodylog", "2026-08-08");
+    expect(Object.keys(store.getLocalAll())).not.toContain("tombstones");
+    expect(localStorage.getItem("dt_tombstones_t1")).not.toBe(null);
+  });
+});
+
+describe("flushPendingSync — 병합 경로", () => {
+  it("bodylog 재전송이 원격의 다른 날을 지우지 않는다", async () => {
+    const localLog = [{ date: "2026-08-08", weight: 75, auto: true, sampleTs: 100 }];
+    localStorage.setItem("dt_t1_bodylog", JSON.stringify(localLog));
+    addPending("t1", "bodylog");
+    getDocMock.mockResolvedValue({ exists: () => true, data: () => ({ value: [{ date: "2026-08-09", weight: 74, auto: true, sampleTs: 200 }] }) });
+    setDocMock.mockResolvedValue(undefined);
+
+    expect(await store.flushPendingSync()).toBe(1);
+    const sent = setDocMock.mock.calls[0][1].value;
+    expect(sent.map((b) => b.date)).toEqual(["2026-08-08", "2026-08-09"]);
+    // 로컬 미러도 합친 값으로 갱신돼 다음 렌더가 같은 진실을 본다
+    expect(JSON.parse(localStorage.getItem("dt_t1_bodylog")).map((b) => b.date)).toEqual(["2026-08-08", "2026-08-09"]);
+  });
+
+  it("원격 조회 실패 시 덮어쓰지 않고 큐에 남긴다 (못 읽은 채 덮으면 유실)", async () => {
+    localStorage.setItem("dt_t1_bodylog", JSON.stringify([{ date: "2026-08-08", weight: 75 }]));
+    addPending("t1", "bodylog");
+    getDocMock.mockRejectedValue(new Error("offline"));
+
+    expect(await store.flushPendingSync()).toBe(0);
+    expect(setDocMock).not.toHaveBeenCalled();
+    expect(getPending("t1")).toEqual(["bodylog"]);
+  });
+
+  it("병합 대상이 아닌 키는 원격을 읽지 않는다 (읽기 비용·기존 동작 유지)", async () => {
+    localStorage.setItem("dt_t1_day:2026-08-09", JSON.stringify({ meals: [], exercises: [] }));
+    addPending("t1", "day:2026-08-09");
+    setDocMock.mockResolvedValue(undefined);
+
+    expect(await store.flushPendingSync()).toBe(1);
+    expect(getDocMock).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar, ComposedChart, Legend, ReferenceLine } from "recharts";
 import store, { getCurrentUserId, setUserId, logout, getMembership, joinWithInvite, getMigratedMark, getSharedFoods, addSharedFood, getSharedExercises, addSharedExercise } from "./store.js";
+import { addTombstone } from "./syncQueue.js";
 import { watchAuth, signInWithGoogle, signOutUser, isOwnerEmail, getIdToken } from "./auth.js";
 import { mergeImports } from "./importMerge.js";
 import { mergeBodyDrafts, draftToRecord, autoConfirmDrafts } from "./bodyDraft.js";
@@ -346,6 +347,10 @@ function MainApp({ user, onLogout }) {
   };
 
   const deleteBody = async (idx) => {
+    // 삭제 흔적을 남긴다 — 오프라인 대기분을 나중에 재전송할 때 원격과 합치는데(감사 R-02),
+    // 흔적이 없으면 "다른 기기엔 아직 남아 있는 그 기록"이 되살아난다.
+    const removed = bodyLog[idx];
+    if (removed && removed.date) addTombstone(getCurrentUserId(), "bodylog", removed.date);
     const nl = bodyLog.filter((_, i) => i !== idx);
     setBodyLog(nl); await store.set("bodylog", nl);
   };
@@ -374,6 +379,8 @@ function MainApp({ user, onLogout }) {
     const local = store.getLocalAll();
     const drafts = local["body-drafts"] || bodyDrafts;
     if (!drafts || !(d in drafts)) return;
+    // 명시적 폐기 — 재전송 병합에서 되살아나지 않도록 흔적을 남긴다(감사 R-02)
+    addTombstone(getCurrentUserId(), "body-drafts", d);
     const nd = { ...drafts }; delete nd[d];
     setBodyDrafts(nd); await store.set("body-drafts", nd);
   };

@@ -1,7 +1,58 @@
 // Firebase Firestore 기반 저장소 (다중 사용자 지원)
 import { db } from "./firebase.js";
 import { doc, getDoc, setDoc, deleteDoc, collection, getDocs } from "firebase/firestore";
-import { getPending, addPending, removePending } from "./syncQueue.js";
+import { getPending, addPending, removePending, getTombstoneIds } from "./syncQueue.js";
+
+/* 재전송 전용 병합 (2026-08 감사 R-02) ─────────────────────────────────
+   bodylog(배열)·body-drafts(맵)는 "날짜별 항목의 집합"이 문서 하나에 담긴 형태다.
+   store.set은 키 단위 last-write-wins라, 오프라인 대기분을 그대로 재전송하면
+   그 사이 다른 기기가 확정한 날이 통째로 사라진다. 자동 확정이 도입된 뒤로는 앱을
+   여는 것만으로 이 쓰기가 일어나므로 두 기기가 각자 bodylog를 쓰는 일이 흔해졌다.
+
+   합치는 규칙(같은 날짜가 양쪽에 있을 때):
+     · 사람이 손댄 값(auto 없음)이 자동값을 이긴다 — 병합 계층의 잠금 철학과 같은 방향
+     · 둘 다 자동이면 더 최신 측정(sampleTs)이 이긴다 — B2 규칙과 같은 방향
+     · 둘 다 사람 값이면 이 기기 값을 쓴다(방금 만든 것이 사용자의 최신 의도)
+   tombstoned에 있는 날짜는 되살리지 않는다(사용자가 명시적으로 지운 것).
+   그 외 키는 병합하지 않는다 — day 문서를 합치면 지운 끼니·운동이 되살아난다. */
+export const MERGEABLE_KEYS = new Set(["bodylog", "body-drafts"]);
+
+const isAuto = (r) => !!(r && r.auto);
+const tsOf = (r) => (r && Number.isFinite(r.sampleTs) ? r.sampleTs : -Infinity);
+
+function pickRecord(localRec, remoteRec) {
+  if (!remoteRec) return localRec;
+  if (!localRec) return remoteRec;
+  if (isAuto(localRec) !== isAuto(remoteRec)) return isAuto(localRec) ? remoteRec : localRec; // 사람 손이 이긴다
+  if (isAuto(localRec) && isAuto(remoteRec)) return tsOf(remoteRec) > tsOf(localRec) ? remoteRec : localRec;
+  return localRec;
+}
+
+export function mergeForFlush(key, local, remote, tombstoned = new Set()) {
+  if (!MERGEABLE_KEYS.has(key) || remote === undefined || remote === null) return local;
+
+  if (key === "bodylog") {
+    if (!Array.isArray(local) || !Array.isArray(remote)) return local;
+    const byDate = new Map();
+    for (const r of remote) if (r && typeof r.date === "string" && !tombstoned.has(r.date)) byDate.set(r.date, r);
+    for (const l of local) {
+      if (!l || typeof l.date !== "string") continue;
+      byDate.set(l.date, pickRecord(l, byDate.get(l.date)));
+    }
+    return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  // body-drafts — { "YYYY-MM-DD": {…, sampleTs} }
+  if (!local || typeof local !== "object" || Array.isArray(local)) return local;
+  if (typeof remote !== "object" || Array.isArray(remote)) return local;
+  const out = { ...local };
+  for (const [date, rec] of Object.entries(remote)) {
+    if (tombstoned.has(date) || !rec) continue;
+    const cur = out[date];
+    if (!cur || tsOf(rec) > tsOf(cur)) out[date] = rec;
+  }
+  return out;
+}
 
 let _userId = null;
 
@@ -280,7 +331,17 @@ const store = {
         const raw = localStorage.getItem("dt_" + uid + "_" + key);
         if (raw === null) { removePending(uid, key); continue; } // 로컬 값이 사라졌으면 대기열만 정리
         try {
-          await setDoc(doc(db, "users", uid, "data", key), { value: JSON.parse(raw), updatedAt: new Date().toISOString() });
+          let value = JSON.parse(raw);
+          // 집합 성격 문서(bodylog·body-drafts)는 덮어쓰지 않고 원격과 합쳐 보낸다(감사 R-02).
+          // 원격 조회가 실패하면 이번 회차를 통째로 건너뛴다 — 못 읽은 채 덮으면 유실이 그대로 난다.
+          if (MERGEABLE_KEYS.has(key)) {
+            const snap = await getDoc(doc(db, "users", uid, "data", key));
+            if (snap.exists()) {
+              value = mergeForFlush(key, value, snap.data().value, getTombstoneIds(uid, key));
+              try { localStorage.setItem("dt_" + uid + "_" + key, JSON.stringify(value)); } catch { /* 용량 등 무시 */ }
+            }
+          }
+          await setDoc(doc(db, "users", uid, "data", key), { value, updatedAt: new Date().toISOString() });
           removePending(uid, key);
           synced++;
         } catch { /* 여전히 오프라인 — 큐에 남겨 다음 시작/online 이벤트에 재시도 */ }
