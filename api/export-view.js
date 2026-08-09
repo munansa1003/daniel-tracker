@@ -109,8 +109,9 @@ export default async function handler(req, res) {
 <title>링크 만료</title></head>
 <body><p>이 링크는 만료되었거나 폐기되었습니다. 앱에서 새 공유 링크를 만들어 주세요.</p></body></html>`);
       }
-      // 접근 통계 — 렌더를 막지 않게 fire-and-forget (KEEPTTL로 만료 시각 보존)
-      touchShare(share, rec).catch(() => {});
+      // 접근 통계 — 렌더를 막지 않게 fire-and-forget. **별도 카운터 키에만 쓴다**:
+      // 읽기 경로가 스냅샷 문서를 되쓰면 폐기(tombstone)를 되살릴 수 있다(감사 R-08).
+      touchShare(share).catch(() => {});
       const created = new Date(rec.createdAt || Date.now()).toISOString().slice(0, 16).replace("T", " ");
       const expires = new Date(rec.expiresAt || Date.now()).toISOString().slice(0, 16).replace("T", " ");
       return render(`Body Plan 공유 뷰 · 공유 시점 스냅샷 · 생성: ${created} UTC · 만료: ${expires} UTC`, rec.pkg);

@@ -569,7 +569,10 @@ function MainApp({ user, onLogout }) {
     setAllDays(newDays);
     setBodyLog(sortedLog);
     setBodyDrafts(d.bodyDrafts || {});
-    setGoals(d.goals || {});
+    // 백업에는 공유 링크가 담기지 않는다(감사 R-07 — 토큰 유출 방지). 그래서 복원이
+    // 지금 살아 있는 링크를 지우지 않도록 현재 값을 그대로 이월한다.
+    const restoredGoals = { ...(d.goals || {}), ...(goals.shareLink ? { shareLink: goals.shareLink } : {}) };
+    setGoals(restoredGoals);
     setCustomFoods(d.customFoods || []);
     setCustomEx(d.customExercises || []);
     try {
@@ -577,7 +580,7 @@ function MainApp({ user, onLogout }) {
       for (const k of staleDays) await store.delete(`day:${k}`);
       await store.set("bodylog", sortedLog);
       await store.set("body-drafts", d.bodyDrafts || {});
-      await store.set("goals", d.goals || {});
+      await store.set("goals", restoredGoals);
       await store.set("custom-foods", d.customFoods || []);
       await store.set("custom-exercises", d.customExercises || []);
       alert(`복원 완료 — ${s.days}일 · 체성분 ${s.bodyLog}건`);

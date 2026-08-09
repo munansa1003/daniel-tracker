@@ -45,11 +45,13 @@ export default async function handler(req, res) {
     });
   }
 
+  // ⚠️ rate limit이 토큰 대조보다 "먼저" 와야 한다 — 순서가 바뀌면 토큰 불일치(401) 요청이
+  // 카운터에 집계되지 않아 IMPORT_TOKEN 추측 시도에 횟수 제한이 사라진다(2026-08 감사 R-39).
+  if (!(await rateLimit(req, res, { key: "health-import", max: 30, windowSec: 60 }))) return;
+
   if (req.headers["x-import-token"] !== TOKEN) {
     return res.status(401).json({ error: "unauthorized", message: "토큰 불일치" });
   }
-
-  if (!(await rateLimit(req, res, { key: "health-import", max: 30, windowSec: 60 }))) return;
 
   if (!kvConfigured()) {
     console.error("[health-import] KV not configured");

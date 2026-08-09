@@ -83,6 +83,9 @@ beforeEach(() => {
       if (cmd === "SET") { kvStore.set(key, value); return "OK"; }
       if (cmd === "GET") return kvStore.get(key) ?? null;
       if (cmd === "DEL") { kvStore.delete(key); return 1; }
+      // 접근 통계는 스냅샷과 분리된 카운터 키에만 쓴다(감사 R-08)
+      if (cmd === "INCR") { const n = (parseInt(kvStore.get(key) || "0", 10) || 0) + 1; kvStore.set(key, String(n)); return n; }
+      if (cmd === "EXPIRE") return 1;
       return null;
     },
   }));
@@ -227,20 +230,41 @@ describe("export-view — 공유 링크(?t=)", () => {
     expect(res.headers["x-share-view"]).toBe("expired");
   });
 
-  it("정상 조회 시 접근 통계 갱신 (accessCount·lastAccessedAt, TTL 보존)", async () => {
+  // 접근 통계는 **별도 카운터 키**에 쌓인다. 읽기 경로가 스냅샷 문서를 되쓰면 그 사이에
+  // 들어온 폐기(tombstone)를 덮어써 링크가 되살아난다 — 2026-08 감사 R-08.
+  it("정상 조회 시 접근 통계는 별도 카운터에 쌓이고 스냅샷은 건드리지 않는다", async () => {
+    const create = await loadCreate();
+    const cRes = makeRes();
+    await create(makeReq({ idToken: "good-token", pkg: "x".repeat(200) }), cRes);
+    const token = JSON.parse(cRes.body).token;
+    const before = kvStore.get(`share:${token}`);
+
+    const view = await loadView();
+    await view(viewReq({ t: token }), makeRes());
+    await view(viewReq({ t: token }), makeRes());
+    // touchShare는 fire-and-forget — mock KV는 동기라 즉시 반영됨
+    expect(kvStore.get(`share:hits:${token}`)).toBe("2");
+    expect(kvStore.get(`share:${token}`)).toBe(before); // 스냅샷 바이트 단위 불변
+  });
+
+  it("조회 중 폐기해도 링크가 되살아나지 않는다 (touchShare가 tombstone을 덮지 않음)", async () => {
     const create = await loadCreate();
     const cRes = makeRes();
     await create(makeReq({ idToken: "good-token", pkg: "x".repeat(200) }), cRes);
     const token = JSON.parse(cRes.body).token;
 
     const view = await loadView();
-    await view(viewReq({ t: token }), makeRes());
-    await view(viewReq({ t: token }), makeRes());
-    // touchShare는 fire-and-forget — mock KV는 동기라 즉시 반영됨
+    await view(viewReq({ t: token }), makeRes()); // 누군가 보고 있는 중(통계 기록됨)
+    const revoke = await loadRevoke();
+    await revoke(makeReq({ idToken: "good-token", token }), makeRes());
+    await view(viewReq({ t: token }), makeRes()); // 폐기 직후 도착한 조회
+
     const rec = JSON.parse(kvStore.get(`share:${token}`));
-    expect(rec.accessCount).toBe(2);
-    expect(rec.lastAccessedAt).toBeGreaterThan(0);
-    expect(rec.pkg.length).toBe(200); // 본문 보존
+    expect(rec.revoked).toBe(true);
+    expect(rec.pkg).toBeUndefined(); // 본문이 되살아나지 않는다
+    const after = makeRes();
+    await view(viewReq({ t: token }), after);
+    expect(after.statusCode).toBe(410);
   });
 
   it("형식이 틀린 토큰 → 404 (KV 조회 안 함)", async () => {

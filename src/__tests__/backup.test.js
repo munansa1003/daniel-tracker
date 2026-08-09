@@ -24,6 +24,28 @@ describe("buildBackup + validateBackup 왕복", () => {
     expect(round.data.bodylog[0].weight).toBe(77.9);
     expect(round.data.goals.mode).toBe("cut");
   });
+
+  // 백업 파일은 클라우드·메일로 옮겨진다. shareLink({token,expiresAt})는 로그인 없이
+  // 열리는 URL의 전체 권한이므로 파일에 실리면 안 된다 — 2026-08 감사 R-07.
+  it("공유 링크 토큰은 백업에 담기지 않는다 (파일 유출 = 링크 유출 차단)", () => {
+    const withLink = {
+      ...state,
+      goals: { ...state.goals, shareLink: { token: "a".repeat(32), expiresAt: 1_800_000_000_000, createdAt: 1 } },
+    };
+    const b = buildBackup(withLink, "2026-07-07T12:00:00Z");
+    expect(b.data.goals.shareLink).toBeUndefined();
+    expect(JSON.stringify(b)).not.toContain("a".repeat(32));
+    // 나머지 goals는 그대로 — 토큰만 걷어낸다
+    expect(b.data.goals.mode).toBe("cut");
+    expect(b.data.goals.reminders).toEqual({ record: true });
+    expect(validateBackup(b).ok).toBe(true);
+  });
+
+  it("goals가 없어도 안전 (빈 객체)", () => {
+    const b = buildBackup({ ...state, goals: undefined }, "2026-07-07T12:00:00Z");
+    expect(b.data.goals).toEqual({});
+    expect(validateBackup(b).ok).toBe(true);
+  });
 });
 
 describe("validateBackup — 불량 파일 거부", () => {
