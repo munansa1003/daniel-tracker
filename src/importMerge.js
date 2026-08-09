@@ -83,3 +83,31 @@ export function mergeImports(days, entries, { weight = 0, todayStr = "", mode = 
   }
   return { updatedDays, ackKeys };
 }
+
+/* 수동 입력이 자동 수신분과 겹치는지 — 이중 계상 경고 (2026-08 감사 R-18).
+
+   워치가 이미 올린 운동을 사용자가 손으로 또 넣으면 소모 kcal이 두 번 계산되고,
+   그 값은 잔여 칼로리·적응형 TDEE 역산까지 흘러간다. 지금까지 방어는 문서 수칙뿐이었다.
+
+   **막지 않고 알리기만 한다.** 진짜로 두 번 운동한 날(아침 러닝 + 저녁 러닝)이 있으므로
+   차단하면 정상 기록을 막게 된다. 사용자가 판단할 근거만 준다.
+
+   겹침 기준: 같은 날 · 자동 수신분(source==="watch") · 시간대 ±1시간 · 종목명이 서로를 포함.
+   시간 해상도가 "시(hour)"뿐이라 분 단위로는 비교할 수 없다 — ±1시간이 이 데이터로
+   표현 가능한 가장 좁은 창이다. */
+const normName = (s) => String(s || "").replace(/\s+/g, "").toLowerCase();
+
+export function findWatchOverlap(exercises, candidate, hour) {
+  const h = Number.isFinite(hour) ? hour : Number(candidate && candidate.hour);
+  if (!Number.isFinite(h)) return null;
+  const a = normName(candidate && candidate.n);
+  if (!a) return null;
+  for (const e of exercises || []) {
+    if (!e || e.source !== "watch") continue;
+    if (!Number.isFinite(Number(e.hour)) || Math.abs(Number(e.hour) - h) > 1) continue;
+    const b = normName(e.n);
+    if (!b) continue;
+    if (a.includes(b) || b.includes(a)) return e;
+  }
+  return null;
+}

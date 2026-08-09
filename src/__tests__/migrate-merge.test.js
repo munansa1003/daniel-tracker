@@ -6,7 +6,7 @@ import { describe, it, expect, vi } from "vitest";
 // store.js는 firebase를 임포트하므로 통째로 mock (mergeMigrated는 순수라 실제 구현 사용)
 vi.mock("../firebase.js", () => ({ db: {}, auth: {} }));
 import { mergeMigrated } from "../store.js";
-import { recalcExerciseKcal } from "../importMerge.js";
+import { recalcExerciseKcal, findWatchOverlap } from "../importMerge.js";
 
 describe("mergeMigrated — 마이그레이션 병합", () => {
   it("bodylog: 날짜 합집합, 같은 날짜는 새 계정 기록 우선, 날짜순 정렬", () => {
@@ -87,5 +87,38 @@ describe("recalcExerciseKcal — 실측과 추정의 구분", () => {
   it("시간이 비었으면 원래 시간을 쓴다", () => {
     expect(recalcExerciseKcal(watch, undefined, 75)).toBe(437);
     expect(recalcExerciseKcal(manual, 0, 75)).toBe(600);
+  });
+});
+
+/* 수동 입력이 자동 수신분과 겹치는지 — 이중 계상 경고(감사 R-18).
+   막는 것이 아니라 알리는 기능이라, 판별이 지나치게 넓으면 정상 기록마다 경고가 뜨고
+   지나치게 좁으면 있으나 마나다. 경계를 여기서 고정한다. */
+describe("findWatchOverlap — 이중 계상 후보 판별", () => {
+  const watch = (n, hour) => ({ n, hour, duration: 30, kcal: 300, source: "watch" });
+  const list = [watch("러닝", 7), watch("근력 운동", 19), { n: "러닝", hour: 12, duration: 30, kcal: 300 }];
+
+  it("같은 시간대(±1h)의 같은 종목이면 겹침으로 본다", () => {
+    expect(findWatchOverlap(list, { n: "러닝" }, 7)?.hour).toBe(7);
+    expect(findWatchOverlap(list, { n: "러닝" }, 6)?.hour).toBe(7);   // -1h
+    expect(findWatchOverlap(list, { n: "러닝" }, 8)?.hour).toBe(7);   // +1h
+  });
+  it("2시간 이상 떨어지면 겹침이 아니다 (아침 러닝 + 저녁 러닝은 정상)", () => {
+    expect(findWatchOverlap(list, { n: "러닝" }, 9)).toBe(null);
+    expect(findWatchOverlap(list, { n: "러닝" }, 19)).toBe(null);     // 19시는 근력이라 이름도 다름
+  });
+  it("종목명이 서로를 포함하면 겹침 (공백·대소문자 무시)", () => {
+    expect(findWatchOverlap(list, { n: "야외 러닝" }, 7)).toBeTruthy();
+    expect(findWatchOverlap(list, { n: "근 력 운동" }, 19)).toBeTruthy();
+  });
+  it("다른 종목이면 겹치지 않는다", () => {
+    expect(findWatchOverlap(list, { n: "수영" }, 7)).toBe(null);
+  });
+  it("손입력끼리는 경고하지 않는다 — 자동 수신분과의 충돌만 본다", () => {
+    expect(findWatchOverlap(list, { n: "러닝" }, 12)).toBe(null);     // 12시 항목은 source 없음
+  });
+  it("시간·이름이 없으면 판단하지 않는다 (억지 경고 금지)", () => {
+    expect(findWatchOverlap(list, { n: "러닝" }, undefined)).toBe(null);
+    expect(findWatchOverlap(list, { n: "" }, 7)).toBe(null);
+    expect(findWatchOverlap(null, { n: "러닝" }, 7)).toBe(null);
   });
 });

@@ -3,7 +3,7 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, 
 import store, { getCurrentUserId, setUserId, logout, getMembership, joinWithInvite, getMigratedMark, getSharedFoods, addSharedFood, getSharedExercises, addSharedExercise } from "./store.js";
 import { addTombstone, getTombstoneIds } from "./syncQueue.js";
 import { watchAuth, signInWithGoogle, signOutUser, isOwnerEmail, getIdToken } from "./auth.js";
-import { mergeImports, recalcExerciseKcal } from "./importMerge.js";
+import { mergeImports, recalcExerciseKcal, findWatchOverlap } from "./importMerge.js";
 import { mergeBodyDrafts, draftToRecord, autoConfirmDrafts, lastMeasuredDate } from "./bodyDraft.js";
 import { planAutoDelete } from "./bulkDelete.js";
 import { shiftDays } from "./analysisExport.js";   // 순수 날짜 유틸 — ClaudeExport가 이미 쓰는 모듈
@@ -323,6 +323,11 @@ function MainApp({ user, profile, onProfileRestore, onLogout }) {
     const duration = parseInt(min) || 30;
     const kcal = Math.round((ex.m * TARGETS.weight * duration) / 60);
     const hour = parseInt(exHour) || nowHour();
+    // 워치가 이미 올린 운동을 손으로 또 넣으면 소모가 두 번 계산되고, 그 값은 잔여 칼로리와
+    // 적응형 TDEE 역산까지 흘러간다(감사 R-18). 다만 **막지는 않는다** — 진짜로 두 번 운동한
+    // 날이 있으므로 차단하면 정상 기록을 막게 된다. 판단 근거만 주고 선택은 사용자가 한다.
+    const dup = findWatchOverlap(exercises, { ...ex, hour }, hour);
+    if (dup && !confirm(`⌚ 같은 시간대에 자동 수신된 운동이 이미 있어요.\n\n  ${String(dup.hour).padStart(2, "0")}시 ${dup.n} ${dup.duration}분 ${Math.round(dup.kcal)}kcal\n\n그래도 추가하면 소모 칼로리가 두 번 계산됩니다.\n(정말 두 번 운동했다면 그대로 추가하세요)`)) return;
     const entry = { ...ex, duration, kcal, ts: Date.now(), hour };
     const ne = sortByHour([...exercises, entry]);
     setExercises(ne); saveDay(date, meals, ne);
