@@ -141,9 +141,39 @@ describe("계약 13 — 공유 링크(analysisExport): 초안 미확정 날은 �
     expect(sec).not.toContain("08-06");
   });
 
-  it("확정 레코드의 부가 필드(lbm·source)는 직렬화 형식을 바꾸지 않는다(회귀 방지)", () => {
-    const plain = { ...state, bodyLog: [REC("2026-08-05")] }; // 부가 필드 없는 수동 레코드
-    expect(section(buildAnalysisPackage(state, period, TODAY)))
-      .toBe(section(buildAnalysisPackage(plain, period, TODAY)));
+  // 계약 변경 (2026-08 감사 R-04): 예전에는 "부가 필드가 출력 형식을 바꾸지 않는다"가 계약이었다.
+  // 그 결과 분석 계약이 자동 측정과 손입력을 구분할 근거를 전혀 갖지 못했고(백업은 무손실인데
+  // 분석만 전손), 다음 시즌 분석이 조용히 틀릴 수 있었다. 이제 **출처는 반드시 드러난다**.
+  it("유입 출처가 체성분 섹션에 드러난다 (자동확정/자동수신/손입력 구분)", () => {
+    const line = (pkg) => section(pkg).split("\n")[1];
+    const auto = { ...state, bodyLog: [{ ...REC("2026-08-05"), source: "import", auto: true }] };
+    const received = { ...state, bodyLog: [{ ...REC("2026-08-05"), source: "import" }] };
+    const manual = { ...state, bodyLog: [REC("2026-08-05")] };
+    expect(line(buildAnalysisPackage(auto, period, TODAY))).toContain("[자동확정]");
+    expect(line(buildAnalysisPackage(received, period, TODAY))).toContain("[자동수신]");
+    // 손입력은 표기 없음 — 자동 유입 이전 데이터의 출력이 그대로 유지된다
+    expect(line(buildAnalysisPackage(manual, period, TODAY))).not.toContain("[");
+  });
+
+  it("측정 시각(sampleTs)이 병기되고, 실행 환경 타임존에 흔들리지 않는다", () => {
+    const withTs = {
+      ...state,
+      bodyLog: [{ ...REC("2026-08-05"), source: "import", auto: true, sampleTs: Date.parse("2026-08-05T21:40:00+09:00") }],
+    };
+    // 유입이 쓴 고정 오프셋(+09:00) 기준 벽시계 — 브라우저든 서버리스(UTC)든 같은 값이어야 한다
+    expect(section(buildAnalysisPackage(withTs, period, TODAY))).toContain("08-05 21:40 73.9kg");
+    // 시각이 없는 옛 레코드는 표기도 없다
+    expect(section(buildAnalysisPackage({ ...state, bodyLog: [REC("2026-08-05")] }, period, TODAY)))
+      .toContain("08-05 73.9kg");
+  });
+
+  it("자동 수신 레코드가 있으면 측정 규칙 줄이 문서에 실린다 (시즌 간 규칙 차이 전달)", () => {
+    const auto = { ...state, bodyLog: [{ ...REC("2026-08-05"), source: "import", auto: true }] };
+    const pkg = buildAnalysisPackage(auto, period, TODAY);
+    expect(pkg).toContain("체성분 측정 규칙(2026-08-08~)");
+    expect(pkg).toContain("마지막 측정이 그 날 값");
+    // 손입력만 있던 기간에는 붙지 않는다
+    expect(buildAnalysisPackage({ ...state, bodyLog: [REC("2026-08-05")] }, period, TODAY))
+      .not.toContain("체성분 측정 규칙");
   });
 });

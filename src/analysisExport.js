@@ -7,6 +7,17 @@
 // 실사용에서 "특정 날짜 이후 포함 시 빈 결과" 신고가 있었음 — 침묵 실패 금지 원칙.
 import { aggregateDay, isCalOk, adjustForDate, exFeedback, effectiveDayMode, isRestStamp, REST_K } from "./utils.js";
 import { dateInEvent, typeMeta } from "./healthEvents.js";
+import { sampleTimeLabel } from "./bodyDraft.js";
+
+/* 유입 출처 표기 (2026-08 감사 R-04).
+   체성분 레코드는 실제로 출처를 들고 있는데(auto·sampleTs·source) 이 문서에는 하나도
+   실리지 않아, 다음 시즌 분석이 자동 측정과 손입력을 구분할 근거가 없었다. 백업은
+   무손실인데 분석 계약만 전손이던 비대칭을 없앤다.
+     auto:true            → 클라우드가 4종 실측으로 자동 확정한 값
+     source:"import" 만   → 자동 수신분을 사용자가 확정·편집한 값(그 뒤로는 잠금)
+     둘 다 없음           → 손입력 (표기 없음 — 과거 데이터 출력이 그대로 유지된다) */
+const bodyProvenance = (b) => (b && b.auto ? " [자동확정]" : b && b.source === "import" ? " [자동수신]" : "");
+const hasAutoBody = (list) => (list || []).some((b) => b && (b.auto || b.source === "import"));
 
 export const EXPORT_VERSION = "v2.1";
 const MS_DAY = 86400000;
@@ -51,6 +62,12 @@ const EX_CATS = [
   ["코어", ["코어", "플랭크", "복근", "크런치", "싯업", "레그 레이즈", "레그레이즈"]],
   ["하체", ["스쿼트", "런지", "레그", "데드리프트", "카프", "힙"]],
   ["상체", ["벤치", "푸시업", "팔굽", "풀업", "턱걸이", "로우", "숄더", "프레스", "이/삼두", "이두", "삼두", "컬", "랫", "델트", "체스트", "딥스"]],
+  // 워치 자동 수신은 근력 세션을 "근력 운동" 한 덩어리로 보낸다 — 부위 정보가 없다.
+  // 이 줄이 없던 동안 그 덩어리가 전부 '기타'로 떨어져, 주간 구성비 표가 상체/하체/코어
+  // 0%를 출력했다("상·하체를 전혀 안 함"으로 읽힘 — 2026-08 감사 R-05).
+  // **반드시 부위 키워드보다 뒤에 둔다**: "하체 근력"처럼 부위가 적힌 수동 기록은
+  // 계속 그 부위로 잡히고, 부위를 알 수 없는 덩어리만 여기로 온다.
+  ["근력", ["근력"]],
 ];
 export function exCategory(name) {
   for (const [cat, kws] of EX_CATS) if (kws.some((k) => (name || "").includes(k))) return cat;
@@ -104,6 +121,14 @@ export function buildAnalysisPackage(state, { start, end }, todayStr, opts = {})
       // 내보내기 결과가 기능 도입 전과 바이트 단위로 동일하게 유지된다(R4 회귀 보장).
       if (recorded.some((d) => isRestStamp(allDays[d]))) {
         L.push("- 휴식일(😴 표시): 목표 1,675kcal 고정 · 운동 반영 없음 (운동 300kcal 초과 기록 시 훈련일 기준으로 자동 복귀)");
+      }
+      // 측정 규칙 — 시즌 1(아침 공복 1회 고정)과 시즌 2(하루 종일 최신 채택)는 다른 규칙이다.
+      // 이 줄이 없으면 두 시즌의 체중 추세를 같은 기준으로 읽어 분석이 조용히 틀린다(감사 R-04·F③).
+      // 자동 수신 레코드가 실제로 있는 기간에만 붙인다 — 손입력만 있던 과거 출력은 그대로.
+      if (hasAutoBody(weighs)) {
+        L.push("- 체성분 측정 규칙(2026-08-08~): 인바디 자동 수신 · **같은 날 여러 번 재면 마지막 측정이 그 날 값**");
+        L.push("  (그 전에는 오전 측정만 채택했다. 아래 체성분 기록의 시각을 보고 아침 공복/저녁 비공복을 구분할 것 —");
+        L.push("   저녁 측정이 섞이면 추세 기울기가 흔들려 유지칼로리 역산이 실제보다 낮게 나온다)");
       }
       L.push("- 아래 판정(✓/✗)은 그 날의 모드·보정 기준 적정 여부");
       L.push("");
@@ -191,19 +216,27 @@ export function buildAnalysisPackage(state, { start, end }, todayStr, opts = {})
         weeks.get(wk).push(ds);
       }
       L.push("## 운동 구성 (주간)");
-      L.push("주(월요일)   유산소  상체  하체  코어  기타(%) | 주간 총kcal | 운동일·휴식일");
+      L.push("주(월요일)   유산소  근력  상체  하체  코어  기타(%) | 주간 총kcal | 운동일·휴식일");
+      let strengthTotal = 0;
       for (const [wk, dates] of [...weeks.entries()].sort()) {
-        const cats = { 유산소: 0, 상체: 0, 하체: 0, 코어: 0, 기타: 0 };
+        const cats = { 유산소: 0, 근력: 0, 상체: 0, 하체: 0, 코어: 0, 기타: 0 };
         let exDays = 0;
         for (const ds of dates) {
           const exs = allDays[ds]?.exercises || [];
           if (exs.length) exDays++;
           for (const e of exs) cats[exCategory(e.n)] += e.kcal || 0;
         }
+        strengthTotal += cats.근력;
         const total = Object.values(cats).reduce((s, v) => s + v, 0);
         const pct = (v) => String(total > 0 ? Math.round((v / total) * 100) : 0).padStart(4);
         // 총kcal 병기 — "하체 21%가 몇 kcal 규모인지" 볼륨 감각까지 (분석 클로드 제안)
-        L.push(`${wk.slice(5).replace("-", "/")}주    ${pct(cats.유산소)}  ${pct(cats.상체)}  ${pct(cats.하체)}  ${pct(cats.코어)}  ${pct(cats.기타)}   | 총 ${String(Math.round(total).toLocaleString()).padStart(6)}kcal | 운동 ${exDays}일 · 휴식 ${dates.length - exDays}일`);
+        L.push(`${wk.slice(5).replace("-", "/")}주    ${pct(cats.유산소)}  ${pct(cats.근력)}  ${pct(cats.상체)}  ${pct(cats.하체)}  ${pct(cats.코어)}  ${pct(cats.기타)}   | 총 ${String(Math.round(total).toLocaleString()).padStart(6)}kcal | 운동 ${exDays}일 · 휴식 ${dates.length - exDays}일`);
+      }
+      // 근력이 실제로 잡힌 기간에만 한계를 밝힌다 — 이 각주가 없으면 상체/하체/코어 0%를
+      // "그 부위를 안 했다"로 읽는다. 수동 기록만 있던 과거 기간의 출력은 그대로 유지된다.
+      if (strengthTotal > 0) {
+        L.push("(근력 = 워치 자동 수신 세션 한 덩어리 — 부위 정보가 없어 상체/하체/코어로 나뉘지 않는다.");
+        L.push(" 상체·하체·코어 비중은 부위명이 적힌 기록만 반영되므로, 근력 비중이 크면 부위 구성비는 참고용이다)");
       }
       L.push("");
     });
@@ -234,8 +267,10 @@ export function buildAnalysisPackage(state, { start, end }, todayStr, opts = {})
             // 정밀 상세본 — 무엇을 먹고 어떤 운동을 했는지(시간·수량·kcal). 구간 심층 분석용.
             const meals = [...(day.meals || [])].sort((x, y) => (x.hour || 0) - (y.hour || 0));
             if (meals.length) L.push(`      식단: ${meals.map((m) => `${String(m.hour || 0).padStart(2, "0")}시 ${m.n}${m.serving !== 1 ? `×${m.serving}` : ""} ${Math.round((m.k || 0) * (m.serving || 1))}`).join(" · ")}`);
+            // ⌚ = 워치 자동 수신분. 손입력과 구분되지 않으면 "이 사람이 직접 적은 운동"과
+            // "기계가 넣어준 운동"을 분석자가 같은 무게로 읽는다(감사 R-04).
             const exs = [...(day.exercises || [])].sort((x, y) => (x.hour || 0) - (y.hour || 0));
-            if (exs.length) L.push(`      운동: ${exs.map((e) => `${String(e.hour || 0).padStart(2, "0")}시 ${e.n} ${e.duration || 0}분 ${Math.round(e.kcal || 0)}`).join(" · ")}`);
+            if (exs.length) L.push(`      운동: ${exs.map((e) => `${String(e.hour || 0).padStart(2, "0")}시 ${e.source === "watch" ? "⌚" : ""}${e.n} ${e.duration || 0}분 ${Math.round(e.kcal || 0)}`).join(" · ")}`);
           }
         } catch (e) {
           L.push(`${ds.slice(5)}  [생성 실패: 이 날짜 데이터 — ${errMsg(e)}]`);
@@ -303,11 +338,14 @@ export function buildAnalysisPackage(state, { start, end }, todayStr, opts = {})
           L.push(`기간 변화: 체지방량 ${fatKg(f0)}→${fatKg(f1)}kg (${dFat > 0 ? "+" : ""}${dFat})${dMus !== null ? ` · 골격근 ${f0.muscle}→${f1.muscle}kg (${dMus > 0 ? "+" : ""}${dMus})` : ""}`);
         }
         for (const b of weighs) {
-          const parts = [`${b.date.slice(5)} ${b.weight}kg`];
+          // 측정 시각 병기 — 창이 해제된 뒤로는 "그날 값이 아침 공복인지 저녁인지"가
+          // 추세 해석을 가른다. 시각이 없는 옛 레코드는 표기도 없어 출력이 그대로 유지된다.
+          const t = sampleTimeLabel(b.sampleTs);
+          const parts = [`${b.date.slice(5)}${t ? ` ${t}` : ""} ${b.weight}kg`];
           if (b.muscle > 0) parts.push(`골격근 ${b.muscle}kg`);
           if (b.fatPct > 0) parts.push(`체지방 ${b.fatPct}% = ${fatKg(b)}kg`);
           if (b.score > 0) parts.push(`점수 ${b.score}`);
-          L.push(parts.join(" · "));
+          L.push(parts.join(" · ") + bodyProvenance(b));
         }
       } else {
         L.push("(기간 내 측정 없음)");

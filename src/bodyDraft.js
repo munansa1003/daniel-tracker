@@ -28,6 +28,34 @@ export function checkSmmLbm(muscle, lbm) {
   return { ratio, warn: ratio < SMM_LBM_MIN || ratio > SMM_LBM_MAX };
 }
 
+// 측정 시각 표기 (2026-08 감사 R-03·R-04).
+// B1 완화로 "하루 종일 최신 채택"이 되면서 그날 값이 아침 공복인지 저녁 비공복인지가
+// 추세 해석을 가른다(측정 습관이 아침→저녁으로 한 번 바뀌면 적응형 보정이 400kcal대로
+// 움직인다 — 감사 F② 정량). 그런데 sampleTs는 저장만 되고 사람에게도 분석에도 안 보였다.
+// EVENING_FROM_HOUR는 옛 아침 창(MORNING_END_HOUR=12)의 경계를 그대로 쓴다.
+export const EVENING_FROM_HOUR = 12;
+// ⚠️ 실행 환경 타임존(getHours)을 쓰면 안 된다. sampleTs는 유입 계층이 **고정 오프셋**
+// (IMPORT_TZ_OFFSET, 기본 +09:00)으로 만든 값이고, 이 문자열은 브라우저뿐 아니라 공유
+// 링크를 렌더하는 서버리스(UTC)에서도 만들어진다 — getHours를 쓰면 같은 측정이 기기에선
+// 08:24, 서버에선 23:24로 보인다. 유입이 쓴 것과 같은 기준으로 되돌려야 시각이 일치한다.
+// (해외 체류 중 측정은 KST 벽시계로 표기된다 — 유입 파이프라인 전체가 KST 기준이라
+//  일관되며, 이 비대칭 자체는 감사 축 L의 별도 항목이다.)
+export const SAMPLE_TZ_OFFSET_MIN = 540;
+const sampleWallClock = (sampleTs) =>
+  (Number.isFinite(sampleTs) ? new Date(sampleTs + SAMPLE_TZ_OFFSET_MIN * 60000) : null);
+// "08:24" | null
+export function sampleTimeLabel(sampleTs) {
+  const d = sampleWallClock(sampleTs);
+  if (!d || Number.isNaN(d.getTime())) return null;
+  return String(d.getUTCHours()).padStart(2, "0") + ":" + String(d.getUTCMinutes()).padStart(2, "0");
+}
+// 오후 측정인가(= 옛 아침 창 규칙이었다면 제외됐을 값인가). 시각을 모르면 false.
+export function isEveningSample(sampleTs) {
+  const d = sampleWallClock(sampleTs);
+  if (!d || Number.isNaN(d.getTime())) return false;
+  return d.getUTCHours() >= EVENING_FROM_HOUR;
+}
+
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 // muscle·score는 인바디 클라우드 직수신 전용 필드 — HAE(애플 건강) 경로에는 존재하지 않는다.
 // 여기 담기는 muscle은 추정치가 아니라 인바디가 측정한 실측 SMM(금지사항의 '추정 기입'과 무관).
