@@ -1015,7 +1015,7 @@ export function StatsTab({ bodyLog, allDays, goals, onSaveGoals, user, appTarget
                   { rank: 3, name: "HealthyDan", pct: 83, color: "#5a9e6f" },
                   { rank: null, name: "나 (Daniel)", pct, color: "#4a8fc9", me: true },
                 ].sort((a, b) => b.pct - a.pct).map((u, i) => (
-                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: i < 3 ? "1px solid rgba(255,255,255,0.04)" : "none", background: u.me ? "rgba(74,143,201,0.06)" : "transparent", borderRadius: u.me ? 6 : 0, padding: u.me ? "6px 8px" : "6px 0" }}>
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, borderBottom: i < 3 ? "1px solid rgba(255,255,255,0.04)" : "none", background: u.me ? "rgba(74,143,201,0.06)" : "transparent", borderRadius: u.me ? 6 : 0, padding: u.me ? "6px 8px" : "6px 0" }}>
                     <span style={{ fontSize: 11, color: i === 0 ? "#d4af37" : "#555", width: 16, textAlign: "center" }}>{i + 1}</span>
                     <div style={{ width: 24, height: 24, borderRadius: "50%", background: `${u.color}20`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 500, color: u.color }}>{u.name.slice(0, 2).toUpperCase()}</div>
                     <span style={{ flex: 1, fontSize: 11, color: u.me ? "#4a8fc9" : "#f5f5f0" }}>{u.name}</span>

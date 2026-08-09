@@ -50,6 +50,10 @@ const CLOUD_LOCK_TTL_SEC = 60;  // 함수가 죽어도 이 시간 뒤 자동 해
 // **운동 사서함 pull까지 함께 죽는다**. 클라우드는 예산을 넘기면 이번 회차를 포기한다.
 const CLOUD_BUDGET_MS = 12000;
 
+// ack 한 번에 보낼 HDEL field 수 (감사 R-37). Upstash는 커맨드 하나의 크기에 한계가 있고
+// 키가 최대 300자이므로, 200개면 한 요청이 넉넉히 안전한 크기에 머문다.
+const ACK_CHUNK = 200;
+
 /* 몇 건을 당겨올 것인가 (감사 R-30).
    옛 동작은 항상 "최근 5건" 고정이었다. 인바디는 하루에도 여러 번 재측정할 수 있으므로,
    앱을 며칠 안 열면 5건 창 밖으로 밀려난 측정은 **클라우드 경로로는 영원히 안 들어온다**
@@ -264,15 +268,24 @@ export default async function handler(req, res) {
     if (action === "ack") {
       // keys(운동)·bodyKeys(체성분) 각각 독립 HDEL — 구 클라이언트(keys만 전송)는 기존과 동일 동작
       const sanitize = (arr) => (Array.isArray(arr) ? arr.filter((k) => typeof k === "string" && k.length > 0 && k.length <= 300) : []);
-      if ((Array.isArray(keys) && keys.length > 500) || (Array.isArray(bodyKeys) && bodyKeys.length > 500)) {
-        return res.status(400).json({ error: "keys required" });
-      }
       const safe = sanitize(keys);
       const safeBody = sanitize(bodyKeys);
       if (!safe.length && !safeBody.length) return res.status(400).json({ error: "keys required" });
-      const removed = safe.length ? await kv("HDEL", inboxKey, ...safe) : 0;
-      const bodyRemoved = safeBody.length ? await kv("HDEL", bodyInboxKey, ...safeBody) : 0;
-      return res.status(200).json({ ok: true, removed: Number(removed) || 0, bodyRemoved: Number(bodyRemoved) || 0 });
+      // 옛 동작은 500건을 넘으면 400으로 거절했다. 그런데 사서함 **적재**에는 상한이 없다 —
+      // 오래 안 열어 쌓이면 ack가 영영 실패하고, 실패하면 사서함이 안 비니 다음 pull에서도
+      // 같은 수가 내려와 교착이 된다(감사 R-37). 게다가 오류 메시지가 "keys required"라
+      // "키가 없다"로 읽혀 원인 추적까지 어긋난다.
+      // 상한을 올리는 대신 **나눠서 지운다** — 상한은 그 자체가 새로운 실패 모드다.
+      const hdelChunked = async (key, fields) => {
+        let n = 0;
+        for (let i = 0; i < fields.length; i += ACK_CHUNK) {
+          n += Number(await kv("HDEL", key, ...fields.slice(i, i + ACK_CHUNK))) || 0;
+        }
+        return n;
+      };
+      const removed = safe.length ? await hdelChunked(inboxKey, safe) : 0;
+      const bodyRemoved = safeBody.length ? await hdelChunked(bodyInboxKey, safeBody) : 0;
+      return res.status(200).json({ ok: true, removed, bodyRemoved });
     }
 
     return res.status(400).json({ error: "unknown action" });
