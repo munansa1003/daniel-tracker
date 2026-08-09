@@ -1,5 +1,6 @@
 // api/_lib/security.js — 공통 보안 유틸 (Vercel은 _ 접두사 디렉토리를 라우트로 노출하지 않음)
-// 모든 API 핸들러는 이 모듈의 checkOrigin / rateLimit를 import해서 사용
+// 모든 API 핸들러는 이 모듈의 checkOrigin / rateLimit / safeEqual을 import해서 사용
+import { timingSafeEqual } from "node:crypto";
 
 // 허용 origin 목록 — 로컬 dev + 프로덕션 도메인(들) (env에서 주입)
 // PRODUCTION_ORIGIN은 콤마(,)로 구분된 여러 origin 지원 (예: 커스텀 도메인 + Vercel 기본 도메인)
@@ -29,6 +30,17 @@ export function checkOrigin(req, res) {
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   return true;
+}
+
+// 비밀값 비교 — 길이가 달라도 던지지 않고, 같은 길이면 바이트 수와 무관하게 같은 시간이 걸린다.
+// (=== 는 첫 불일치에서 빠져나와 "앞 몇 글자가 맞았는지"가 응답 시간에 새어나갈 수 있다)
+export function safeEqual(a, b) {
+  const A = Buffer.from(String(a ?? ""), "utf8");
+  const B = Buffer.from(String(b ?? ""), "utf8");
+  // 길이 자체가 다르면 timingSafeEqual이 던지므로, 길이 비교는 따로 하고 본문은 항상 비교한다
+  // (길이가 다를 때 즉시 false를 반환해도 새는 정보는 "길이"뿐 — 비밀값 내용은 새지 않는다)
+  if (A.length !== B.length) return false;
+  return timingSafeEqual(A, B);
 }
 
 // IP 추출 (Vercel은 x-forwarded-for 첫 항목이 실제 클라이언트)

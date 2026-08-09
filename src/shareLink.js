@@ -33,13 +33,15 @@ export function isExpired(link, now = Date.now()) {
 }
 
 // 발급 — 성공 시 { token, expiresAt }, 실패 시 throw(호출측이 사용자에게 안내)
-export async function createShareLink(pkg, ttl) {
+// prevToken(지금 화면에 있는 링크)을 함께 보내 서버가 그 자리에서 폐기한다: 앱은 링크를
+// 하나만 보여주므로 재발급하면 옛 링크도 죽는 것이 사용자가 읽는 의미다(감사 R-23).
+export async function createShareLink(pkg, ttl, prevToken) {
   const idToken = await getIdToken();
   if (!idToken) throw new Error("로그인이 필요해요");
   const res = await fetch("/api/share-create", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ idToken, pkg, ttl }),
+    body: JSON.stringify({ idToken, pkg, ttl, ...(prevToken ? { prevToken } : {}) }),
   });
   if (!res.ok) {
     let msg = "링크를 만들지 못했어요";

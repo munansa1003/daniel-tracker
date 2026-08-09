@@ -117,6 +117,52 @@ describe("share-create", () => {
     expect(saved.pkg.length).toBe(200);
   });
 
+  /* 재발급 = 이전 링크 폐기 — 감사 R-23.
+     앱은 링크를 하나만 보여준다(goals.shareLink). 옛 동작에서는 새로 만들어도 이전 토큰이
+     TTL(최대 7일)까지 살아 있어, 화면에서 사라진 URL로 계속 열람이 됐다. */
+  const issue = async (prevToken) => {
+    const handler = await loadCreate();
+    const res = makeRes();
+    await handler(makeReq({ idToken: "good-token", pkg: "x".repeat(200), ttl: "24h", ...(prevToken ? { prevToken } : {}) }), res);
+    return JSON.parse(res.body);
+  };
+
+  it("재발급하면 이전 링크가 즉시 폐기된다 (화면에서 사라진 URL이 살아 있지 않게)", async () => {
+    const first = await issue();
+    expect(JSON.parse(kvStore.get(`share:${first.token}`)).revoked).toBeUndefined();
+
+    const second = await issue(first.token);
+    expect(second.revokedPrev).toBe(true);
+    expect(second.token).not.toBe(first.token);
+    // 옛 토큰은 폐기 흔적으로 대체 — 스냅샷 본문(pkg)은 즉시 사라진다
+    const oldRec = JSON.parse(kvStore.get(`share:${first.token}`));
+    expect(oldRec.revoked).toBe(true);
+    expect(oldRec.pkg).toBeUndefined();
+    // 새 토큰은 멀쩡히 살아 있다 — 폐기가 새 링크를 말려들게 하면 안 된다
+    expect(JSON.parse(kvStore.get(`share:${second.token}`)).pkg.length).toBe(200);
+  });
+
+  it("남의 토큰을 prevToken으로 넘겨도 폐기되지 않는다 (소유자 확인)", async () => {
+    const mine = await issue();
+    // uid-2의 링크를 직접 심어 둔다
+    const otherToken = "b".repeat(32);
+    kvStore.set(`share:${otherToken}`, JSON.stringify({ uid: "uid-2", pkg: "y".repeat(50) }));
+
+    const next = await issue(otherToken);
+    expect(next.revokedPrev).toBe(false);
+    expect(JSON.parse(kvStore.get(`share:${otherToken}`)).revoked).toBeUndefined();
+    expect(mine.token).not.toBe(next.token);
+  });
+
+  it("prevToken이 형식 오류·부재여도 발급은 정상 (재발급 정리는 부가 기능)", async () => {
+    const a = await issue("not-a-token");
+    expect(isValidToken(a.token)).toBe(true);
+    expect(a.revokedPrev).toBe(false);
+    const b = await issue("a".repeat(32));   // 형식은 맞지만 KV에 없음
+    expect(isValidToken(b.token)).toBe(true);
+    expect(b.revokedPrev).toBe(false);
+  });
+
   it("인증 실패 → 401 · 저장 없음", async () => {
     const handler = await loadCreate();
     const res = makeRes();

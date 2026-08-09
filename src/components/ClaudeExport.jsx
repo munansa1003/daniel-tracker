@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { PERIODS, resolvePeriod, buildAnalysisPackage, packageMeta, shiftDays } from "../analysisExport.js";
+import { PERIODS, resolvePeriod, buildAnalysisPackage, packageMeta, sharePrivacyNotice, shiftDays } from "../analysisExport.js";
 import { TTL_CHOICES, shareUrlOf, remainingText, isExpired, createShareLink, revokeShareLink } from "../shareLink.js";
 
 // 클로드 분석용 내보내기 — 데이터 탭 행 + 펼침 패널(기간 선택 → 복사/공유/.md).
@@ -79,7 +79,9 @@ export function ClaudeExport({ state, todayStr, onResync, shareLink, onShareLink
     if (!pkgOk()) return;
     setBusyLink(true); setLinkErr("");
     try {
-      const link = await createShareLink(pkg, ttl);
+      // 만료된 링크의 토큰도 함께 넘긴다 — 만료 판정은 클라이언트 시계 기준이라
+      // 서버에서는 아직 살아 있을 수 있다(기기 시계가 빠른 경우).
+      const link = await createShareLink(pkg, ttl, shareLink?.token);
       onShareLinkChange?.(link);   // goals에 저장(기기 간 동기화)
       setLinkMode(false);
       flash("링크 생성 완료 — URL을 복사해 클로드에 전달하세요 ✓");
@@ -222,8 +224,13 @@ export function ClaudeExport({ state, todayStr, onResync, shareLink, onShareLink
                 style={{ width: "100%", marginTop: 11, padding: 11, borderRadius: 10, fontSize: 12.5, fontWeight: 600, background: "#4a8fc9", color: "#fff", border: "none", cursor: busyLink ? "default" : "pointer", opacity: busyLink ? 0.6 : 1 }}>
                 {busyLink ? "만드는 중…" : "🔗 링크 만들기"}
               </button>
+              {/* 발급 "직전"에 무엇이 누구에게 보이는지 알린다 — 감사 R-22 */}
+              <div style={{ fontSize: 10, color: "#d9a441", marginTop: 8, lineHeight: 1.5, background: "rgba(212,175,55,0.08)", border: "1px solid rgba(212,175,55,0.25)", borderRadius: 8, padding: "8px 9px" }}>
+                🔓 {meta ? sharePrivacyNotice(meta) : "이 URL을 가진 사람은 누구나 로그인 없이 내용을 볼 수 있어요."}
+              </div>
               <div style={{ fontSize: 9.5, color: "#4a4a4a", marginTop: 7, lineHeight: 1.5 }}>
                 지금 설정(기간·문서 형식)으로 만든 <b style={{ color: "#8a8a8a" }}>공유 시점 스냅샷</b>이 저장됩니다. 이후 기록을 추가하면 새 링크를 만들면 돼요.
+                링크를 새로 만들면 <b style={{ color: "#8a8a8a" }}>이전 링크는 즉시 폐기</b>됩니다.
               </div>
               {linkErr && <div style={{ fontSize: 10.5, color: "#e05252", marginTop: 7 }}>{linkErr}</div>}
             </div>
