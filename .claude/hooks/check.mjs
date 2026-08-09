@@ -6,8 +6,12 @@ import { execSync } from "node:child_process";
 import { extname } from "node:path";
 
 // 순서 중요: 빠른 정적 검사(1단계)가 먼저, 테스트(2단계)는 그 다음
+// 검사 범위에 api를 포함한다(2026-08 감사 R-41 · 사용자 지시로 확장).
+// eslint.config.js에는 처음부터 `files: ["api/**/*.js"]` 블록이 있었는데 훅과 CI가
+// `eslint src`만 돌려 **자동 유입 코드(서버리스 2,000여 줄) 전체가 정적 검사 밖**에 있었다.
+// package.json의 "lint": "eslint src api"는 수동 실행용이라 아무도 부르지 않았다.
 const CHECKS = [
-  "npx eslint src --max-warnings=0",
+  "npx eslint src api --max-warnings=0",
   "npx vitest run",
 ];
 const GATED_EXTS = new Set([".ts", ".tsx", ".js", ".jsx"]);

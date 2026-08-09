@@ -26,8 +26,9 @@ jobs:
         run: npm ci
 
       # 게이트 1단계: 정적 검사 (no-undef 등 크래시성 오류 — 빌드가 못 잡는 것)
+      # api 포함 — 서버리스 함수도 같은 no-undef 방어를 받는다(2026-08 감사 R-41)
       - name: Lint (static check)
-        run: npx eslint src --max-warnings=0
+        run: npx eslint src api --max-warnings=0
 
       # 게이트 2단계: 전체 테스트 스위트 (골든셋 포함)
       - name: Test

@@ -16,9 +16,11 @@ import·훅 규칙 위반 같은 크래시성 오류와 기존 동작의 회귀�
 
 - **훅**: `PostToolUse` (matcher `Write|Edit`) → `node .claude/hooks/check.mjs` (timeout 90초)
 - **검사 명령** (순차 실행, 하나라도 실패하면 게이트 실패):
-  1. `npx eslint src --max-warnings=0` — 정적 검사
+  1. `npx eslint src api --max-warnings=0` — 정적 검사
      (이 프로젝트는 JavaScript다 — tsconfig.json 없음, src 전체가 .js/.jsx.
-     ESLint 설정은 `eslint.config.js`의 최소 규칙 3개를 그대로 따른다)
+     ESLint 설정은 `eslint.config.js`의 최소 규칙 3개를 그대로 따른다.
+     **api 포함**: 서버리스 함수도 같은 no-undef 방어를 받는다 — 2026-08 구조 감사 R-41에서
+     `eslint src`만 돌던 탓에 자동 유입 코드 전체가 정적 검사 밖이던 것을 사용자 지시로 확장)
   2. `npx vitest run` — 전체 테스트 스위트 (약 5초)
 - **대상 확장자**: `.ts` `.tsx` `.js` `.jsx` — 그 외 파일 편집은 검사 없이 통과
 - **exit 규약**:
