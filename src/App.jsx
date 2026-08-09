@@ -787,8 +787,11 @@ function MainApp({ user, profile, onProfileRestore, onLogout }) {
     setImportInfo({
       cutover: data.cutover || null, log: Array.isArray(data.log) ? data.log : [], enabled: !!data.enabled,
       bodyCutover: data.bodyCutover || null, bodyLog: Array.isArray(data.bodyLog) ? data.bodyLog : [], bodyEnabled: !!data.bodyEnabled,
+      // bodyCloudEnabled가 두 번 적혀 있었다(값이 같아 무해했지만, 뒤엣것이 앞엣것을 덮는다 —
+      // 값이 달랐다면 조용히 틀렸을 자리다). 정적 검사로는 안 걸린다: ESLint 활성 규칙이
+      // no-undef·jsx-no-undef·rules-of-hooks 3개뿐이라 no-dupe-keys가 없다(감사 R-32).
+      // 규칙 추가는 CLAUDE.md상 사용자 지시가 필요한 별도 단계 — 여기서는 중복만 제거한다.
       bodyCloudEnabled: !!data.bodyCloudEnabled, bodyCloudStatus: data.bodyCloudStatus || "off",
-      bodyCloudEnabled: !!data.bodyCloudEnabled,
     });
     // 병합 기준은 localStorage 미러(세션 중 항상 최신 진실) — state 스냅샷 지연과 무관
     const local = store.getLocalAll();
