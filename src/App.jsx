@@ -521,10 +521,13 @@ function MainApp({ user, profile, onProfileRestore, onLogout }) {
     Object.entries(allDays).sort().forEach(([d, data]) => { const a = aggregateDay(data); rows.push([d, Math.round(a.p), Math.round(a.c), Math.round(a.f), Math.round(a.k), Math.round(a.ex), Math.round(a.net), isRestStamp(data) ? "rest" : ""]); });
     rows.push([]); rows.push(["=== 식단 상세 ==="]); rows.push(["날짜","시간","음식","수량","P(g)","C(g)","F(g)","K(kcal)"]);
     Object.entries(allDays).sort().forEach(([d, data]) => (data.meals || []).forEach(m => rows.push([d, `${String(m.hour||0).padStart(2,"0")}:00`, m.n, m.serving, (m.p*m.serving).toFixed(1), (m.c*m.serving).toFixed(1), (m.f*m.serving).toFixed(1), Math.round(m.k*m.serving)])));
-    rows.push([]); rows.push(["=== 운동 상세 ==="]); rows.push(["날짜","시간","운동","시간(분)","소모(kcal)","MET"]);
-    Object.entries(allDays).sort().forEach(([d, data]) => (data.exercises || []).forEach(e => rows.push([d, `${String(e.hour||0).padStart(2,"0")}:00`, e.n, e.duration, e.kcal, e.m])));
-    rows.push([]); rows.push(["=== 체성분 ==="]); rows.push(["날짜","체중(kg)","골격근량(kg)","체지방률(%)"]);
-    bodyLog.forEach(b => rows.push([b.date, b.weight, b.muscle, b.fatPct]));
+    // 출처(source·device)와 체성분 점수를 함께 싣는다 — 표 형태 산출물은 이것 하나뿐인데
+    // 자동 수신분과 손입력을 구분할 근거가 전혀 없었다(감사 R-48). 분석 계약(analysisExport)은
+    // 이미 [자동확정]/[자동수신]을 표기한다 — CSV만 뒤처져 있었다.
+    rows.push([]); rows.push(["=== 운동 상세 ==="]); rows.push(["날짜","시간","운동","시간(분)","소모(kcal)","MET","출처","기기"]);
+    Object.entries(allDays).sort().forEach(([d, data]) => (data.exercises || []).forEach(e => rows.push([d, `${String(e.hour||0).padStart(2,"0")}:00`, e.n, e.duration, e.kcal, e.m, e.source === "watch" ? "워치" : "손입력", e.device || ""])));
+    rows.push([]); rows.push(["=== 체성분 ==="]); rows.push(["날짜","체중(kg)","골격근량(kg)","체지방률(%)","점수","출처"]);
+    bodyLog.forEach(b => rows.push([b.date, b.weight, b.muscle, b.fatPct, b.score ?? "", b.auto ? "자동확정" : b.source === "import" ? "자동수신" : "손입력"]));
     const csv = "\uFEFF" + rows.map(r => r.map(v => { const s = String(v ?? ""); return s.includes(",") || s.includes('"') ? `"${s.replace(/"/g,'""')}"` : s; }).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `daniel_tracker_${today()}.csv`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
@@ -614,15 +617,22 @@ function MainApp({ user, profile, onProfileRestore, onLogout }) {
     return Math.floor(diff);
   }, [lastBackup]);
 
-  // 계정 생성 후 15일 이상인지 확인
+  // 계정 생성 후 15일 이상인지 확인 — 백업 리마인더의 전제(갓 시작한 계정은 백업을 안 채근).
+  // createdAt은 **기기 로컬 값**이라 새 기기·브라우저 데이터 삭제 후에는 비어 있다. 없다고
+  // false로 두면 정작 "기록은 많은데 이 기기엔 백업 이력이 없는" 상황에서 15일간 침묵한다 —
+  // 백업이 가장 필요한 바로 그때다(감사 R-46). 로컬 값이 없으면 **기록 자체**로 나이를 센다:
+  // 첫 기록일이 15일 이상 전이면 그 계정은 이미 성숙한 것이다(기록은 기기 간 동기화된다).
   const accountMature = useMemo(() => {
+    const matureSince = (ds) => ds && (new Date(today()) - new Date(ds)) / 86400000 >= 15;
     try {
-      const uid = getCurrentUserId();
-      const created = localStorage.getItem("dt_" + uid + "_createdAt");
-      if (!created) return false;
-      return (new Date(today()) - new Date(created)) / 86400000 >= 15;
-    } catch { return false; }
-  }, []);
+      const created = localStorage.getItem("dt_" + getCurrentUserId() + "_createdAt");
+      if (created) return matureSince(created.slice(0, 10));
+    } catch { /* 저장소 접근 불가 — 아래 기록 기준으로 판단 */ }
+    const firstRecord = Object.keys(allDays).sort()[0];
+    const firstWeigh = bodyLog.length ? bodyLog[0].date : null;
+    const earliest = [firstRecord, firstWeigh].filter(Boolean).sort()[0];
+    return matureSince(earliest);
+  }, [allDays, bodyLog]);
 
   // 인앱 리마인더 — 앱을 열 때 상태에 맞춰 홈 배너로 알림. goals.reminders 토글로 켬/끔.
   const saveReminders = (next) => saveGoals({ ...goals, reminders: next });
@@ -711,8 +721,16 @@ function MainApp({ user, profile, onProfileRestore, onLogout }) {
   const pushReady = useMemo(() => pushConfigured(), []);
   const pushState = useMemo(() => {
     const recordedDates = Object.keys(allDays).filter(d => { const x = allDays[d]; return x && (((x.meals || []).length) || ((x.exercises || []).length)); }).sort();
+    // 로컬 createdAt이 없으면 첫 기록일로 대체한다 — 새 기기에서 null을 올리면 크론이
+    // accountMature=false로 읽어 백업 리마인더가 조용히 꺼진다(감사 R-46).
+    // 서버 쪽에서도 기존 값을 null로 덮지 않도록 막아 뒀다(mergePushState, R-44).
     let accountCreatedAt = null;
     try { accountCreatedAt = localStorage.getItem("dt_" + getCurrentUserId() + "_createdAt") || null; } catch { /* 무시 */ }
+    if (!accountCreatedAt) {
+      const firstRecord = Object.keys(allDays).sort()[0];
+      const firstWeigh = bodyLog.length ? bodyLog[0].date : null;
+      accountCreatedAt = [firstRecord, firstWeigh].filter(Boolean).sort()[0] || null;
+    }
     // 지난 주(월~일) 요약 — 월요일 저녁 성적표 푸시용. 주 시작은 통계 탭과 동일(월요일).
     const lastMon = (() => { const d = new Date(today() + "T12:00:00"); const dow = d.getDay(); d.setDate(d.getDate() + (dow === 0 ? -6 : 1 - dow) - 7); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); })();
     let recorded = 0, workouts = 0, calOk = 0, protHit = 0;
