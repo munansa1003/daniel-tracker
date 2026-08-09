@@ -49,6 +49,25 @@ const CLOUD_LOCK_TTL_SEC = 60;  // 함수가 죽어도 이 시간 뒤 자동 해
 // 요청별 타임아웃만으로는 합이 함수 maxDuration(30초)을 넘을 수 있고, 그러면 504로
 // **운동 사서함 pull까지 함께 죽는다**. 클라우드는 예산을 넘기면 이번 회차를 포기한다.
 const CLOUD_BUDGET_MS = 12000;
+
+/* 몇 건을 당겨올 것인가 (감사 R-30).
+   옛 동작은 항상 "최근 5건" 고정이었다. 인바디는 하루에도 여러 번 재측정할 수 있으므로,
+   앱을 며칠 안 열면 5건 창 밖으로 밀려난 측정은 **클라우드 경로로는 영원히 안 들어온다**
+   (HAE 단축어가 돌았다면 사서함에 남지만, 그쪽이 죽었을 때가 정확히 이 경로가 필요한 때다).
+   그래서 마지막 성공 시각부터 벌어진 날수만큼 창을 넓힌다. 중복은 seen 도장이 막으므로
+   넓게 당기는 쪽은 안전하고, 좁게 당기는 쪽만 유실을 만든다.
+   상한 30은 시간 예산(12초) 안에서 처리 가능한 범위. 첫 pull은 기준이 없으니 상한으로
+   시작한다 — 컷오버가 과거를 막고 중복은 도장이 막으므로 넓혀도 손해가 없다. */
+const CLOUD_COUNT_MIN = 5;
+const CLOUD_COUNT_MAX = 30;
+const CLOUD_SAMPLES_PER_DAY = 3;   // 같은 날 3회 재측정까지 관측됨(body-import 테스트 계약 2)
+export function pullCount(lastOkIso, now = Date.now()) {
+  if (!lastOkIso) return CLOUD_COUNT_MAX;
+  const ms = now - Date.parse(lastOkIso);
+  if (!Number.isFinite(ms)) return CLOUD_COUNT_MAX;   // 값이 깨졌으면 넓게(유실보다 낫다)
+  const days = Math.max(0, Math.floor(ms / 86400000));
+  return Math.min(CLOUD_COUNT_MAX, CLOUD_COUNT_MIN + days * CLOUD_SAMPLES_PER_DAY);
+}
 function withBudget(p, ms) {
   let timer;
   const alarm = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error("인바디 시간 예산 초과")), ms); });
@@ -77,6 +96,7 @@ async function cloudPullIfDue(uid, force = false) {
   const failKey = `import:body-cloud-fail:${uid}`;
   const authBlockKey = `import:body-cloud-authblock:${uid}`;
   const lockKey = `import:body-cloud-lock:${uid}`;
+  const lastOkKey = `import:body-cloud-ok:${uid}`;   // 마지막 "성공" 시각 — 당겨올 건수 산정용(R-30)
   const fp = credFingerprint(ID, PW);
 
   // 인증 봉인 확인 — 같은 크리덴셜이 24시간 안에 인증 실패했으면 아예 시도하지 않는다.
@@ -102,17 +122,20 @@ async function cloudPullIfDue(uid, force = false) {
 
     try {
       const tz = parseTzOffset(process.env.IMPORT_TZ_OFFSET) ?? HAE_TZ_OFFSET_MIN_DEFAULT;
+      // 스로틀 도장(throttleKey)이 아니라 **성공** 시각을 기준으로 넓힌다 — 실패해도 도장은
+      // 남으므로, 도장을 기준 삼으면 오래 실패하는 동안 창이 넓어지지 않는다.
+      const count = pullCount(await kv("GET", lastOkKey));
       const { payload } = await withBudget(pullRecentMetrics({
         loginId: ID, loginPw: PW,
         countryCode: process.env.INBODY_COUNTRY || "KR",
-        count: 5, tzOffsetMin: tz,
+        count, tzOffsetMin: tz,
       }), CLOUD_BUDGET_MS);
       const { entries, summary } = planBodyImport(payload, { cutoverDate: CUTOVER, tzOffsetMin: tz, source: "cloud" });
       const { accepted, ignored } = await storeBodyEntries(uid, entries);
       await pushBodyLog(uid, "cloud", { accepted, ignored, summary });
       // 성공 — 실패 카운터·인증 봉인 모두 해제
-      try { await kv("SET", failKey, "0"); await kv("DEL", authBlockKey); } catch { /* 무시 */ }
-      console.log(`[import-inbox] cloud pull accepted=${accepted} ignored=${ignored} rejected=${summary.rejected} excluded=${summary.excluded}`);
+      try { await kv("SET", failKey, "0"); await kv("DEL", authBlockKey); await kv("SET", lastOkKey, new Date().toISOString()); } catch { /* 무시 */ }
+      console.log(`[import-inbox] cloud pull count=${count} accepted=${accepted} ignored=${ignored} rejected=${summary.rejected} excluded=${summary.excluded}`);
       return "ok";
     } catch (e) {
       // 실패도 카드에 보인다 — "지금 확인"이 성공이든 실패든 반드시 로그 한 줄을 남긴다(관측성).

@@ -10,6 +10,7 @@
 
 import { checkOrigin, rateLimit } from "./_lib/security.js";
 import { kv, kvConfigured } from "./_lib/kv.js";
+import { mergePushState } from "./_lib/push-state.js";
 
 // Firebase ID 토큰 검증 — uid 사칭(타인 구독 덮어쓰기·주간 성적표 가로채기) 차단.
 // Admin SDK 없이 Google identitytoolkit(accounts:lookup)으로 서명·만료를 검증한다.
@@ -66,16 +67,22 @@ export default async function handler(req, res) {
       await kv("SADD", "push:uids", uid);
     }
 
-    // 상태 병합 저장 (크론이 조건 판단에 사용)
-    const merged = {
+    // 상태 병합 저장 (크론이 조건 판단에 사용).
+    // 통째로 덮지 않는다 — 기기가 둘이면 옛 스냅샷을 든 기기가 나중에 쓰는 것만으로 날짜가
+    // 과거로 되돌아가고, 그날 밤 이미 한 일을 하라는 푸시가 나간다(감사 R-44).
+    const stateKey = `push:state:${uid}`;
+    let prev = null;
+    try { prev = JSON.parse((await kv("GET", stateKey)) || "null"); }
+    catch { prev = null; }   // 값이 깨졌으면 이번 것으로 새로 세운다
+    const merged = mergePushState(prev, {
       lastRecordDate: state?.lastRecordDate ?? null,
       lastWeighDate: state?.lastWeighDate ?? null,
       lastBackup: state?.lastBackup ?? null,
       accountCreatedAt: state?.accountCreatedAt ?? null,
       weekReport: state?.weekReport ?? null, // 지난 주 요약(월요일 성적표 푸시용)
       reminders: reminders || {},
-    };
-    await kv("SET", `push:state:${uid}`, JSON.stringify(merged));
+    });
+    await kv("SET", stateKey, JSON.stringify(merged));
 
     return res.status(200).json({ ok: true });
   } catch (e) {
