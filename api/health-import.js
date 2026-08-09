@@ -56,11 +56,11 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "Not configured" });
   }
 
-  // 본문 크기 상한 (정상 페이로드는 수 KB)
+  // 본문 크기 상한 (GPS 경로 포함 실외 운동은 수백 KB — import-rules의 MAX_BODY_BYTES 참조)
   const clen = parseInt(req.headers["content-length"] || "0", 10);
   const size = Number.isFinite(clen) && clen > 0 ? clen : JSON.stringify(req.body || {}).length;
   if (size > MAX_BODY_BYTES) {
-    return res.status(400).json({ error: "bad-request", message: `본문 ${Math.round(MAX_BODY_BYTES / 1024)}KB 초과` });
+    return res.status(400).json({ error: "bad-request", message: `본문 ${Math.round(MAX_BODY_BYTES / 1024 / 1024)}MB 초과` });
   }
 
   // HAE 폴백(단축어에 '운동 찾기' 동작이 없는 기기): { data:{ workouts:[...] } } 페이로드를
