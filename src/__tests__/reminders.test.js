@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { pendingReminders, daysBetween, reminderPush, weeklyReportPush, mondayOf, REMINDER_DEFAULTS } from "../reminders.js";
+import { pendingReminders, daysBetween, reminderPush, weeklyReportPush, mondayOf, REMINDER_DEFAULTS, importSilencePush, IMPORT_SILENCE_DAYS } from "../reminders.js";
 
 const base = { reminders: REMINDER_DEFAULTS, recordedToday: true, lastWeighDate: "2026-07-28", todayStr: "2026-07-29", accountMature: true, backupDaysAgo: 0 };
 
@@ -88,5 +88,43 @@ describe("weeklyReportPush — 월요일 성적표", () => {
     expect(mondayOf("2026-07-13")).toBe("2026-07-13"); // 월
     expect(mondayOf("2026-07-12")).toBe("2026-07-06"); // 일 → 그 주 월
     expect(mondayOf("2026-07-15")).toBe("2026-07-13"); // 수
+  });
+});
+
+// 자동 수신 침묵 감지 — 2026-08 감사 R-06.
+// 감사 전에는 운동 자동 수신이 2주 죽어도 알림이 0건이었다(식단만 기록해도 record
+// 리마인더가 충족되므로). 체성분은 7일 체중 리마인더가 유일한 간접 신호였다.
+describe("importSilencePush — 자동 수신 침묵", () => {
+  const TODAY = "2026-08-09";
+  const call = (ex, bd) => importSilencePush({ lastExerciseAt: ex, lastBodyAt: bd, todayStr: TODAY });
+
+  it("기본 임계 5일 + sync 기본 ON", () => {
+    expect(IMPORT_SILENCE_DAYS).toBe(5);
+    expect(REMINDER_DEFAULTS.sync).toBe(true);
+  });
+  it("임계 미만이면 침묵 아님", () => {
+    expect(call("2026-08-05T08:00:00.000Z", "2026-08-06T08:00:00.000Z")).toBe(null);
+  });
+  it("경계 — 정확히 5일이면 알린다", () => {
+    expect(call("2026-08-04T08:00:00.000Z", null).body).toContain("워치 운동 5일");
+  });
+  it("운동만 죽으면 운동만 지목한다 (체성분은 정상 유입 중)", () => {
+    const p = call("2026-07-26T08:00:00.000Z", "2026-08-09T08:00:00.000Z");
+    expect(p.body).toContain("워치 운동 14일");
+    expect(p.body).not.toContain("인바디 체성분"); // 채널 라벨 — 끝의 "인바디 연결을 확인" 안내와 구분
+    expect(p.tag).toBe("daniel-import-silence");
+  });
+  it("둘 다 죽으면 한 건에 묶어 보낸다", () => {
+    const p = call("2026-07-30T08:00:00.000Z", "2026-07-28T08:00:00.000Z");
+    expect(p.body).toContain("워치 운동 10일");
+    expect(p.body).toContain("인바디 체성분 12일");
+  });
+  it("한 번도 들어온 적 없는 경로(null)는 침묵으로 치지 않는다 — 안 쓰는 기능 독촉 금지", () => {
+    expect(call(null, null)).toBe(null);
+    expect(call(null, "2026-07-01T08:00:00.000Z").body).not.toContain("워치 운동");
+  });
+  it("손상된 값은 조용히 무시 (로그 파싱 실패·빈 문자열)", () => {
+    expect(call("", undefined)).toBe(null);
+    expect(call("not-a-date", "2026-08-09T08:00:00.000Z")).toBe(null);
   });
 });

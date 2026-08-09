@@ -1,7 +1,8 @@
 # ARCHITECTURE.md — Daniel Tracker 인수인계 문서
 
 > 새 Claude Code 세션(또는 다른 개발자)이 이 저장소 작업을 이어받을 때 읽는 문서.
-> 마지막 갱신: 2026-06 (Phase 0~2 리팩토링 반영). **코드와 이 문서가 어긋나면 코드가 진실.**
+> 마지막 갱신: 2026-08 (자동 유입 3경로 + 적응형 TDEE 도입 후 구조 감사 반영 — `docs/system-audit-2026-08.md`).
+> **코드와 이 문서가 어긋나면 코드가 진실.**
 
 ---
 
@@ -43,8 +44,25 @@ src/
 ├── auth.js          Firebase Auth 래퍼(watchAuth·signInWithGoogle·getIdToken·OWNER_EMAIL).
 │                    App.jsx/push.js가 firebase/auth를 직접 안 만지는 seam — 테스트는 이 모듈만 mock
 ├── data.js          기본 음식/운동 DB, DEFAULT_TARGETS, COLORS
+├── importMerge.js   워치 사서함 → day 문서 병합(순수). importKey 멱등 — ack 유실·다중 기기에도 중복 없음
+├── bodyDraft.js     체성분 사서함 → "완성 대기 초안" 병합·잠금·스윕(순수). bodylog를 절대 쓰지 않는다
+│                    (muscle 미입력이 통계를 0으로 오염하지 않는 불변 조건의 구현). 자동 확정도 여기
+├── analysisExport.js 클로드 분석 패키지 생성(순수 문자열). 공유 링크 본문도 이 산출물
+├── backup.js        JSON 백업/복원(순수). ⚠️ goals.shareLink는 제외한다 — 파일 유출 = 링크 유출
+├── shareLink.js     공유 링크 클라이언트 헬퍼(발급·폐기·남은 시간)
+├── healthEvents.js  컨디션(부상·질병·휴식) — goals.healthEvents. exclude가 적응형 계산에서 날짜 제외
+├── reminders.js     리마인더 판단(순수). 인앱 배너와 밤 8시 크론이 **같은 함수**를 공유
+├── bodyMetrics.js   체성분 파생 지표(BMI·체지방량·표준체중 등). ⚠️ 컴포넌트에 인라인 재구현 금지
 └── main.jsx         진입점
-api/                 서버리스 (analyze-food/exercise/body, push-sync(ID토큰 검증), cron-reminders, _lib/security.js)
+api/                 서버리스
+├── health-import.js  ⌚ 워치 운동 자동 수신 검문소 (X-Import-Token)
+├── body-import.js    🧬 체성분 HAE 수신 검문소 (같은 토큰, 별도 함수 = 런타임 격리)
+├── import-inbox.js   앱의 사서함 창구(pull/ack) + **인바디 클라우드 직수신**이 여기 편승
+├── export-view.js    공유 뷰 SSR (checkOrigin 미적용 — §6-11)
+├── share-create/revoke.js · push-sync.js · cron-reminders.js · analyze-{food,exercise,body}.js
+└── _lib/             import-rules(운동 규칙 단일 출처) · body-import-rules(체성분 B1~B9) ·
+                      inbody-cloud(비공식 API 클라이언트) · body-inbox-store · kv · security ·
+                      share-store · verify-auth · verify-uid · sample-state
 vitest.config.js     테스트 전용 설정 (PWA 플러그인 미로딩)
 ```
 
@@ -94,6 +112,95 @@ BMR = Mifflin-St Jeor (10W + 6.25H − 5A + 5)
 
 ### 어제 복사 (PR #12, #14)
 - 개별 항목 클릭 = **현재 시간**으로 추가 / "전체 복사" = **어제 원래 시간** 유지
+
+## 3.5. ★ 자동 유입 (2026-08 도입 — 이 앱의 성격을 바꾼 변화)
+
+원래 이 앱은 **모든 데이터가 사용자 손으로만 들어오는 동기 시스템**이었다. 지금은 아니다.
+전체 구조·리스크·근거는 `docs/system-audit-2026-08.md`(구조 감사)에 있다. 여기는 요약이다.
+
+### 유입 경로 4종
+
+| 경로 | 트리거 | 인증 | 착지 |
+|---|---|---|---|
+| 수동 입력 | 사용자 조작 | Firebase Auth | `day:*` / `bodylog` 확정 |
+| ⌚ 워치 운동 | iOS 단축어·HAE가 POST | `X-Import-Token` | KV 사서함 → 앱 pull → `day.exercises`에 **확정**(`source:"watch"`) |
+| 🧬 체성분 HAE | 별도 단축어가 지표 POST | 같은 토큰 | KV 사서함 → **초안**(`body-drafts`) |
+| 🧬 인바디 클라우드 | **앱이 사서함을 pull할 때 서버가 능동 호출** | 인바디 계정 ID/PW(env) | 사서함 → 초안 → 4종 완비 시 **자동 확정**(`auto:true`) |
+
+**서버는 Firestore 자격증명을 갖지 않는다.** 검문소는 KV 사서함까지만 쓰고, day/bodylog 문서를
+쓰는 주체는 앱 하나로 유지된다 — 그래서 유효목표·판정·통계가 수동 입력과 같은 단일 경로로 흐른다.
+
+### ⚠️ 비공식 API 의존 (가장 중요한 리스크)
+
+`api/_lib/inbody-cloud.js`는 **인바디 앱 트래픽을 모사한다** — 하드코딩된 AppVersion(`2.8.31_914`)·
+기기명(Pixel 6 Pro)·UA(okhttp/Dalvik)·엔드포인트 경로. 공개 API가 아니므로 **인바디가 언제
+바꿔도 이상하지 않다.** 깨지면 자동 확정이 멈추고 HAE(3종)+수동 폴백으로 내려간다.
+
+- 전역 `fetch`를 쓰지 말 것 — Node의 fetch가 브라우저 지문 헤더를 자동 주입해 `ID_BLOCK`을 유발한다.
+  `node:https.request`를 직접 쓰는 이유가 그것이다(파일 상단 주석 참조).
+- **감사 중에도 실계정 로그인 금지** — 인바디는 3회 실패로 계정을 잠근다. 테스트는 전부 모킹.
+- 계정 잠금 방어 3중: 동시 실행 선점(`SET NX`) · 연속 실패 상한 3 · 인증 실패 1회 즉시 봉인(24h,
+  크리덴셜 지문에 묶여 env 수정 시 자동 해제). **이 방어를 약화시키지 말 것.**
+
+### 저장소
+
+- **KV**(서버 전용): `import:inbox`·`import:seen`(TTL 없음 = insert-only의 근거)·`import:log` /
+  `import:body-inbox`·`import:body-seen`·`import:body-log` / `import:body-cloud-{at,fail,authblock,lock}` /
+  `push:*` / `share:{token}`(TTL 1h~7d)
+- **Firestore**: `users/{uid}/data/{day:*, bodylog, body-drafts, goals, profile, …}` — 규칙은 **경로 단위**
+  (`isSelf && isMember`)이고 필드 검증은 없다. 즉 `auto:true`는 클라이언트가 붙이는 값이다(본인 데이터 한정).
+- **localStorage**: `dt_{uid}_*` 미러 + `dt_pendingSync_{uid}`(재전송 큐) + `dt_tombstones_{uid}`(삭제 흔적)
+
+### 소비처 — 이 데이터를 읽어 무언가를 산출하는 곳 (14)
+
+| # | 소비처 | 무엇을 읽고 무엇을 만드나 |
+|---|---|---|
+| 1 | 홈 요약·도넛·진행바·NetCalCard·식단 팁 | 선택일 `day` + 그 날짜 목표 → 잔여·신호등 |
+| 2 | 링 캘린더 일별 dot | `allDays` + 컨디션 → 링 진행률·적자/초과·😴 |
+| 3 | 주간 성적표 / 4 8주 등급 트렌드 | `allDays` 7일×N → pHit/dHit/eHit·등급(A+~F) |
+| 5 | 기간 요약 + 코멘트 | `bodyLog` + 같은 기간 `allDays` → 체중/체지방/골격근 델타 |
+| 6 | 패턴 분석 / 7 인사이트 | 주 단위 그룹 → 음식·운동 효과, 이상치, 상관관계 |
+| 8 | 커뮤니티 챌린지 | 이번 주 단백질·운동 횟수 → 달성률 |
+| 9 | 체성분 탭 (차트·측정 사이 요약·초안 카드) | `bodyLog` + `bodyDrafts` → 추이·AI 코칭 입력 |
+| 10 | **운동 스트릭 도장** | `exercises.length`만 → 연속일 (⚠️ 휴식일 도장을 보지 않는다) |
+| 11 | 섭취 밴드 차트 / 요일 레이더 | `allDays` 전 기간 → 일별 섭취선·요일별 소모 |
+| 12 | **적응형 TDEE 카드·제안** | `bodyLog`(28일 회귀) + `allDays` → 실측 유지칼로리·보정 제안 |
+| 13 | **분석 패키지 / 공유 링크** | 전부 → 마크다운 문서 (공유 링크는 이 산출물의 스냅샷) |
+| 14 | **크론 푸시** | KV `push:state` + 수신 로그 → 리마인더·주간 성적표·침묵 알림 |
+
+전수·근거는 감사 문서 §0-3. **초안(`bodyDrafts`)을 읽는 곳은 9와 백업 둘뿐이다** — 통계·내보내기에
+넣지 말 것(불변 조건 1).
+
+### 소급 전파 — 늦게 도착한 기록이 무엇을 바꾸나
+
+```
+체성분 자동 확정 1건 → 그 달 평균 체중 → 목표 kcal·매크로 → 판정(✓/✗) → 달성률·주간 성적표
+                    → 추세 회귀 기울기 → estimateTDEE → 적응형 보정 제안
+운동 자동 수신 1건   → 소모 kcal → 되먹기 → 유효목표 → 판정 / 휴식일 도장 자동 복귀(>300kcal)
+```
+
+**파생값을 저장하는 곳은 5군데뿐이고 나머지는 전부 매번 재계산된다** — 그래서 소급 유입이
+자동 반영된다. 저장되는 것: `goals.tdeeHistory`(의도된 이력) · `share:{token}` 스냅샷(설계상 고정) ·
+`push:state.weekReport` · `body-coaching` 캐시 · **운동 항목의 kcal·m**(입력 시점 값으로 고정).
+
+### 지켜야 할 불변 조건
+
+1. **초안은 `bodylog` 밖에 산다** — muscle 미입력이 골격근 통계를 0으로 오염시키지 않는 유일한 구조적 보장.
+   `draftToRecord`는 `muscle > 0`을 강제한다. 초안을 통계·내보내기에 넣지 말 것.
+2. **insert-only(운동)**: `seen` 조회 → 사서함 기입 → `seen` `SET NX` 순서. 순서를 바꾸면
+   "도장은 찍혔는데 사서함에 없음"이라는 영구 유실 창이 생긴다.
+3. **잠금은 파생 상태다** — `locked` 필드는 없다. 사용자가 편집하면 `auto`·`sampleTs`를 **지워서**
+   잠근다(`lockedAgainst` 참조). 수동 입력·카드 확정분도 자동으로 잠긴다.
+4. **집합 문서는 덮어쓰지 말 것** — `bodylog`·`body-drafts`는 배열/맵 하나가 문서 하나다. 오프라인
+   재전송은 원격과 병합해야 한다(`mergeForFlush`). 통째로 덮으면 다른 기기의 확정분이 사라진다.
+5. **판정 기준 체중은 "그 날짜가 속한 달"의 평균** — `makeDayTargets` 단일 출처. 보고 있는 날짜의
+   달을 쓰면 같은 과거 날의 ✓/✗가 달력을 넘길 때마다 달라진다.
+
+### 관측성
+
+자동화의 최대 위험은 **고장이 조용하다는 것**이다. 현재 장치:
+설정 → 데이터 → ⌚/🧬 카드(최근 수신 20건·클라우드 상태 한 줄) · 밤 8시 크론의 **자동 수신 침묵
+알림**(수신 로그의 최신 시각이 5일 이상 조용하면 푸시, `reminders.sync` 토글).
 
 ## 4. 컴포넌트 지도 (2026-06 Phase 0~2 반영)
 
@@ -171,6 +278,15 @@ BodyTab → StatsTab 순. StatsTab은 중첩 컴포넌트 포함 통째 이동.
 8. 임시 파일(미리보기 HTML 등)은 커밋 금지 — stop hook이 untracked 파일을 잡음
 10. **공유 뷰 URL은 반드시 경로형(`/export/view/<32자hex>`)을 유지할 것** — 쿼리형(`?t=`)은 외부 AI 리더가 읽지 못한다(2026-07-28 실측: 브라우저·curl은 200, Claude 웹 리더만 404 — 쿼리스트링이 유실되어 토큰 없는 요청으로 처리됨). 쿼리형은 하위호환으로만 남겨두고(서버는 계속 받음), **신규 링크 발급은 경로형으로만** 할 것 (`shareUrlOf`·`share-create`의 `path`가 단일 출처)
 11. **`api/export-view.js`에 `checkOrigin`을 적용하지 말 것** — 외부 리더·주소창 직접 방문은 Origin 헤더가 없어 전부 403이 된다. 대신 토큰 게이트 + rateLimit + noindex/no-store로 통제한다 (파일 상단 주석에도 있으나 여기에도 남긴다)
+13. **자동 유입 관련 불변 조건은 §3.5를 먼저 읽을 것** — 초안/bodylog 분리, insert-only 순서,
+    잠금이 파생 상태라는 점, 집합 문서 병합, 판정 기준 체중. 이 다섯을 모르고 손대면 조용히 데이터가 샌다
+14. **인바디 클라우드에 실제 로그인 시도 금지**(개발·테스트·감사 전부) — 3회 실패로 계정이 잠긴다.
+    `pullRecentMetrics`를 모킹할 것. 계정 잠금 방어(선점 `SET NX`·상한 3·1회 봉인)를 약화시키지 말 것
+15. **정적 검사는 `eslint src api`** — `src`만 돌리면 서버리스 2,000여 줄이 no-undef 방어 밖에 있게 된다
+    (2026-08 감사 R-41에서 확장). 훅(`.claude/hooks/check.mjs`)·CI·`package.json`의 lint가 같은 범위여야 한다
+16. **`.env.example`은 실제 env 집합과 어긋나 있다** — `IMPORT_*`·`INBODY_*`·`SHARE_TEST_TOKEN`이
+    빠져 있다. 롤백 스위치의 실질 단일 출처는 `docs/inbody-setup.md`와 감사 문서다(백로그 R-31)
+
 12. **`robots.txt`에 `/export` 관련 `Disallow`를 추가하지 말 것** — 검색 노출 차단은 뷰 페이지의 noindex 메타(+`X-Robots-Tag`)가 담당하며, Disallow는 규칙을 지키는 외부 리더의 접근까지 막아 공유 기능을 무력화한다. 초기 기획서 Phase 3 체크리스트에 이 항목이 있었으나 **폐기 확정**. 참고로 `vite.config.js`의 `navigateFallbackDenylist`에 `/^\/export\//`가 있는 이유: 설치된 PWA의 서비스워커가 공유 링크 내비게이션을 앱 화면(index.html)으로 가로채지 않게 하기 위함 — 이것도 제거 금지
 
 ## 7. 검증 방법
@@ -183,9 +299,26 @@ npm run dev                      # localhost:5173
 수동 체크리스트(리팩토링 후): 로그인 → 홈(도넛 3개·섭취바·NetCalCard 신호등) → 식단 탭(추가/어제복사/시간대 그룹) → 운동 탭 → 체성분(차트 기간버튼·AI코칭 버튼 존재) → 통계(주간성적표·기간요약 코멘트·달력 dot) → DB관리/CSV 내보내기.
 숫자 스모크 테스트: 체중 77.3/175/42 → K=1570, P=170, F=46, C=119. 운동 1070 → 목표 2105, 탄수보충 +134.
 
-## 8. 변경 이력 (PR #1~#16 요약)
+## 8. 변경 이력
 
-#1 보안/PWA/문서 4건(MET 미리보기 fix, SW/manifest 일원화, 비번 PBKDF2, README) · #2 시간대 5구간 · #3 칼로리 재설계(실측 보정) · #4 운동 50% 되먹기 · #5 지방 0.6(탄수 정상화) · #6 적자판정 전화면 통일 · #7 체성분 차트 기간선택+날짜비례 · #8 NetCalCard 보정섭취+막대 · #9 통계 스파크라인 기간반영 · #10 통계 코멘트 식단연계 · #11 매크로 스마트안내(→#13에서 제거) · #12 어제복사 시간유지 · #14 개별=현재/전체=어제시간 · #15 식단탭 섭취합계 · #16 반올림 판정 통일
+**PR #1~#16 (2026-06까지)** — #1 보안/PWA/문서 4건(MET 미리보기 fix, SW/manifest 일원화, 비번 PBKDF2, README) · #2 시간대 5구간 · #3 칼로리 재설계(실측 보정) · #4 운동 50% 되먹기 · #5 지방 0.6(탄수 정상화) · #6 적자판정 전화면 통일 · #7 체성분 차트 기간선택+날짜비례 · #8 NetCalCard 보정섭취+막대 · #9 통계 스파크라인 기간반영 · #10 통계 코멘트 식단연계 · #11 매크로 스마트안내(→#13에서 제거) · #12 어제복사 시간유지 · #14 개별=현재/전체=어제시간 · #15 식단탭 섭취합계 · #16 반올림 판정 통일
+
+**#17~#74 (2026-07)** — Firebase Auth + 초대 게이트(경로 B) · 오프라인 재동기화 큐 · JSON 백업/복원 ·
+클로드 분석 패키지(analysisExport) · 공유 링크(발급/폐기/경로형 URL) · 진행 사진 · 컨디션 이력 ·
+**적응형 유지칼로리**(#79~) · 웹푸시 + 밤 8시 크론 · 휴식일 프리셋(dayType 도장, #71~#74)
+
+**#75~#100 (2026-08) — 자동 유입 3경로**
+- #75~#87 ⌚ **워치 운동 자동 수신**: 검문소(health-import) + KV 사서함 + 앱 병합(importMerge) +
+  HAE 폴백 파서 + 화이트리스트 실측 대조(근력·쿨다운 편입, 오인 수입 차단)
+- #88 🧬 **체성분 HAE 수신**: C안(완전 격리 초안 저장소) — body-import + bodyDraft
+- #89~#96 🧬 **인바디 클라우드 직수신**: 골격근·인바디점수까지 무접촉 자동 확정.
+  ID_BLOCK 대응(node:https + 서울 리전) · 계정 잠금 방어 · 관측성(상태 한 줄·크리덴셜 형태 로그)
+- #97~#100 하루 종일 최신 채택(B1 완화) · 초안 버리기 · 본문 상한 4MB(GPS 경로 대응)
+
+**2026-08 구조 감사** (`docs/system-audit-2026-08.md`) — 축 A~S 19개 전수 + 시나리오 S1~S14.
+P0 2건·P1 10건 수정: 클라우드 선점 원자화 · 재전송 병합(유실 차단) · 토큰 brute-force 상한 ·
+분석 계약의 출처/측정 규칙 전달 · 부위 구성비 정정 · 침묵 감지 · 공유 토큰 유출·부활 차단 ·
+시간 예산 · 판정 기준 체중 고정 · 이 문서 갱신. P2 25건·P3 13건은 감사 문서에 백로그로 남아 있다.
 
 ## 9. 운영 규칙
 

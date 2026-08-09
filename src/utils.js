@@ -88,6 +88,61 @@ export function adjustForDate(history, dateStr) {
   return adj;
 }
 
+/* ── 날짜별 목표의 체중 기준 (2026-08 감사 R-10) ────────────────────────
+   목표 kcal·매크로는 "그 달 평균 측정 체중"에서 나온다. 그런데 그 평균을 **사용자가 지금
+   보고 있는 날짜**의 달에서 뽑고 있었다. 결과가 둘이었다:
+     ① 달력을 지난달로 넘기면 그 달 기준으로 전 화면 목표가 바뀐다(UI 상태가 판정에 샌다)
+     ② 새 측정 1건이 그 달 평균을 움직여 **그 달 모든 날의 판정이 소급 변경**된다
+   적응형 보정은 tdeeHistory의 from 날짜로 과거를 보존하는데 체중 기준선만 보존이 없었다.
+   이제 판정은 "그 날짜가 속한 달"의 평균으로 고정한다 — 같은 날의 ✓/✗가 보는 시점에
+   따라 달라지지 않는다. (②의 같은 달 안에서의 이동은 월평균이라는 설계 자체의 성질이라
+   남는다 — 월이 끝나면 그 달 판정은 더 이상 움직이지 않는다) */
+export function monthAvgWeights(bodyLog) {
+  const acc = new Map();
+  for (const b of bodyLog || []) {
+    if (!b || typeof b.date !== "string" || !(b.weight > 0)) continue;
+    const ym = b.date.slice(0, 7);
+    const cur = acc.get(ym) || { sum: 0, n: 0 };
+    cur.sum += b.weight; cur.n++;
+    acc.set(ym, cur);
+  }
+  const out = {};
+  for (const [ym, { sum, n }] of acc) out[ym] = sum / n;
+  return out;
+}
+
+// 그 달에 측정이 없으면 가장 가까운 "이전" 달 → 그것도 없으면 가장 이른 달 → 전부 없으면 fallback.
+// (이후 달로 앞당겨 보지 않는 이유: 그 시점에 알 수 없던 체중으로 과거를 판정하지 않기 위해)
+export function weightForMonth(monthAvg, ym, fallback) {
+  const map = monthAvg || {};
+  if (map[ym] > 0) return map[ym];
+  const months = Object.keys(map).sort();
+  if (!months.length) return fallback;
+  let prev = null;
+  for (const m of months) { if (m <= ym) prev = m; else break; }
+  return map[prev ?? months[0]];
+}
+
+/* 날짜별 목표 세트를 돌려주는 함수를 만든다 — App·StatsTab·analysisExport 공용 단일 출처.
+   (이전에는 `targetsByMode[m].k - appAdjust + adjustForDate(...)` 산식이 세 파일에 복붙돼
+    있었다. 정수 보정치에서 두 식은 수학적으로 동일하다: round(x+a)-a+b = round(x)+b.)
+   반환 함수: (mode, "YYYY-MM-DD") → { p, c, f, k, weight } */
+export function makeDayTargets({ bodyLog, height = 175, age = 35, fallbackWeight = 75, tdeeHistory = [] }) {
+  const monthAvg = monthAvgWeights(bodyLog);
+  const cache = new Map();
+  return (mode, ds) => {
+    const ym = String(ds || "").slice(0, 7);
+    const adjust = adjustForDate(tdeeHistory, ds);
+    const ck = `${ym}|${mode}|${adjust}`;
+    if (!cache.has(ck)) {
+      const w = weightForMonth(monthAvg, ym, fallbackWeight);
+      // 휴식일은 고정 프리셋(K=1,675) — 적응형 보정과 무관하다는 규칙 그대로
+      cache.set(ck, mode === "rest" ? restTargets(w) : calcTargets(w, height, age, mode, adjust));
+    }
+    return cache.get(ck);
+  };
+}
+
 // 배열을 시간순으로 정렬
 export function sortByHour(arr) {
   return [...arr].sort((a, b) => (a.hour || 0) - (b.hour || 0));

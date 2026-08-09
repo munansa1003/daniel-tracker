@@ -56,8 +56,17 @@ export async function revokeShare(token, uid) {
   return true;
 }
 
-// 접근 통계 갱신 — KEEPTTL로 만료 시각을 건드리지 않고 카운트만 올린다(뷰에서 fire-and-forget)
-export async function touchShare(token, rec) {
-  const updated = { ...rec, accessCount: (rec.accessCount || 0) + 1, lastAccessedAt: Date.now() };
-  await kv("SET", shareKey(token), JSON.stringify(updated), "KEEPTTL");
+// 접근 통계 — **별도 카운터 키**에만 쓴다. 스냅샷 문서는 절대 되쓰지 않는다.
+//
+// 옛 동작은 뷰가 읽은 rec를 그대로 되쓰는 것이었는데(fire-and-forget), 그 사이에 사용자가
+// 링크를 폐기하면 뒤늦게 도착한 쓰기가 tombstone을 **pkg가 담긴 옛 rec로 덮어써** 폐기가
+// 무효화됐다. "폐기"를 누르는 순간은 보통 상대가 링크를 보고 있는 순간이라 창이 좁지 않다
+// (2026-08 감사 R-08). 카운터를 분리하면 경합 자체가 사라진다 — 읽기 경로가 쓰기를 안 한다.
+export const shareHitsKey = (token) => `share:hits:${token}`;
+
+export async function touchShare(token) {
+  if (!isValidToken(token)) return;
+  const n = await kv("INCR", shareHitsKey(token));
+  // 첫 조회에만 TTL — 매번 걸면 조회가 이어질 때 카운터가 영구화된다(rateLimit과 같은 패턴)
+  if (Number(n) === 1) await kv("EXPIRE", shareHitsKey(token), String(7 * 24 * 3600));
 }

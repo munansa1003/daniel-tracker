@@ -1,10 +1,13 @@
 import { useState } from "react";
+import { REMINDER_DEFAULTS, IMPORT_SILENCE_DAYS } from "../reminders.js";
 
 const ITEMS = [
   { key: "record", ico: "🍱", n: "기록 리마인더", d: "오늘 식단·운동을 아직 안 적었으면 밤 8시에 알림 (인앱 배너도)" },
   { key: "weight", ico: "⚖️", n: "체중 측정", d: "7일 이상 체중을 안 쟀으면 알림 (추세·적응형 정확도용)" },
   { key: "backup", ico: "💾", n: "백업 알림", d: "15일 이상 백업이 없으면 알림" },
   { key: "report", ico: "🎯", n: "주간 성적표", d: "월요일 밤 8시, 지난 주 요약(기록·칼로리·단백질·운동)을 푸시로" },
+  // 자동화의 고장은 조용하다 — 이 알림이 없으면 단축어·인바디가 죽어도 알아챌 방법이 없다
+  { key: "sync", ico: "📡", n: "자동 수신 점검", d: `워치·인바디 자동 수신이 ${IMPORT_SILENCE_DAYS}일 이상 조용하면 알림 (한 번도 안 쓴 경로는 제외)` },
 ];
 
 // 알림 설정 — 권한/구독 + 테스트 발송 + 켤 리마인더 토글.
@@ -12,7 +15,9 @@ const ITEMS = [
 //  onEnablePush: 구독 생성+서버 저장 (async → 성공 bool)
 //  onDisablePush: 구독 해제
 export function ReminderSettings({ reminders, onChange, pushReady, onEnablePush, onDisablePush }) {
-  const cur = { record: true, weight: true, backup: true, report: true, ...(reminders || {}) };
+  // 기본값은 reminders.js 단일 출처를 그대로 쓴다 — 여기에 복붙해 두면 새 항목이 추가될 때
+  // 화면에서만 조용히 꺼진 것처럼 보인다(크론은 REMINDER_DEFAULTS를 기준으로 판단하므로).
+  const cur = { ...REMINDER_DEFAULTS, ...(reminders || {}) };
   const supported = typeof window !== "undefined" && "Notification" in window;
   const [perm, setPerm] = useState(supported ? window.Notification.permission : "unsupported");
   const [busy, setBusy] = useState(false);

@@ -6,9 +6,20 @@
 import { describe, it, expect } from "vitest";
 import { createHash } from "node:crypto";
 import { buildAnalysisPackage, resolvePeriod } from "../analysisExport.js";
+import { makeDayTargets, monthAvgWeights } from "../utils.js";
 import { buildSynthState, SYNTH_TODAY } from "./fixtures/synth297.js";
 
-const BASELINE_SHA256 = "4e5f41243c6898710ece73bdfeac78551e986710eea5890ec1483f181a2bc6e4";
+// 2026-08 구조 감사 R-05에서 의도적으로 갱신 (위 주석의 (b) 경로).
+//   이전 기준선: 4e5f41243c6898710ece73bdfeac78551e986710eea5890ec1483f181a2bc6e4
+//   변경 사유  : '운동 구성(주간)' 표에 **근력 열**을 추가했다. 워치 자동 수신이 근력
+//                세션을 "근력 운동" 한 덩어리로 보내는데 부위 키워드가 없어 전부 '기타'로
+//                떨어졌고, 그 결과 표가 상체/하체/코어 0%를 출력해 "그 부위를 전혀 안 했다"로
+//                읽혔다(거짓 진술).
+//   diff 검증  : 이전 커밋 출력과 줄 단위 대조 — 요약본 412→412줄, 상세본 834→834줄로
+//                줄 수 불변, 다른 줄 44개(헤더 1 + 주간 행 43)이며 **전부 근력 열 삽입뿐**이다.
+//                판정(✓/✗)·유효목표·기존 유산소/상체/하체/코어/기타 % 값은 한 글자도 바뀌지 않았다.
+//                (합성 데이터에는 근력 기록이 없어 근력 열은 전부 0이고 각주도 붙지 않는다)
+const BASELINE_SHA256 = "fe51f7ce49d5fe3973765d8d333adc6c4f1fd348e8411b553bea5d6e2ebe0bde";
 
 describe("R4 — 과거 데이터(도장 없음) 회귀 스냅샷", () => {
   it("합성 297일 내보내기(요약+상세)가 기능 도입 전 커밋과 동일 (diff = 0)", () => {
@@ -23,5 +34,50 @@ describe("R4 — 과거 데이터(도장 없음) 회귀 스냅샷", () => {
     const { allDays } = buildSynthState();
     expect(Object.values(allDays).every((d) => !("dayType" in d))).toBe(true);
     expect(Object.keys(allDays).length).toBeGreaterThan(250);
+  });
+});
+
+/* R-10 회귀 — "같은 날의 판정이 보는 시점에 따라 달라지지 않는다"를 297일로 고정한다.
+   옛 동작에서는 목표 체중을 사용자가 보고 있는 날짜의 달에서 뽑아, 10월을 보며 만든
+   문서와 7월을 보며 만든 문서의 판정이 서로 달랐다(실측 5건). */
+describe("R-10 — 날짜별 목표는 보는 시점에 비의존", () => {
+  const build = (dayTargets) => {
+    const state = { ...buildSynthState(), dayTargets };
+    const range = resolvePeriod("all", SYNTH_TODAY, state.allDays);
+    return buildAnalysisPackage(state, range, SYNTH_TODAY);
+  };
+  const mk = () => {
+    const st = buildSynthState();
+    return makeDayTargets({
+      bodyLog: st.bodyLog, height: st.user.height, age: st.user.age,
+      fallbackWeight: 75, tdeeHistory: st.tdeeHistory,
+    });
+  };
+
+  it("두 번 만들어도 같은 문서 (결정적)", () => {
+    expect(build(mk())).toBe(build(mk()));
+  });
+
+  it("과거 날은 그 달 체중으로 판정된다 — 마지막 달 체중을 297일에 일괄 적용하지 않는다", () => {
+    const st = buildSynthState();
+    const ma = monthAvgWeights(st.bodyLog);
+    const months = Object.keys(ma).sort();
+    // 합성 데이터는 감량 추세라 첫 달이 마지막 달보다 무겁다(전제)
+    expect(ma[months[0]]).toBeGreaterThan(ma[months[months.length - 1]]);
+    const dt = mk();
+    const first = `${months[0]}-15`, last = `${months[months.length - 1]}-15`;
+    expect(dt("cut", first).k).toBeGreaterThan(dt("cut", last).k);
+  });
+
+  it("새 측정이 다른 달에 추가돼도 그 달 밖의 판정은 흔들리지 않는다 (소급 전파 차단)", () => {
+    const st = buildSynthState();
+    const base = makeDayTargets({ bodyLog: st.bodyLog, height: 175, age: 42, fallbackWeight: 75, tdeeHistory: st.tdeeHistory });
+    const withNew = makeDayTargets({
+      bodyLog: [...st.bodyLog, { date: "2026-07-20", weight: 60 }], // 7월에 이상치 1건
+      height: 175, age: 42, fallbackWeight: 75, tdeeHistory: st.tdeeHistory,
+    });
+    expect(withNew("cut", "2026-07-10").k).not.toBe(base("cut", "2026-07-10").k); // 같은 달은 바뀐다(월평균 설계)
+    expect(withNew("cut", "2026-01-10").k).toBe(base("cut", "2026-01-10").k);     // 다른 달은 불변
+    expect(withNew("cut", "2025-10-10").k).toBe(base("cut", "2025-10-10").k);
   });
 });

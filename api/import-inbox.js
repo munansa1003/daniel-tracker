@@ -38,6 +38,25 @@ const AUTH_BLOCK_MS = 24 * 60 * 60 * 1000;
 const AUTH_ERROR_RE = /PW_FAIL|ID_BLOCK|로그인 실패/i;
 const credFingerprint = (id, pw) => createHash("sha256").update(`${id}\n${pw}`).digest("hex").slice(0, 16);
 
+// 동시 실행 잠금 (2026-08 감사 R-01). 스로틀 도장은 `GET → 비교 → SET`이라 그 사이가
+// 열려 있어, 동시 요청 2건이 둘 다 통과해 인바디에 로그인을 두 번 시도했다. 비밀번호가
+// 틀린 상태였다면 봉인이 걸리기 전에 3-strike 중 2개를 한 번에 태운다(실측 재현).
+// 그래서 시각 비교와 별개로 "지금 인바디를 호출 중인가"를 원자적 선점(SET NX)으로 가른다.
+// force도 이 잠금은 지킨다 — 창을 건너뛰는 것과 동시에 두 번 두드리는 것은 다른 문제다.
+// 실행이 끝나면 반드시 해제하므로 순차 재시도(연타)는 기존과 동일하게 동작한다.
+const CLOUD_LOCK_TTL_SEC = 60;  // 함수가 죽어도 이 시간 뒤 자동 해제(교착 방지)
+// 총 시간 예산 (R-09). pullRecentMetrics는 resolveHost→login→fetchScans 3단 순차라
+// 요청별 타임아웃만으로는 합이 함수 maxDuration(30초)을 넘을 수 있고, 그러면 504로
+// **운동 사서함 pull까지 함께 죽는다**. 클라우드는 예산을 넘기면 이번 회차를 포기한다.
+const CLOUD_BUDGET_MS = 12000;
+function withBudget(p, ms) {
+  let timer;
+  const alarm = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error("인바디 시간 예산 초과")), ms); });
+  // finally에서 반드시 타이머를 해제한다 — 안 하면 pull이 빨리 끝나도 타이머가 이벤트 루프를
+  // 붙잡아 서버리스 함수가 예산(12초)만큼 더 살아 있는다.
+  return Promise.race([p, alarm]).finally(() => clearTimeout(timer));
+}
+
 // 반환값은 이번 pull에서 클라우드가 "무엇을 했는지"를 알리는 상태 문자열이다.
 // 조용한 return은 UX 사고였다 — 사용자가 "지금 확인"을 눌러도 아무 표시가 없으면
 // 버튼이 고장 난 것과 구분할 수 없다(실사용 신고). 건너뛴 이유까지 화면에 보여준다.
@@ -57,6 +76,7 @@ async function cloudPullIfDue(uid, force = false) {
   const throttleKey = `import:body-cloud-at:${uid}`;
   const failKey = `import:body-cloud-fail:${uid}`;
   const authBlockKey = `import:body-cloud-authblock:${uid}`;
+  const lockKey = `import:body-cloud-lock:${uid}`;
   const fp = credFingerprint(ID, PW);
 
   // 인증 봉인 확인 — 같은 크리덴셜이 24시간 안에 인증 실패했으면 아예 시도하지 않는다.
@@ -67,41 +87,59 @@ async function cloudPullIfDue(uid, force = false) {
     if (blockedFp === fp && Date.now() - Date.parse(blockedAt) < AUTH_BLOCK_MS) return "authBlocked";
   }
 
-  const fails = parseInt((await kv("GET", failKey)) || "0", 10) || 0;
-  if (!force || fails >= CLOUD_FAIL_CEILING) {
-    const last = await kv("GET", throttleKey);
-    if (last && Date.now() - Date.parse(last) < CLOUD_PULL_INTERVAL_MS) return "throttled";
-  }
-  await kv("SET", throttleKey, new Date().toISOString()); // 선점 — 동시 pull의 중복 호출 방지
+  // 동시 실행 선점 — 원자적(SET NX). 실패하면 다른 요청이 이미 인바디를 호출 중이다.
+  // 시각 창(스로틀)보다 먼저 잡아야 GET~SET 사이의 경합 창이 사라진다.
+  const gotLock = await kv("SET", lockKey, new Date().toISOString(), "NX", "EX", String(CLOUD_LOCK_TTL_SEC));
+  if (gotLock === null) return "throttled";
 
   try {
-    const tz = parseTzOffset(process.env.IMPORT_TZ_OFFSET) ?? HAE_TZ_OFFSET_MIN_DEFAULT;
-    const { payload } = await pullRecentMetrics({
-      loginId: ID, loginPw: PW,
-      countryCode: process.env.INBODY_COUNTRY || "KR",
-      count: 5, tzOffsetMin: tz,
-    });
-    const { entries, summary } = planBodyImport(payload, { cutoverDate: CUTOVER, tzOffsetMin: tz });
-    const { accepted, ignored } = await storeBodyEntries(uid, entries);
-    await pushBodyLog(uid, "cloud", { accepted, ignored, summary });
-    // 성공 — 실패 카운터·인증 봉인 모두 해제
-    try { await kv("SET", failKey, "0"); await kv("DEL", authBlockKey); } catch { /* 무시 */ }
-    console.log(`[import-inbox] cloud pull accepted=${accepted} ignored=${ignored} rejected=${summary.rejected} excluded=${summary.excluded}`);
-    return "ok";
-  } catch (e) {
-    // 실패도 카드에 보인다 — "지금 확인"이 성공이든 실패든 반드시 로그 한 줄을 남긴다(관측성).
-    // 인증 실패면 크리덴셜 "형태"(길이·앞 3자)를 덧붙인다 — 서버에 저장된 값이 사용자가
-    // 아는 값과 다른지를 값 노출 없이 판별하는 유일한 창구.
-    const isAuthError = AUTH_ERROR_RE.test(String((e && e.message) || ""));
-    await pushBodyLogError(uid, "cloud", isAuthError ? `${e.message} — ${credShape(ID, PW)}` : e);
-    // 실패 시 스로틀 도장은 "유지"한다(해제 금지) — 실패 상태에서 즉시 재시도를 반복하면
-    // 인바디가 계정을 잠글 수 있다. 카운터를 올려 상한을 넘으면 force도 창을 지키게 한다.
-    try { await kv("SET", failKey, String(fails + 1)); } catch { /* 무시 */ }
-    // 인증 실패는 재시도로 낫지 않는다 — 이 크리덴셜을 즉시 봉인해 남은 시도 횟수를 지킨다.
-    if (AUTH_ERROR_RE.test(String((e && e.message) || ""))) {
-      try { await kv("SET", authBlockKey, `${fp}|${new Date().toISOString()}`); } catch { /* 무시 */ }
+    const fails = parseInt((await kv("GET", failKey)) || "0", 10) || 0;
+    if (!force || fails >= CLOUD_FAIL_CEILING) {
+      const last = await kv("GET", throttleKey);
+      if (last && Date.now() - Date.parse(last) < CLOUD_PULL_INTERVAL_MS) return "throttled";
     }
-    throw e;
+    await kv("SET", throttleKey, new Date().toISOString()); // 30분 창 소모(실패해도 유지 — 아래 주석)
+
+    try {
+      const tz = parseTzOffset(process.env.IMPORT_TZ_OFFSET) ?? HAE_TZ_OFFSET_MIN_DEFAULT;
+      const { payload } = await withBudget(pullRecentMetrics({
+        loginId: ID, loginPw: PW,
+        countryCode: process.env.INBODY_COUNTRY || "KR",
+        count: 5, tzOffsetMin: tz,
+      }), CLOUD_BUDGET_MS);
+      const { entries, summary } = planBodyImport(payload, { cutoverDate: CUTOVER, tzOffsetMin: tz });
+      const { accepted, ignored } = await storeBodyEntries(uid, entries);
+      await pushBodyLog(uid, "cloud", { accepted, ignored, summary });
+      // 성공 — 실패 카운터·인증 봉인 모두 해제
+      try { await kv("SET", failKey, "0"); await kv("DEL", authBlockKey); } catch { /* 무시 */ }
+      console.log(`[import-inbox] cloud pull accepted=${accepted} ignored=${ignored} rejected=${summary.rejected} excluded=${summary.excluded}`);
+      return "ok";
+    } catch (e) {
+      // 실패도 카드에 보인다 — "지금 확인"이 성공이든 실패든 반드시 로그 한 줄을 남긴다(관측성).
+      // 인증 실패면 크리덴셜 "형태"(길이·앞 3자)를 덧붙인다 — 서버에 저장된 값이 사용자가
+      // 아는 값과 다른지를 값 노출 없이 판별하는 유일한 창구.
+      const isAuthError = AUTH_ERROR_RE.test(String((e && e.message) || ""));
+      await pushBodyLogError(uid, "cloud", isAuthError ? `${e.message} — ${credShape(ID, PW)}` : e);
+      // 실패 시 스로틀 도장은 "유지"한다(해제 금지) — 실패 상태에서 즉시 재시도를 반복하면
+      // 인바디가 계정을 잠글 수 있다. 카운터를 올려 상한을 넘으면 force도 창을 지키게 한다.
+      // INCR로 올린다(감사 R-01): GET→parseInt→SET은 read-modify-write라 동시 실패 시
+      // 증분이 유실돼 상한 도달이 늦어진다 = 계정을 더 두드린다.
+      // 카운터를 못 올리면 상한 방어가 조용히 무력화된다(연타가 계속 인바디를 두드림).
+      // 막을 수는 없어도 반드시 드러낸다 — 침묵이 이 계층의 최대 위험이다.
+      try { await kv("INCR", failKey); }
+      catch (ie) { console.error("[import-inbox] fail counter INCR 실패 — 연속 실패 상한이 동작하지 않을 수 있음:", ie); }
+      // 인증 실패는 재시도로 낫지 않는다 — 이 크리덴셜을 즉시 봉인해 남은 시도 횟수를 지킨다.
+      if (isAuthError) {
+        // 봉인 쓰기가 실패하면 다음 force가 다시 인바디를 두드린다 — 조용히 넘기지 않고
+        // 최소한 로그를 남긴다(감사 R-13의 관측성 보강).
+        try { await kv("SET", authBlockKey, `${fp}|${new Date().toISOString()}`); }
+        catch (be) { console.error("[import-inbox] authblock write failed — 다음 시도가 봉인 없이 진행됨:", be); }
+      }
+      throw e;
+    }
+  } finally {
+    // 선점 해제 — 순차 재시도(연타)는 기존과 동일하게 동작해야 한다.
+    try { await kv("DEL", lockKey); } catch { /* TTL이 60초 뒤 자동 해제 */ }
   }
 }
 

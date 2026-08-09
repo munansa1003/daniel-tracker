@@ -10,8 +10,13 @@ vi.mock("../../api/_lib/kv.js", () => {
   const strs = new Map();
   const hashes = new Map();
   const lists = new Map();
+  // Upstash KV는 HTTP 왕복이다. 기본값(false)은 즉시 반환이라 빠르지만, 그 상태로는
+  // 동시 요청이 마이크로태스크로 직렬화돼 경합을 재현할 수 없다 — 실제 I/O 틱을 흉내내야
+  // 두 요청이 인터리브된다. 동시성 테스트에서만 켠다(2026-08 감사 R-01 회귀 방어).
+  let netDelay = false;
   async function kv(cmd, ...args) {
     const c = String(cmd).toUpperCase();
+    if (netDelay) await new Promise((r) => setTimeout(r, 0));
     switch (c) {
       case "GET":
         return strs.has(args[0]) ? strs.get(args[0]) : null;
@@ -25,6 +30,13 @@ vi.mock("../../api/_lib/kv.js", () => {
         let n = 0;
         for (const k of args) if (strs.delete(k)) n++;
         return n;
+      }
+      // 실패 카운터는 INCR(원자)로 올린다 — GET→parseInt→SET은 동시 실패 시 증분이
+      // 유실돼 상한 도달이 늦어진다(= 인바디 계정을 더 두드린다). 2026-08 감사 R-01.
+      case "INCR": {
+        const next = (parseInt(strs.get(args[0]) || "0", 10) || 0) + 1;
+        strs.set(args[0], String(next));
+        return next;
       }
       case "HSET": {
         const [key, field, value] = args;
@@ -73,8 +85,9 @@ vi.mock("../../api/_lib/kv.js", () => {
   return {
     kv,
     kvConfigured: () => true,
-    __kvReset: () => { strs.clear(); hashes.clear(); lists.clear(); },
+    __kvReset: () => { strs.clear(); hashes.clear(); lists.clear(); netDelay = false; },
     __kvState: () => ({ strs, hashes, lists }),
+    __kvNetDelay: (on) => { netDelay = on; },
   };
 });
 
@@ -89,7 +102,7 @@ vi.mock("../../api/_lib/inbody-cloud.js", async (importOriginal) => {
 });
 
 import inboxHandler from "../../api/import-inbox.js";
-import { __kvReset, __kvState } from "../../api/_lib/kv.js";
+import { __kvReset, __kvState, __kvNetDelay } from "../../api/_lib/kv.js";
 import {
   inbodyDatetimeToHae, scanToSamples, scansToMetricsPayload, pullRecentMetrics,
 } from "../../api/_lib/inbody-cloud.js";
@@ -316,6 +329,38 @@ describe("사서함 pull 합류 — 클라우드 직수신·스로틀·실패 �
     expect(pullRecentMetrics).toHaveBeenCalledTimes(3);
     await forcePull();                                      // 상한 도달 — 이번엔 창을 지켜 호출 안 함
     expect(pullRecentMetrics).toHaveBeenCalledTimes(3);
+  });
+
+  // ── 동시 실행 선점 (2026-08 감사 R-01) ──────────────────────────────
+  // 옛 코드는 스로틀 도장을 `GET → 비교 → SET`으로 찍어 그 사이가 열려 있었다. 두 기기가
+  // 동시에 앱을 열면 둘 다 창을 통과해 인바디에 로그인을 두 번 시도했고, 비밀번호가 틀린
+  // 상태였다면 봉인이 걸리기 전에 3-strike 중 2개를 한 번에 태웠다. 지금은 SET NX 선점.
+  it("동시 pull 2건 → 인바디 로그인은 1회만 (SET NX 선점)", async () => {
+    __kvNetDelay(true); // 실제 I/O 틱 — 이게 없으면 두 요청이 인위적으로 직렬화된다
+    pullRecentMetrics.mockResolvedValue(cloudResult());
+    const [a, b] = await Promise.all([pullInbox(), pullInbox()]);
+    expect(pullRecentMetrics).toHaveBeenCalledTimes(1);
+    // 진 쪽은 조용히 사라지지 않고 이유가 실린다(관측성) — 사서함 응답 자체는 정상
+    expect([a.bodyCloudStatus, b.bodyCloudStatus].sort()).toEqual(["ok", "throttled"]);
+  });
+
+  it("비밀번호 오류 상태의 동시 pull 2건도 인바디 실패 카운터를 1만 깎는다 (계정 잠금 방어)", async () => {
+    __kvNetDelay(true);
+    pullRecentMetrics.mockRejectedValue(new Error("인바디 API 오류: PW_FAIL_3"));
+    await Promise.all([pullInbox(), pullInbox()]);
+    expect(pullRecentMetrics).toHaveBeenCalledTimes(1);
+    // 그 1회로 봉인까지 완료 — 이후 force도 막힌다
+    const after = out(await inboxCall({ uid: UID, idToken: "id-token-good", action: "pull", force: true }));
+    expect(after.bodyCloudStatus).toBe("authBlocked");
+    expect(pullRecentMetrics).toHaveBeenCalledTimes(1);
+  });
+
+  it("선점은 실행이 끝나면 해제된다 — 순차 재시도(연타)는 기존과 동일", async () => {
+    pullRecentMetrics.mockResolvedValue(cloudResult());
+    expect((await pullInbox()).bodyCloudStatus).toBe("ok");
+    const forced = out(await inboxCall({ uid: UID, idToken: "id-token-good", action: "pull", force: true }));
+    expect(forced.bodyCloudStatus).toBe("ok");              // 잠금이 남아 있었다면 throttled
+    expect(pullRecentMetrics).toHaveBeenCalledTimes(2);
   });
 
   it("인증 실패(PW_FAIL) → 단 1회로 크리덴셜 봉인, force도 즉시 차단 (남은 시도 횟수 보호)", async () => {

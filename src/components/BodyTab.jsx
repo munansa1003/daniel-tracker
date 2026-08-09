@@ -3,7 +3,7 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, ReferenceL
 import store, { getCurrentUserId } from "../store.js";
 import { isCompletedDay } from "../utils.js";
 import { bodyMetrics } from "../bodyMetrics.js";
-import { checkSmmLbm } from "../bodyDraft.js";
+import { checkSmmLbm, sampleTimeLabel, isEveningSample } from "../bodyDraft.js";
 import { useLongPress } from "../hooks/useLongPress.js";
 import { useOrientation } from "../hooks/useOrientation.js";
 import { LongPressActionBar } from "./LongPressActionBar.jsx";
@@ -210,6 +210,12 @@ export function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
               <span style={{ background: "rgba(212,175,55,0.15)", color: "#d4af37", fontSize: 9, padding: "2px 6px", borderRadius: 4, fontWeight: 500 }}>🧬 자동 수신</span>
               <span style={{ fontSize: 11, color: "#707070", fontFamily: "monospace" }}>{d}</span>
+              {/* 어느 시각 측정이 채택됐는지 — 확정 전에 판단할 수 있어야 한다(감사 R-03) */}
+              {sampleTimeLabel(df.sampleTs) && (
+                <span style={{ fontSize: 11, fontFamily: "monospace", color: isEveningSample(df.sampleTs) ? "#e0a052" : "#707070" }}>
+                  {isEveningSample(df.sampleTs) ? "🌆 " : ""}{sampleTimeLabel(df.sampleTs)} 측정
+                </span>
+              )}
             </div>
             <div style={{ fontSize: 13, color: "#f5f5f0", marginBottom: 2 }}>
               체중 <b>{df.weight > 0 ? df.weight : "—"}</b>kg · 체지방률 <b>{df.fatPct > 0 ? df.fatPct : "—"}</b>%
@@ -558,6 +564,15 @@ export function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user
               <div className={`dbp-lp-item ${lpBody.selectedIdx === i ? "dbp-lp-selected" : ""}`} {...lpBody.bind(i)} onClick={() => { if (!lpBody.wasLongPress()) startEdit(i); }} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 4px", borderBottom: lpBody.selectedIdx === i ? "none" : "1px solid rgba(255,255,255,0.04)", fontSize: 11, cursor: "pointer", borderRadius: lpBody.selectedIdx === i ? 6 : 0 }}>
                 <div style={{ flex: 1 }}>
                   <span style={{ fontFamily: "monospace", color: "#4a4a4a", marginRight: 6 }}>{b.date.slice(5)}</span>
+                  {/* 측정 시각 — "하루 종일 최신 채택"이 된 뒤로는 그날 값이 아침 공복인지
+                      저녁 비공복인지가 추세를 가른다. 저녁 값이 채택된 날은 눈에 띄게 표시한다
+                      (2026-08 감사 R-03: 습관이 아침→저녁으로 한 번 바뀌면 적응형 보정이 400kcal대로 움직인다) */}
+                  {sampleTimeLabel(b.sampleTs) && (
+                    <span title={isEveningSample(b.sampleTs) ? "오후 측정 — 공복이 아니면 추세가 흔들릴 수 있어요" : "측정 시각"}
+                      style={{ fontFamily: "monospace", fontSize: 10, color: isEveningSample(b.sampleTs) ? "#e0a052" : "#4a4a4a", marginRight: 6 }}>
+                      {isEveningSample(b.sampleTs) ? "🌆" : ""}{sampleTimeLabel(b.sampleTs)}
+                    </span>
+                  )}
                   <span>{b.weight}kg · {b.muscle}kg · {b.fatPct}%</span>
                   {b.source === "import" && <span style={{ fontSize: 9, color: "#d4af37", marginLeft: 5 }}>🧬</span>}
                 </div>

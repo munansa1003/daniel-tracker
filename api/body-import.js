@@ -40,11 +40,13 @@ export default async function handler(req, res) {
     });
   }
 
+  // ⚠️ rate limit이 토큰 대조보다 "먼저"(운동 검문소와 동일 — 2026-08 감사 R-39).
+  // 순서가 바뀌면 토큰 불일치 요청이 카운터에 집계되지 않아 추측 시도에 상한이 없어진다.
+  if (!(await rateLimit(req, res, { key: "body-import", max: 30, windowSec: 60 }))) return;
+
   if (req.headers["x-import-token"] !== TOKEN) {
     return res.status(401).json({ error: "unauthorized", message: "토큰 불일치" });
   }
-
-  if (!(await rateLimit(req, res, { key: "body-import", max: 30, windowSec: 60 }))) return;
 
   if (!kvConfigured()) {
     console.error("[body-import] KV not configured");

@@ -10,7 +10,17 @@
 
 import webpush from "web-push";
 import { kv, kvConfigured } from "./_lib/kv.js";
-import { pendingReminders, reminderPush, weeklyReportPush, daysBetween, REMINDER_DEFAULTS } from "../src/reminders.js";
+import { pendingReminders, reminderPush, weeklyReportPush, importSilencePush, daysBetween, REMINDER_DEFAULTS } from "../src/reminders.js";
+
+// 수신 로그(List)의 최신 항목에서 `at`만 꺼낸다. 로그가 없으면 null(= 그 경로를 쓴 적 없음).
+async function lastImportAt(key) {
+  try {
+    const raw = (await kv("LRANGE", key, "0", "0")) || [];
+    if (!raw.length) return null;
+    const rec = JSON.parse(raw[0]);
+    return (rec && rec.at) || null;
+  } catch { return null; } // 관측용이라 실패해도 크론 본체를 막지 않는다
+}
 
 // 크론 실행 시점(UTC)을 KST 날짜 문자열(YYYY-MM-DD)로. 밤 8시 KST 기준 "오늘".
 function todayKST() {
@@ -64,6 +74,16 @@ export default async function handler(req, res) {
       if (rmd.report) {
         const weekly = weeklyReportPush(st.weekReport || null, today);
         if (weekly) payloads.push(weekly);
+      }
+      // 자동 수신 침묵 — 앱이 올린 스냅샷이 아니라 **KV 수신 로그를 직접** 본다.
+      // 그래야 앱을 며칠 안 열어도 "단축어가 죽었다"를 감지할 수 있다(감사 R-06).
+      if (rmd.sync) {
+        const [exAt, bdAt] = await Promise.all([
+          lastImportAt(`import:log:${uid}`),
+          lastImportAt(`import:body-log:${uid}`),
+        ]);
+        const silence = importSilencePush({ lastExerciseAt: exAt, lastBodyAt: bdAt, todayStr: today });
+        if (silence) payloads.push(silence);
       }
       if (!payloads.length) continue;
 

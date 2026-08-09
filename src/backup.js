@@ -9,6 +9,16 @@ const isDateStr = (s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
 // 전체 백업 객체 생성 (exportedAt은 호출측에서 주입 — 테스트 결정성)
 // bodyDrafts(체성분 완성 대기 초안)는 선택 필드 — 비어 있으면 키 자체를 생략해
 // 기존 백업과 바이트 단위 동일 유지(구버전 앱은 미지 키를 무시하므로 하위 호환).
+// goals에서 백업에 담으면 안 되는 것을 걷어낸다.
+// shareLink({token, expiresAt})는 **로그인 없이 열리는 URL의 전체 권한**이다. goals를 통째로
+// 담던 옛 동작에서는 백업 파일을 클라우드·메일로 옮기는 순간 살아 있는 토큰이 함께 나갔다
+// (2026-08 감사 R-07). 링크는 앱에서 언제든 다시 발급하면 되므로 복원 대상이 아니다.
+function sanitizeGoals(goals) {
+  if (!goals || typeof goals !== "object") return {};
+  const { shareLink, ...rest } = goals;
+  return rest;
+}
+
 export function buildBackup({ allDays, bodyLog, goals, customFoods, customExercises, bodyDrafts }, exportedAt) {
   return {
     app: BACKUP_APP,
@@ -17,7 +27,7 @@ export function buildBackup({ allDays, bodyLog, goals, customFoods, customExerci
     data: {
       days: allDays || {},
       bodylog: bodyLog || [],
-      goals: goals || {},
+      goals: sanitizeGoals(goals),
       customFoods: customFoods || [],
       customExercises: customExercises || [],
       ...(bodyDrafts && Object.keys(bodyDrafts).length > 0 ? { bodyDrafts } : {}),

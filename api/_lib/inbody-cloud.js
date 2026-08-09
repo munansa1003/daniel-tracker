@@ -100,7 +100,12 @@ export function scansToMetricsPayload(scans, tzOffsetMin = 540) {
 // node:https.request는 우리가 준 헤더 + Host/Content-Length만 보내므로 성공한 요청과 동일해진다.
 import https from "node:https";
 
-const REQUEST_TIMEOUT_MS = 20000;
+// 요청별 타임아웃. pullRecentMetrics는 resolveHost→login→fetchScans 3단 "순차"라
+// 이 값의 3배가 곧 최악 소요다. 20초였을 때 최악 60초로, import-inbox의 함수 상한
+// (vercel.json maxDuration 30초)을 넘겨 **운동 사서함 pull까지 504로 함께 죽었다**
+// (2026-08 감사 R-09). 8초 × 3 = 24초로 상한 안에 들어오게 낮춘다. 호출부는 여기에
+// 더해 총 예산(CLOUD_BUDGET_MS)으로 한 번 더 감싼다 — 이 상수는 소켓을 실제로 닫는 쪽.
+const REQUEST_TIMEOUT_MS = 8000;
 
 function postJson(url, body, headers, ua) {
   return new Promise((resolve, reject) => {
