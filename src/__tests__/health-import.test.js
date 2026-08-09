@@ -491,4 +491,10 @@ describe("본문 인코딩 — 문자열/버퍼 본문(비JSON Content-Type) 수
     expect(res.statusCode).toBe(400);
     expect(out(res).message).toContain("파싱 실패");
   });
+
+  it("본문 4MB 초과는 400 — GPS 경로 포함 실측 대비 상한 (content-length 기준)", async () => {
+    const res = await importPost(envelope([W()]), { "content-length": String(5 * 1024 * 1024) });
+    expect(res.statusCode).toBe(400);
+    expect(out(res).message).toContain("4MB 초과");
+  });
 });

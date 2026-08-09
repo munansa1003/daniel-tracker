@@ -7,7 +7,10 @@
 // 재사용하고 페이로드 → {type,start,end,durationMin,kcal} 변환 파서만 추가하면 된다.
 
 export const IMPORT_SOURCES = ["workout-end", "evening-backup", "manual-tap", "hae"];
-export const MAX_BODY_BYTES = 100 * 1024; // 정상 페이로드는 수 KB
+// 실외 자전거·러닝은 GPS 경로가 통째로 실려 수백 KB를 넘는다(2026-08-09 실측 —
+// 100KB 상한이 자전거 운동을 이틀간 거부). 서버는 이름·시각·시간·kcal만 읽고
+// 경로·심박은 버리므로 큰 본문도 파싱 비용뿐. 상한은 Vercel 함수 한계(4.5MB) 아래.
+export const MAX_BODY_BYTES = 4 * 1024 * 1024;
 export const MAX_WORKOUTS = 100;
 export const KCAL_MIN = 1;
 export const KCAL_MAX = 2000;   // kJ 오염(×4.184)·이상치 차단
