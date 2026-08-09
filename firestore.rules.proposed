@@ -1,0 +1,96 @@
+rules_version = '2';
+
+// ⚠️ 이 파일은 **배포본이 아니다.** 현재 운영 중인 규칙은 `firestore.rules`다.
+//    2026-08 감사 R-36(필드 검증 강화) 제안본이며, 배포 절차·검증·롤백은
+//    `docs/firestore-rules-r36.md`를 반드시 먼저 읽을 것.
+//
+// ── 현행 대비 바뀌는 것은 딱 하나 ──────────────────────────────────
+//   개인 데이터 매치를 `users/{uid}/data/{document=**}`(재귀) 하나에서
+//   **두 개로 분리**하고, 평면 문서에만 필드 화이트리스트를 건다.
+//
+//     ① users/{uid}/data/{key}                  ← store.set이 쓰는 평면 문서
+//        생성·수정 시 { value, updatedAt } 외의 키를 거부
+//     ② users/{uid}/data/photos/items/{photoId} ← 진행 사진 (깊이가 다름)
+//        기존과 동일 (사진 객체는 스키마가 자유롭다)
+//
+// ── 이 변경이 막는 것 ─────────────────────────────────────────────
+//   버그난 클라이언트나 탈취된 토큰이 개인 데이터 경로에 **임의 모양의 문서를
+//   무제한으로 만드는 것**. 지금은 본인·멤버이기만 하면 어떤 키의 어떤 모양이든
+//   쓸 수 있다. 앱은 항상 { value, updatedAt }만 쓰므로 화이트리스트가 곧 실제 계약이다.
+//
+// ── ⚠️ 이 변경이 깨뜨릴 수 있는 것 (배포 전 반드시 확인) ──────────
+//   `{document=**}`(재귀)를 `{key}`(단일 세그먼트)로 바꾸는 순간, **깊이 3인
+//   진행 사진 경로가 매치에서 빠진다.** 아래 ②를 빼먹으면 사진 저장·삭제가
+//   조용히 전부 거부된다. 그래서 ②를 명시적으로 넣었다.
+//   `users/_shared/...`는 uid 자리가 `_shared`라 isSelf가 거짓 → ①이 아무 권한도
+//   주지 않고, 기존 _shared 규칙이 그대로 담당한다(공용 DB 쓰기 영향 없음).
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.app != null && request.auth != null;
+    }
+    function isSelf(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+    // 운영자 — src/auth.js의 OWNER_EMAIL과 반드시 동일하게 유지 (규칙은 env를 못 읽음)
+    // 정합성은 src/__tests__/owner-email.test.js가 두 파일을 직접 읽어 대조한다(감사 R-49)
+    function isOwner() {
+      return signedIn()
+        && request.auth.token.email == 'munansa@gmail.com'
+        && request.auth.token.email_verified == true;
+    }
+    function isMember() {
+      return signedIn()
+        && (isOwner() || exists(/databases/$(database)/documents/members/$(request.auth.uid)));
+    }
+
+    // 초대 코드 — 콘솔에서만 발급/폐기. 클라이언트 접근 전면 차단 (현행 유지)
+    match /invites/{code} {
+      allow read, write: if false;
+    }
+
+    // 멤버 등록 (현행 유지)
+    match /members/{uid} {
+      allow get: if isSelf(uid);
+      allow create: if isSelf(uid)
+        && request.resource.data.keys().hasOnly(['code', 'email', 'joinedAt'])
+        && request.resource.data.email == request.auth.token.email
+        && (isOwner()
+            || (request.resource.data.code is string
+                && get(/databases/$(database)/documents/invites/$(request.resource.data.code)).data.active == true));
+      allow list, update, delete: if false;
+    }
+
+    // 공용 음식/운동 DB (현행 유지) — 문서 모양이 { list, updatedAt }라 아래 ①과 다르다.
+    // uid 자리가 '_shared'여서 ①의 isSelf가 거짓이므로 서로 간섭하지 않는다.
+    match /users/_shared/data/{doc} {
+      allow read: if isMember();
+      allow write: if isOwner();
+    }
+
+    // ① 개인 데이터 (평면 문서) — store.set이 쓰는 { value, updatedAt }
+    //    delete를 create/update와 분리한 이유: 삭제 요청에는 request.resource가 없어
+    //    필드 검사를 그대로 걸면 **모든 삭제가 거부된다**(백업 복원의 stale day 정리가 막힘).
+    match /users/{uid}/data/{key} {
+      allow read: if (isSelf(uid) && isMember()) || isOwner();
+      allow create, update: if isSelf(uid) && isMember()
+        && request.resource.data.keys().hasOnly(['value', 'updatedAt']);
+      allow delete: if isSelf(uid) && isMember();
+    }
+
+    // ② 진행 사진 — users/{uid}/data/photos/items/{id} (깊이 3).
+    //    ①의 {key}는 한 세그먼트만 매치하므로 이 줄이 없으면 사진이 전부 막힌다.
+    //    사진 문서는 스키마가 자유로워 필드 검증을 걸지 않는다.
+    match /users/{uid}/data/photos/items/{photoId} {
+      allow read, write: if isSelf(uid) && isMember();
+      allow read: if isOwner();
+    }
+
+    // 그 외 모든 경로는 명시적 차단
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
