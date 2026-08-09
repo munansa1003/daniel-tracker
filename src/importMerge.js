@@ -6,6 +6,19 @@
 // ack 유실·다중 기기 동시 병합에도 중복이 생기지 않는다.
 import { sortByHour } from "./utils.js";
 
+/* 편집 시 소모 kcal을 어떻게 다시 구할 것인가 — App과 EditExForm 공용 단일 출처.
+   워치 자동 수신 항목의 kcal은 **기계가 실제로 측정한 값**이다. 그런데 편집 폼이 이를
+   MET 근사(m × 체중 × 분/60)로 갈아치워, 메모만 고쳐도 실측값이 추정값으로 바뀌었다
+   (2026-08 감사 R-42). 이제 실측 항목은 시간 비율로만 조정하고 근사로 대체하지 않는다.
+   수동 입력 항목은 원래대로 MET로 재계산한다(그쪽은 애초에 추정값이다). */
+export function recalcExerciseKcal(ex, nextDuration, weight) {
+  const dur = Number.isFinite(nextDuration) && nextDuration > 0 ? nextDuration : ex.duration;
+  if (ex && ex.source === "watch" && Number.isFinite(ex.kcal) && ex.duration > 0) {
+    return Math.round(ex.kcal * (dur / ex.duration));   // 실측값을 시간 비율로만 조정
+  }
+  return Math.round(((ex && ex.m) || 0) * (weight || 0) * dur / 60);
+}
+
 // 수정 화면(EditExForm)이 kcal을 m×체중×분/60으로 재계산하므로, 수입 항목에도
 // 역산한 m을 넣어 기존 편집 UI가 무수정으로 동작하게 한다.
 export function deriveM(kcal, duration, weight) {
@@ -38,9 +51,16 @@ export function mergeImports(days, entries, { weight = 0, todayStr = "", mode = 
   const updatedDays = {};
   const ackKeys = [];
   for (const entry of entries || []) {
+    // importKey가 없으면 사서함에서 지목할 수단이 없다 — 건너뛸 수밖에 없다(서버는 이 키를
+    // field로 쓰므로 정상 경로에서는 항상 존재한다).
     if (!entry || typeof entry.importKey !== "string" || !entry.importKey) continue;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.date || "")) continue;
-    if (typeof entry.n !== "string" || !entry.n || !Number.isFinite(entry.kcal) || !Number.isFinite(entry.duration)) continue;
+    // 나머지가 깨진 항목은 **ack해서 치운다**(2026-08 감사 R-16). 예전에는 그냥 건너뛰어
+    // 사서함에 영구히 남았고, 매 pull마다 다시 내려왔다. 체성분 병합은 같은 상황에서
+    // 이미 ack로 정리하고 있었다 — 두 경로의 정책을 맞춘다.
+    const badDate = !/^\d{4}-\d{2}-\d{2}$/.test(entry.date || "");
+    const badShape = typeof entry.n !== "string" || !entry.n
+      || !Number.isFinite(entry.kcal) || !Number.isFinite(entry.duration);
+    if (badDate || badShape) { ackKeys.push(entry.importKey); continue; }
 
     const base = updatedDays[entry.date] || days[entry.date] || {};
     const list = Array.isArray(base.exercises) ? base.exercises : [];

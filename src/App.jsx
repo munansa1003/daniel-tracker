@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar, ComposedChart, Legend, ReferenceLine } from "recharts";
 import store, { getCurrentUserId, setUserId, logout, getMembership, joinWithInvite, getMigratedMark, getSharedFoods, addSharedFood, getSharedExercises, addSharedExercise } from "./store.js";
-import { addTombstone } from "./syncQueue.js";
+import { addTombstone, getTombstoneIds } from "./syncQueue.js";
 import { watchAuth, signInWithGoogle, signOutUser, isOwnerEmail, getIdToken } from "./auth.js";
-import { mergeImports } from "./importMerge.js";
+import { mergeImports, recalcExerciseKcal } from "./importMerge.js";
 import { mergeBodyDrafts, draftToRecord, autoConfirmDrafts } from "./bodyDraft.js";
 import { APP_NAME, DEFAULT_FOODS, DEFAULT_EX, TARGETS as DEFAULT_TARGETS, COLORS } from "./data.js";
 import { THEME, GlobalStyles } from "./theme.jsx";
@@ -135,11 +135,13 @@ export default function App() {
     </div></>;
 
   const user = { ...profile, uid: account?.uid, email: account?.email, isOwner: isOwnerEmail(account?.email) };
-  return <><GlobalStyles /><MainApp user={user} onLogout={handleLogout} /></>;
+  // profile은 저장된 원본(name·height·age·targetFat) — user와 달리 uid·email이 섞이지 않는다.
+  // 백업 파일은 클라우드·메일로 옮겨지므로 계정 식별자가 실리면 안 된다(감사 R-07·R-43).
+  return <><GlobalStyles /><MainApp user={user} profile={profile} onProfileRestore={setProfile} onLogout={handleLogout} /></>;
 }
 
 // 메인 앱
-function MainApp({ user, onLogout }) {
+function MainApp({ user, profile, onProfileRestore, onLogout }) {
   const [tab, setTab] = useState("home");
   const [date, setDate] = useState(today());
   const [meals, setMeals] = useState([]);
@@ -326,7 +328,10 @@ function MainApp({ user, onLogout }) {
   };
   const removeExercise = (idx) => { const ne = exercises.filter((_, i) => i !== idx); setExercises(ne); saveDay(date, meals, ne); };
   const editExercise = (idx, updated) => {
-    const ne = sortByHour(exercises.map((e, i) => i === idx ? { ...e, ...updated, kcal: Math.round((e.m * TARGETS.weight * (updated.duration || e.duration)) / 60) } : e));
+    // 워치 실측 항목은 kcal을 MET 근사로 덮지 않는다(감사 R-42) — recalcExerciseKcal 참조
+    const ne = sortByHour(exercises.map((e, i) => i === idx
+      ? { ...e, ...updated, kcal: recalcExerciseKcal(e, updated.duration, TARGETS.weight) }
+      : e));
     setExercises(ne); saveDay(date, meals, ne); setEditExIdx(null);
   };
 
@@ -379,8 +384,11 @@ function MainApp({ user, onLogout }) {
     const local = store.getLocalAll();
     const drafts = local["body-drafts"] || bodyDrafts;
     if (!drafts || !(d in drafts)) return;
-    // 명시적 폐기 — 재전송 병합에서 되살아나지 않도록 흔적을 남긴다(감사 R-02)
-    addTombstone(getCurrentUserId(), "body-drafts", d);
+    // 명시적 폐기 — 흔적을 남긴다. 재전송 병합(R-02)과 사서함 재착지(R-27) 양쪽에서 쓰인다.
+    // 날짜가 아니라 **측정 단위**(date|sampleTs)로 기억한다 — 같은 날 다시 재면 새 측정이므로
+    // 정상적으로 들어와야 한다.
+    const discardTs = drafts[d] && drafts[d].sampleTs;
+    addTombstone(getCurrentUserId(), "body-drafts", `${d}|${discardTs}`);
     const nd = { ...drafts }; delete nd[d];
     setBodyDrafts(nd); await store.set("body-drafts", nd);
   };
@@ -538,7 +546,7 @@ function MainApp({ user, onLogout }) {
 
   // JSON 전체 백업 — 복원 가능한 유일한 형태 (CSV는 열람용)
   const exportJson = async () => {
-    const backup = buildBackup({ allDays, bodyLog, goals, customFoods, customExercises: customEx, bodyDrafts }, new Date().toISOString());
+    const backup = buildBackup({ allDays, bodyLog, goals, customFoods, customExercises: customEx, bodyDrafts, profile }, new Date().toISOString());
     downloadFile(JSON.stringify(backup, null, 2), `daniel_backup_${today()}.json`, "application/json");
     const now = today();
     setLastBackup(now); setJustBacked(true);
@@ -566,7 +574,7 @@ function MainApp({ user, onLogout }) {
     );
     if (!ok) return;
     // 1) 현재 상태 안전본 — 실수로 옛 백업을 넣어도 되돌릴 길을 남긴다
-    const safety = buildBackup({ allDays, bodyLog, goals, customFoods, customExercises: customEx, bodyDrafts }, new Date().toISOString());
+    const safety = buildBackup({ allDays, bodyLog, goals, customFoods, customExercises: customEx, bodyDrafts, profile }, new Date().toISOString());
     downloadFile(JSON.stringify(safety), `daniel_safety_${today()}.json`, "application/json");
     // 2) 적용 — 상태 즉시 교체 후 store 반영(로컬 우선이라 즉시 안전)
     const d = obj.data;
@@ -590,6 +598,8 @@ function MainApp({ user, onLogout }) {
       await store.set("goals", restoredGoals);
       await store.set("custom-foods", d.customFoods || []);
       await store.set("custom-exercises", d.customExercises || []);
+      // 프로필(키·나이)이 담긴 백업이면 함께 복원한다 — 없으면 현재 값을 유지(구버전 백업 호환)
+      if (d.profile && typeof d.profile === "object") { onProfileRestore(d.profile); await store.set("profile", d.profile); }
       alert(`복원 완료 — ${s.days}일 · 체성분 ${s.bodyLog}건`);
     } catch (e) {
       console.error("restore error:", e);
@@ -780,7 +790,10 @@ function MainApp({ user, onLogout }) {
     const curDrafts = local["body-drafts"] || {};
     const curLog = Array.isArray(local["bodylog"]) ? local["bodylog"] : [];
     if (bodyEntries.length || Object.keys(curDrafts).length) {
-      const bd = mergeBodyDrafts(curDrafts, curLog, bodyEntries, { todayStr: today() });
+      const bd = mergeBodyDrafts(curDrafts, curLog, bodyEntries, {
+        todayStr: today(),
+        discarded: getTombstoneIds(uid, "body-drafts"),   // 버린 측정은 다시 안 받는다(R-27)
+      });
       // 자동 확정(A안): 클라우드 직수신으로 4종 실측이 완비되고 LBM 가드를 통과한 초안은
       // 사용자 입력 없이 확정. 가드 보류분은 초안으로 남아 기존 카드(수동 확정)로 폴백.
       const ac = autoConfirmDrafts(bd.drafts, curLog);

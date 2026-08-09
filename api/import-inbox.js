@@ -107,7 +107,7 @@ async function cloudPullIfDue(uid, force = false) {
         countryCode: process.env.INBODY_COUNTRY || "KR",
         count: 5, tzOffsetMin: tz,
       }), CLOUD_BUDGET_MS);
-      const { entries, summary } = planBodyImport(payload, { cutoverDate: CUTOVER, tzOffsetMin: tz });
+      const { entries, summary } = planBodyImport(payload, { cutoverDate: CUTOVER, tzOffsetMin: tz, source: "cloud" });
       const { accepted, ignored } = await storeBodyEntries(uid, entries);
       await pushBodyLog(uid, "cloud", { accepted, ignored, summary });
       // 성공 — 실패 카운터·인증 봉인 모두 해제

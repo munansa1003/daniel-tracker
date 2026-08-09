@@ -85,3 +85,39 @@ describe("summarizeBackup", () => {
     expect(s.exportedAt).toBe("2026-07-07T12:00:00Z");
   });
 });
+
+/* 프로필(키·나이)은 목표 계산의 입력 — 2026-08 감사 R-43.
+   백업에 없으면 복원 후 기본값(175cm/35세)으로 폴백해 목표 kcal이 조용히 달라진다. */
+describe("buildBackup — 프로필 포함", () => {
+  it("프로필이 있으면 백업에 담기고 복원 가능하다", () => {
+    const b = buildBackup({ ...state, profile: { name: "다니엘", height: 178, age: 42 } }, "2026-07-07T12:00:00Z");
+    expect(b.data.profile).toEqual({ name: "다니엘", height: 178, age: 42 });
+    expect(validateBackup(b).ok).toBe(true);
+  });
+  it("프로필이 없으면 키 자체를 생략 (구버전 백업과 바이트 동일)", () => {
+    const b = buildBackup(state, "2026-07-07T12:00:00Z");
+    expect("profile" in b.data).toBe(false);
+    expect(validateBackup(b).ok).toBe(true);
+  });
+  // 앱의 user 객체는 profile + 계정 식별자(uid·email·isOwner)다. 백업 파일은 클라우드·메일로
+  // 옮겨지므로 계산에 쓰이지 않는 식별자가 실리면 안 된다 — 호출측 실수도 모듈이 막는다.
+  it("user 객체를 그대로 넘겨도 계정 식별자(uid·email)는 백업에 담기지 않는다", () => {
+    const asUser = { name: "다니엘", height: 178, age: 42, targetFat: 15, uid: "AbCdEf123456", email: "munansa@gmail.com", isOwner: true };
+    const b = buildBackup({ ...state, profile: asUser }, "2026-07-07T12:00:00Z");
+    expect(b.data.profile).toEqual({ name: "다니엘", height: 178, age: 42, targetFat: 15 });
+    const json = JSON.stringify(b);
+    expect(json).not.toContain("munansa@gmail.com");
+    expect(json).not.toContain("AbCdEf123456");
+    expect(json).not.toContain("isOwner");
+    expect(validateBackup(b).ok).toBe(true);
+  });
+  it("식별자만 있는 프로필은 키 자체를 생략 (빈 껍데기를 남기지 않는다)", () => {
+    const b = buildBackup({ ...state, profile: { uid: "u1", email: "a@b.c", isOwner: false } }, "2026-07-07T12:00:00Z");
+    expect("profile" in b.data).toBe(false);
+  });
+  it("프로필 형식이 깨진 백업은 거부", () => {
+    const bad = JSON.parse(JSON.stringify(buildBackup(state, "2026-07-07T12:00:00Z")));
+    bad.data.profile = [1, 2];
+    expect(validateBackup(bad).ok).toBe(false);
+  });
+});

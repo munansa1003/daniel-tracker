@@ -152,7 +152,7 @@ describe("계약 1 — 정상 수신: 초안 생성·3값 채움", () => {
     const { bodyEntries } = await pullInbox();
     expect(bodyEntries).toHaveLength(1);
     expect(bodyEntries[0]).toMatchObject({
-      key: `${TODAY}|${ts("08:24:00")}`, date: TODAY, sampleTs: ts("08:24:00"),
+      key: `${TODAY}|${ts("08:24:00")}|hae`, date: TODAY, sampleTs: ts("08:24:00"),
       weight: 73.6, fatPct: 18.7, lbm: 60.5,
     });
 
@@ -179,7 +179,7 @@ describe("계약 2·3 — 다중 샘플 최신 채택과 집계 판별(B2·B3)",
     ]));
     expect(out(res)).toMatchObject({ accepted: 1, samplesToday: 3 });
     const { bodyEntries } = await pullInbox();
-    expect(bodyEntries[0]).toMatchObject({ weight: 73.6, sampleTs: ts("09:20:00"), key: `${TODAY}|${ts("09:20:00")}` });
+    expect(bodyEntries[0]).toMatchObject({ weight: 73.6, sampleTs: ts("09:20:00"), key: `${TODAY}|${ts("09:20:00")}|hae` });
     expect(lastBodyLog()).toMatchObject({ samplesToday: 3 }); // 개별 샘플 형태임이 로그로 판별
   });
 
@@ -362,5 +362,43 @@ describe("계약 14 보조 — 운동 파이프라인 격리(사서함·seen 키
     const { entries, bodyEntries } = await pullInbox();
     expect(entries).toHaveLength(1);
     expect(bodyEntries).toHaveLength(1);
+  });
+});
+
+
+/* 사서함 키의 소스 구분 — 2026-08 감사 R-14.
+   HAE는 분 단위로 절삭돼 초가 00이고 클라우드는 초까지 살아 있다. 측정 시각의 초가
+   정확히 00이면 두 경로의 키가 같아져, 나중에 온 클라우드 항목이 "이미 접수됨"으로
+   막혔다 — 그날 골격근·점수가 영영 안 들어왔다(약 1/60). 소스를 키에 넣어 분리한다. */
+describe("계약 — 사서함 키에 유입 소스가 들어간다", () => {
+  const mk = (name, qty, when) => ({ data: { metrics: [
+    { name, units: "kg", data: [{ date: `${TODAY} ${when} +0900`, qty, source: "InBody H20N" }] },
+  ]}});
+
+  it("HAE와 클라우드는 같은 시각이라도 서로 다른 키를 받는다 (충돌 해소)", async () => {
+    const { planBodyImport } = await import("../../api/_lib/body-import-rules.js");
+    const opts = { cutoverDate: "2026-08-01", tzOffsetMin: 540 };
+    const hae = planBodyImport(mk("weight_body_mass", 73.6, "08:24:00"), { ...opts, source: "hae" }).entries[0];
+    const cloud = planBodyImport(mk("weight_body_mass", 73.6, "08:24:00"), { ...opts, source: "cloud" }).entries[0];
+    expect(hae.sampleTs).toBe(cloud.sampleTs);   // 같은 측정 시각인데
+    expect(hae.key).not.toBe(cloud.key);         // 키는 다르다 → 둘 다 접수된다
+    expect(hae.key.endsWith("|hae")).toBe(true);
+    expect(cloud.key.endsWith("|cloud")).toBe(true);
+  });
+
+  it("source를 안 주면 옛 형식 그대로 (호출부 누락 시 하위 호환)", async () => {
+    const { planBodyImport } = await import("../../api/_lib/body-import-rules.js");
+    const e = planBodyImport(mk("weight_body_mass", 73.6, "08:24:00"), { cutoverDate: "2026-08-01", tzOffsetMin: 540 }).entries[0];
+    expect(e.key).toBe(`${TODAY}|${e.sampleTs}`);
+  });
+
+  it("키가 달라도 같은 날짜면 병합 계층이 필드 단위로 합친다 (골격근 보존)", async () => {
+    const { mergeBodyDrafts } = await import("../bodyDraft.js");
+    const haeEntry = { key: `${TODAY}|100|hae`, date: TODAY, sampleTs: 100, weight: 73.6, fatPct: 18.7, lbm: 60.5 };
+    const cloudEntry = { key: `${TODAY}|100|cloud`, date: TODAY, sampleTs: 100, weight: 73.6, fatPct: 18.7, lbm: 60.5, muscle: 34.7, score: 84 };
+    const r = mergeBodyDrafts({}, [], [haeEntry, cloudEntry], { todayStr: TODAY });
+    expect(r.drafts[TODAY].muscle).toBe(34.7);   // 예전에는 클라우드가 막혀 여기가 비었다
+    expect(r.drafts[TODAY].score).toBe(84);
+    expect(r.ackKeys).toHaveLength(2);
   });
 });

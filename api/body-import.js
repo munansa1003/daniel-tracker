@@ -76,7 +76,7 @@ export default async function handler(req, res) {
   }
 
   const tz = parseTzOffset(process.env.IMPORT_TZ_OFFSET) ?? HAE_TZ_OFFSET_MIN_DEFAULT;
-  const { entries, summary } = planBodyImport(body, { cutoverDate: CUTOVER, tzOffsetMin: tz });
+  const { entries, summary } = planBodyImport(body, { cutoverDate: CUTOVER, tzOffsetMin: tz, source: "hae" });
 
   try {
     // 기입·로그는 공유 저장 계층(body-inbox-store.js) — 클라우드 직수신 pull과 동일 순서·동일 키

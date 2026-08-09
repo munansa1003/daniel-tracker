@@ -45,9 +45,11 @@ export function mergeForFlush(key, local, remote, tombstoned = new Set()) {
   // body-drafts — { "YYYY-MM-DD": {…, sampleTs} }
   if (!local || typeof local !== "object" || Array.isArray(local)) return local;
   if (typeof remote !== "object" || Array.isArray(remote)) return local;
+  // 초안 흔적은 **측정 단위**(date|sampleTs)다 — 날짜로 막으면 같은 날 재측정한 새 초안까지
+  // 영영 못 들어온다(감사 R-27).
   const out = { ...local };
   for (const [date, rec] of Object.entries(remote)) {
-    if (tombstoned.has(date) || !rec) continue;
+    if (!rec || tombstoned.has(`${date}|${rec.sampleTs}`)) continue;
     const cur = out[date];
     if (!cur || tsOf(rec) > tsOf(cur)) out[date] = rec;
   }

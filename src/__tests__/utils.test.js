@@ -296,3 +296,28 @@ describe("makeDayTargets — 그 날짜 기준 목표", () => {
     expect(empty("cut", "2026-07-09").k).toBe(calcTargets(75, 175, 35, "cut", 0).k);
   });
 });
+
+/* aggregateDay 결측 방어 — 2026-08 감사 R-28.
+   serving이나 매크로가 빠진 항목 하나가 합계를 NaN으로 만들면, estimateTDEE의
+   `a.k > 0` 게이트에서 false가 되어 그 날이 통째로 계산에서 조용히 빠졌다. */
+describe("aggregateDay — 결측 필드 방어", () => {
+  it("serving이 없으면 1인분으로 센다 (NaN 전파 없음)", () => {
+    const a = aggregateDay({ meals: [{ p: 10, c: 20, f: 5, k: 200 }], exercises: [] });
+    expect(a).toMatchObject({ p: 10, c: 20, f: 5, k: 200 });
+    expect(Number.isFinite(a.net)).toBe(true);
+  });
+  it("매크로가 빠진 항목은 0으로 세되 그 날은 살린다", () => {
+    const a = aggregateDay({ meals: [{ k: 300, serving: 1 }, { p: 5, c: 5, f: 5, k: 100, serving: 2 }], exercises: [] });
+    expect(a.k).toBe(500);
+    expect(a.p).toBe(10);
+    expect(Number.isNaN(a.c)).toBe(false);
+  });
+  it("null 항목·깨진 운동도 크래시 없이 건너뛴다", () => {
+    const a = aggregateDay({ meals: [null], exercises: [null, { kcal: "300" }, { kcal: 200 }] });
+    expect(a).toMatchObject({ p: 0, c: 0, f: 0, k: 0, ex: 200 });
+  });
+  it("정상 데이터의 결과는 그대로 (기존 동작 불변)", () => {
+    const a = aggregateDay({ meals: [{ p: 10, c: 20, f: 5, k: 200, serving: 1.5 }], exercises: [{ kcal: 300 }] });
+    expect(a).toEqual({ p: 15, c: 30, f: 7.5, k: 300, ex: 300, net: 0 });
+  });
+});

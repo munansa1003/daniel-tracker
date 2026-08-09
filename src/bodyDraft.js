@@ -79,7 +79,12 @@ function lockedAgainst(rec, sampleTs) {
   return !(Number.isFinite(sampleTs) && sampleTs > rec.sampleTs);
 }
 
-export function mergeBodyDrafts(drafts, bodyLog, entries, { todayStr = "" } = {}) {
+/* discarded: 사용자가 "버리기"로 명시 폐기한 항목의 식별자 집합(`${date}|${sampleTs}`).
+   폐기해도 그 항목의 ack 요청이 실패하면 사서함에 남아 다음 pull에서 다시 내려왔고,
+   잠글 확정 레코드가 없으니 그대로 재착지했다 — 버린 초안이 되살아나는 경로였다
+   (2026-08 감사 R-27). 날짜가 아니라 **측정 단위**로 기억하므로, 같은 날 다시 재면
+   새 sampleTs라 정상적으로 들어온다. */
+export function mergeBodyDrafts(drafts, bodyLog, entries, { todayStr = "", discarded = new Set() } = {}) {
   const next = { ...(drafts || {}) };
   const ackKeys = [];
   let changed = false;
@@ -103,6 +108,9 @@ export function mergeBodyDrafts(drafts, bodyLog, entries, { todayStr = "" } = {}
     }
     const hasField = FIELDS.some((f) => Number.isFinite(entry[f]) && entry[f] > 0);
     if (!hasField) { ackKeys.push(entry.key); continue; }
+
+    // 사용자가 버린 측정은 다시 착지시키지 않는다(ack만 해서 사서함에서 치운다)
+    if (discarded.has(`${entry.date}|${entry.sampleTs}`)) { ackKeys.push(entry.key); continue; }
 
     // 잠금(세분화): 사용자 확정분은 폐기, 자동 확정분은 더 최신일 때만 착지. 기한 밖은 정리.
     if ((cutoff && entry.date < cutoff) || lockedAgainst(confirmed.get(entry.date), entry.sampleTs)) { ackKeys.push(entry.key); continue; }

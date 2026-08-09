@@ -177,3 +177,30 @@ describe("계약 13 — 공유 링크(analysisExport): 초안 미확정 날은 �
       .not.toContain("체성분 측정 규칙");
   });
 });
+
+/* 버린 초안이 되살아나지 않는다 — 2026-08 감사 R-27.
+   폐기해도 그 항목의 ack가 실패하면 사서함에 남아 다음 pull에서 다시 내려왔고,
+   잠글 확정 레코드가 없으니 그대로 재착지했다. */
+describe("R-27 — 폐기한 측정의 재착지 차단", () => {
+  const E = (date, ts, extra = {}) => ({ key: `${date}|${ts}|cloud`, date, sampleTs: ts, weight: 75, ...extra });
+
+  it("버린 측정은 다시 내려와도 착지하지 않고 ack만 된다", () => {
+    const r = mergeBodyDrafts({}, [], [E("2026-08-09", 100)], {
+      todayStr: "2026-08-09", discarded: new Set(["2026-08-09|100"]),
+    });
+    expect(r.drafts["2026-08-09"]).toBeUndefined();
+    expect(r.ackKeys).toEqual(["2026-08-09|100|cloud"]);
+  });
+
+  it("같은 날 다시 재면(새 sampleTs) 정상적으로 들어온다 — 날짜가 아니라 측정 단위로 기억", () => {
+    const r = mergeBodyDrafts({}, [], [E("2026-08-09", 200)], {
+      todayStr: "2026-08-09", discarded: new Set(["2026-08-09|100"]),
+    });
+    expect(r.drafts["2026-08-09"].sampleTs).toBe(200);
+  });
+
+  it("폐기 목록이 없으면 기존과 똑같이 동작", () => {
+    const r = mergeBodyDrafts({}, [], [E("2026-08-09", 100)], { todayStr: "2026-08-09" });
+    expect(r.drafts["2026-08-09"].weight).toBe(75);
+  });
+});
