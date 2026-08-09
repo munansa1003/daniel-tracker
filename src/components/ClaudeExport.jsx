@@ -255,7 +255,9 @@ export function ClaudeExport({ state, todayStr, onResync, shareLink, onShareLink
                 {canShare && <button onClick={shareLinkUrl} style={{ flex: 1, padding: 10, borderRadius: 10, fontSize: 12, fontWeight: 600, background: "#2a2a2a", color: "#8a8a8a", border: "1px solid rgba(255,255,255,0.09)", cursor: "pointer" }}>📤 공유</button>}
               </div>
               <div style={{ fontSize: 9.5, color: "#d4af37", marginTop: 9, lineHeight: 1.5, background: "rgba(212,175,55,0.07)", border: "1px solid rgba(212,175,55,0.22)", borderRadius: 8, padding: "7px 9px" }}>
-                ⚠️ 이 주소를 아는 사람은 <b>로그인 없이</b> 내 기록 요약을 볼 수 있어요. 클로드 대화에만 붙여넣고, 끝나면 <b>폐기</b>하세요. 진행 사진·이름은 포함되지 않습니다.
+                {/* "무엇이 빠지는지"만 적으면 민감한 것이 없다고 읽힌다 — 실리는 것도 함께 적는다(감사 R-22) */}
+                ⚠️ 이 주소를 아는 사람은 <b>로그인 없이</b> 내 기록 요약을 볼 수 있어요. 클로드 대화에만 붙여넣고, 끝나면 <b>폐기</b>하세요.
+                진행 사진·이름은 포함되지 않지만, <b>직접 쓴 컨디션 메모(부상·질병 등)는 그대로 실립니다.</b>
               </div>
               {linkErr && <div style={{ fontSize: 10.5, color: "#e05252", marginTop: 7 }}>{linkErr}</div>}
             </div>

@@ -5,7 +5,7 @@
 // 없이는 레코드를 만들지 않으며, 병합 모듈은 bodylog를 아예 반환하지 않는다.
 import { describe, it, expect } from "vitest";
 import fixture from "./fixtures/golden-sample.json";
-import { mergeBodyDrafts, draftToRecord, checkSmmLbm, DRAFT_RETENTION_DAYS } from "../bodyDraft.js";
+import { mergeBodyDrafts, draftToRecord, checkSmmLbm, DRAFT_RETENTION_DAYS, lastMeasuredDate } from "../bodyDraft.js";
 import { bodyMetrics } from "../bodyMetrics.js";
 import { estimateTDEE } from "../adaptiveTDEE.js";
 import { buildAnalysisPackage } from "../analysisExport.js";
@@ -202,5 +202,36 @@ describe("R-27 — 폐기한 측정의 재착지 차단", () => {
   it("폐기 목록이 없으면 기존과 똑같이 동작", () => {
     const r = mergeBodyDrafts({}, [], [E("2026-08-09", 100)], { todayStr: "2026-08-09" });
     expect(r.drafts["2026-08-09"].weight).toBe(75);
+  });
+});
+
+/* "마지막으로 몸을 잰 날"에 미확정 초안도 포함 — 감사 R-21.
+   옛 동작은 bodyLog(확정분)만 봤다. LBM 가드 보류나 클라우드 장애로 초안만 쌓이면
+   사용자는 매일 쟀는데도 "체중을 재세요" 독촉을 계속 받았다 — 자동화가 고장난 바로 그때
+   유일하게 받는 신호가 틀린 메시지였다. */
+describe("lastMeasuredDate — 확정분과 초안 중 최신 (R-21)", () => {
+  const log = [{ date: "2026-08-01", weight: 75.1 }, { date: "2026-08-03", weight: 75.0 }];
+
+  it("초안이 더 최근이면 초안 날짜를 쓴다", () => {
+    expect(lastMeasuredDate(log, { "2026-08-07": { weight: 74.8 } })).toBe("2026-08-07");
+  });
+  it("확정분이 더 최근이면 확정분 날짜를 쓴다", () => {
+    expect(lastMeasuredDate(log, { "2026-07-20": { weight: 76.0 } })).toBe("2026-08-03");
+  });
+  it("초안이 없으면 기존 동작과 같다", () => {
+    expect(lastMeasuredDate(log, {})).toBe("2026-08-03");
+    expect(lastMeasuredDate(log, null)).toBe("2026-08-03");
+  });
+  it("둘 다 없으면 null — '잰 적 없음'은 그대로 유지", () => {
+    expect(lastMeasuredDate([], {})).toBe(null);
+    expect(lastMeasuredDate(null, null)).toBe(null);
+  });
+  it("값이 하나도 없는 빈 초안은 '쟀다'로 치지 않는다", () => {
+    expect(lastMeasuredDate(log, { "2026-08-09": {} })).toBe("2026-08-03");
+    expect(lastMeasuredDate(log, { "2026-08-09": { sampleTs: 123 } })).toBe("2026-08-03");
+  });
+  it("체중이 없어도 근육량·체지방률만 있으면 잰 것으로 본다 (부분 수신)", () => {
+    expect(lastMeasuredDate(log, { "2026-08-09": { muscle: 39.2 } })).toBe("2026-08-09");
+    expect(lastMeasuredDate(log, { "2026-08-10": { fatPct: 18.4 } })).toBe("2026-08-10");
   });
 });

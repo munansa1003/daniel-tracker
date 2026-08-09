@@ -4,7 +4,7 @@ import store, { getCurrentUserId, setUserId, logout, getMembership, joinWithInvi
 import { addTombstone, getTombstoneIds } from "./syncQueue.js";
 import { watchAuth, signInWithGoogle, signOutUser, isOwnerEmail, getIdToken } from "./auth.js";
 import { mergeImports, recalcExerciseKcal } from "./importMerge.js";
-import { mergeBodyDrafts, draftToRecord, autoConfirmDrafts } from "./bodyDraft.js";
+import { mergeBodyDrafts, draftToRecord, autoConfirmDrafts, lastMeasuredDate } from "./bodyDraft.js";
 import { APP_NAME, DEFAULT_FOODS, DEFAULT_EX, TARGETS as DEFAULT_TARGETS, COLORS } from "./data.js";
 import { THEME, GlobalStyles } from "./theme.jsx";
 import { today, nowHour, isCompletedDay, calcTargets, sortByHour, periodOf, groupMealsByTime, groupExercisesByTime, aggregateDay, exFeedback, isCalOk, adjustForDate, REST_K, restTargets, effectiveDayMode, isRestStamp, makeDayTargets } from "./utils.js";
@@ -629,9 +629,10 @@ function MainApp({ user, profile, onProfileRestore, onLogout }) {
   const pendingRmd = useMemo(() => {
     const td = allDays[today()];
     const recordedToday = !!(td && (((td.meals || []).length) || ((td.exercises || []).length)));
-    const lastWeighDate = bodyLog.length ? bodyLog[bodyLog.length - 1].date : null;
+    // 미확정 초안도 "잰 날"이다 — 자동 확정만 막힌 상황에서 틀린 독촉을 막는다(감사 R-21)
+    const lastWeighDate = lastMeasuredDate(bodyLog, bodyDrafts);
     return pendingReminders({ reminders: goals.reminders, recordedToday, lastWeighDate, todayStr: today(), accountMature, backupDaysAgo });
-  }, [allDays, bodyLog, goals.reminders, accountMature, backupDaysAgo]);
+  }, [allDays, bodyLog, bodyDrafts, goals.reminders, accountMature, backupDaysAgo]);
   const rmdOn = (k) => goals.reminders?.[k] !== false;
 
   // 건강 이벤트(부상·질병·휴식) — goals.healthEvents. 계산 제외 판정은 적응형 TDEE에 주입.
@@ -729,14 +730,16 @@ function MainApp({ user, profile, onProfileRestore, onLogout }) {
     }
     return {
       lastRecordDate: recordedDates.length ? recordedDates[recordedDates.length - 1] : null,
-      lastWeighDate: bodyLog.length ? bodyLog[bodyLog.length - 1].date : null,
+      lastWeighDate: lastMeasuredDate(bodyLog, bodyDrafts),   // 초안 포함 — 크론 푸시도 같은 기준(감사 R-21)
       lastBackup: lastBackup || null,
       accountCreatedAt: accountCreatedAt ? accountCreatedAt.slice(0, 10) : null,
       weekReport: { weekStart: lastMon, recorded, calOk, protHit, workouts },
     };
     // dayTargets가 의존성에 있어야 한다 — 키·나이(user)를 고치면 목표가 바뀌는데, 이것이
     // 빠져 있으면 주간 성적표의 단백질 달성일이 옛 기준으로 굳어 크론 푸시까지 옛 값으로 나간다.
-  }, [allDays, bodyLog, lastBackup, targetsByMode, dayTargets, appAdjust, tdeeHistory]);
+    // bodyDrafts도 마찬가지 — lastWeighDate가 초안을 포함하므로(R-21), 빠지면 초안이 들어와도
+    // KV 스냅샷이 갱신되지 않아 밤 크론이 옛 날짜로 "체중 재세요"를 보낸다.
+  }, [allDays, bodyLog, bodyDrafts, lastBackup, targetsByMode, dayTargets, appAdjust, tdeeHistory]);
   const doEnablePush = () => enablePush({ state: pushState, reminders: goals.reminders });
   const doDisablePush = () => disablePush();
   // 구독돼 있으면 상태·토글 변화 시 KV 갱신(구독 없으면 no-op).
@@ -2071,7 +2074,16 @@ function MainApp({ user, profile, onProfileRestore, onLogout }) {
           </div>
           <div style={{ fontSize: 11, color: "#707070", marginBottom: 8 }}>데이터 관리</div>
           <div style={{ background: "#252525", borderRadius: 10 }}>
-            <div onClick={() => { try { const uid = getCurrentUserId(); localStorage.removeItem("dt_" + uid + "_body-coaching"); alert("AI 코칭 캐시가 초기화되었습니다."); } catch {} }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", cursor: "pointer" }}>
+            {/* localStorage만 지우면 Firestore 사본이 다음 동기화에 그대로 되살아난다 —
+                "정리했는데 옛 분석이 그대로"가 된다(감사 R-26). 서버 사본까지 지운다.
+                오프라인이면 서버 삭제가 실패하므로 조용히 성공했다고 하지 않는다. */}
+            <div onClick={async () => {
+              const uid = getCurrentUserId();
+              try { localStorage.removeItem("dt_" + uid + "_body-coaching"); } catch { /* 저장소 접근 불가 */ }
+              const ok = await store.delete("body-coaching");   // 체성분 탭은 재진입 시 다시 읽으므로 별도 상태 초기화 불필요
+              alert(ok ? "AI 코칭 캐시가 초기화되었습니다."
+                       : "이 기기에서는 지웠어요. 서버 사본은 지우지 못했으니(오프라인일 수 있어요) 온라인에서 다시 시도해주세요.");
+            }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", cursor: "pointer" }}>
               <div>
                 <div style={{ fontSize: 12, color: "#f5f5f0" }}>AI 분석 캐시 정리</div>
                 <div style={{ fontSize: 10, color: "#707070", marginTop: 2 }}>AI 코칭 캐시 삭제 (재분석 유도)</div>
@@ -2091,7 +2103,9 @@ function MainApp({ user, profile, onProfileRestore, onLogout }) {
                     : "꺼짐 — 서버 환경변수 설정 필요 (docs/shortcut-recipe.md)"}
                 </div>
               </div>
-              <div onClick={() => syncImports({ force: true })} style={{ background: "#2f2f2f", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: "#f5f5f0", cursor: "pointer", flexShrink: 0 }}>지금 확인</div>
+              {/* 진행 중 가드 — 없으면 연타가 동시 요청을 만들고, force는 스로틀을 건너뛰므로
+                  그대로 인바디 로그인 시도가 겹친다(감사 R-12). 체성분 카드와 동일 동작. */}
+              <div onClick={() => { if (!syncingImports) syncImports({ force: true }); }} style={{ background: "#2f2f2f", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: syncingImports ? "#707070" : "#f5f5f0", cursor: syncingImports ? "default" : "pointer", flexShrink: 0 }}>{syncingImports ? "확인 중…" : "지금 확인"}</div>
             </div>
             {(importInfo?.log || []).slice(0, 5).map((g, i, arr) => (
               <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "7px 12px", borderBottom: i < arr.length - 1 ? "0.5px solid rgba(255,255,255,0.04)" : "none", fontSize: 10, fontFamily: "monospace", color: "#8a8a8a" }}>

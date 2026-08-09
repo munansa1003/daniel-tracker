@@ -152,6 +152,24 @@ export function draftToRecord(date, draft, muscle, score) {
 
 // ── 자동 확정 (A안 스펙 개정 — 2026-08-07 사용자 승인) ──────────────
 // 클라우드 직수신으로 4종(체중·체지방률·골격근·점수)이 전부 "실측"으로 도착한 초안은
+/* "마지막으로 몸을 잰 날" — 확정 기록과 미확정 초안 중 더 최근 날짜(감사 R-21).
+   체중 리마인더가 bodyLog만 보던 탓에, 측정은 매일 들어오는데 자동 확정만 막힌 상황
+   (LBM 가드 보류·클라우드 장애로 초안만 쌓이는 경우)에서 "체중을 재세요" 독촉이 계속됐다.
+   사용자는 실제로 쟀다 — 틀린 독촉은 알림 전체의 신뢰를 깎는다. 잰 사실은 초안에도 있다. */
+export function lastMeasuredDate(bodyLog, bodyDrafts) {
+  let last = null;
+  for (const b of Array.isArray(bodyLog) ? bodyLog : []) {
+    if (b && typeof b.date === "string" && (!last || b.date > last)) last = b.date;
+  }
+  for (const date of Object.keys(bodyDrafts || {})) {
+    // 값이 하나도 없는 빈 껍데기는 "쟀다"로 치지 않는다
+    const d = bodyDrafts[date];
+    if (!d || !(d.weight > 0 || d.muscle > 0 || d.fatPct > 0)) continue;
+    if (typeof date === "string" && (!last || date > last)) last = date;
+  }
+  return last;
+}
+
 // 사용자 입력 없이 확정한다. 단 전부 통과해야 한다:
 //   ① muscle·weight 실측 존재  ② 잠금 아님(그 날짜 레코드 없음 — 이중 방어)
 //   ③ LBM 오타 가드(0.53~0.61) 통과 — 비율 이상이면 자동 확정을 "보류"하고 초안으로
