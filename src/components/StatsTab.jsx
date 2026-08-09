@@ -3,12 +3,33 @@ import { THEME } from "../theme.jsx";
 import { today, isCompletedDay, calcTargets, aggregateDay, isCalOk, adjustForDate, effectiveDayMode, REST_K } from "../utils.js";
 import { useOrientation } from "../hooks/useOrientation.js";
 
-export function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, targetsByMode, dayTargets: dayTargetsProp, mode = "cut", appAdjust = 0, tdeeHistory = [] }) {
+/* 주간 등급 — 단백질 40 · 칼로리 30 · 운동 30(주 4회 만점).
+   이 산식이 StatsTab 안에 두 벌 복붙돼 있었다(감사 R-34). 한쪽만 고치면 주간 카드와
+   8주 트렌드가 서로 다른 등급을 보여주는데, 그 어긋남은 화면을 나란히 놓기 전엔 안 보인다.
+   빈 주(n=0)의 색만 쓰임새별로 달라 인자로 받는다. */
+export function weekGrade(w, emptyColor = "#4a4a4a") {
+  if (!w || !w.n) return { letter: "—", color: emptyColor };
+  const s = (w.pDays / w.n) * 40 + (w.dDays / w.n) * 30 + Math.min(w.eDays / 4, 1) * 30;
+  if (s >= 90) return { letter: "A+", color: "#5a9e6f" };
+  if (s >= 80) return { letter: "A", color: "#5a9e6f" };
+  if (s >= 70) return { letter: "B+", color: "#5a9e6f" };
+  if (s >= 60) return { letter: "B", color: "#4a8fc9" };
+  if (s >= 50) return { letter: "C+", color: "#d4af37" };
+  if (s >= 40) return { letter: "C", color: "#d4af37" };
+  if (s >= 30) return { letter: "D", color: "#e05252" };
+  return { letter: "F", color: "#e05252" };
+}
+
+export function StatsTab({ bodyLog, allDays, goals, onSaveGoals, user, appTargets, targetsByMode, dayTargets: dayTargetsProp, mode = "cut", appAdjust = 0, tdeeHistory = [] }) {
   const landscape = useOrientation(); // 가로모드 여부 — 표시 재배치 전용, 계산과 무관
   const [statsTab, setStatsTab] = useState("report");
   const [summaryPeriod, setSummaryPeriod] = useState("1m");
   const totalDays = Object.keys(allDays).length;
-  const targets = appTargets || calcTargets(goals.weight || 75, 175, 35, mode);
+  // 폴백 목표(appTargets prop이 없을 때만). 옛 폴백은 **목표 체중(goals.weight)을 현재 체중
+  // 자리에 넣고** 키·나이까지 175/35로 박아 둬, prop이 빠지는 순간 조용히 다른 목표로
+  // 판정했다(감사 R-50). 현재 체중은 마지막 실측을, 키·나이는 프로필을 쓴다 — 둘 다 이미 있다.
+  const curWeight = bodyLog.length ? bodyLog[bodyLog.length - 1].weight : (goals.weight || 75);
+  const targets = appTargets || calcTargets(curWeight, user?.height || 175, user?.age || 35, mode);
   // 그 날짜 기준 목표 세트 — App이 만든 단일 출처(utils.makeDayTargets)를 그대로 쓴다.
   // 체중 기준은 "그 날짜가 속한 달"의 평균이라, 보는 시점이나 선택 날짜에 따라 같은 날의
   // 판정이 달라지지 않는다(2026-08 감사 R-10). prop이 없는 옛 호출부는 기존 동작으로 폴백.
@@ -152,18 +173,7 @@ export function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, tar
     // 방금 끝난 주는 자동으로 weekOffset=-1로 밀려나면서 등급 공개됨.
     const isComplete = weekOffset < 0;
 
-    const grade = (w) => {
-      if (w.n === 0) return { letter: "—", color: "#4a4a4a" };
-      const s = (w.pDays / w.n) * 40 + (w.dDays / w.n) * 30 + Math.min(w.eDays / 4, 1) * 30;
-      if (s >= 90) return { letter: "A+", color: "#5a9e6f" };
-      if (s >= 80) return { letter: "A", color: "#5a9e6f" };
-      if (s >= 70) return { letter: "B+", color: "#5a9e6f" };
-      if (s >= 60) return { letter: "B", color: "#4a8fc9" };
-      if (s >= 50) return { letter: "C+", color: "#d4af37" };
-      if (s >= 40) return { letter: "C", color: "#d4af37" };
-      if (s >= 30) return { letter: "D", color: "#e05252" };
-      return { letter: "F", color: "#e05252" };
-    };
+    const grade = (w) => weekGrade(w, "#4a4a4a");
 
     // 코칭 생성
     // 중간 점검: 이번 주(weekOffset=0) + 수~토(dayIdx 2~5) + 3일 이상 기록
@@ -198,18 +208,7 @@ export function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, tar
     const todayStr = today();
     const todayDow = new Date(todayStr + "T12:00:00").getDay();
     const dayIdx = todayDow === 0 ? 6 : todayDow - 1;
-    const grade = (w) => {
-      if (w.n === 0) return { letter: "—", color: "#252525" };
-      const s = (w.pDays / w.n) * 40 + (w.dDays / w.n) * 30 + Math.min(w.eDays / 4, 1) * 30;
-      if (s >= 90) return { letter: "A+", color: "#5a9e6f" };
-      if (s >= 80) return { letter: "A", color: "#5a9e6f" };
-      if (s >= 70) return { letter: "B+", color: "#5a9e6f" };
-      if (s >= 60) return { letter: "B", color: "#4a8fc9" };
-      if (s >= 50) return { letter: "C+", color: "#d4af37" };
-      if (s >= 40) return { letter: "C", color: "#d4af37" };
-      if (s >= 30) return { letter: "D", color: "#e05252" };
-      return { letter: "F", color: "#e05252" };
-    };
+    const grade = (w) => weekGrade(w, "#252525");
 
     return Array.from({ length: 8 }, (_, i) => {
       const offset = i - 7; // -7 ~ 0

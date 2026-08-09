@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildAnalysisPackage, resolvePeriod, packageMeta, PERIODS, exCategory } from "../analysisExport.js";
+import { buildAnalysisPackage, resolvePeriod, packageMeta, sharePrivacyNotice, PERIODS, exCategory } from "../analysisExport.js";
 
 const TODAY = "2026-07-18";
 const targetsByMode = {
@@ -235,5 +235,46 @@ describe("내결함성 — 오염 데이터에도 절대 빈 문서를 반환하
     expect(typeof pkg).toBe("string");
     expect(pkg.length).toBeGreaterThan(50);
     expect(pkg).toContain("(생성정보:");
+  });
+});
+
+/* 공유 링크 경고 — 감사 R-22.
+   링크는 로그인 없이 열리는 URL이고, 패키지에는 사용자가 직접 쓴 컨디션 메모가 그대로 실린다.
+   기존 안내("공유 시점 스냅샷이 저장됩니다")에는 그 사실이 빠져 있었다. */
+describe("sharePrivacyNotice — 무엇이 누구에게 보이는지", () => {
+  it("자유 서술이 있으면 건수와 함께 경고한다", () => {
+    const msg = sharePrivacyNotice({ condNotes: 3 });
+    expect(msg).toContain("로그인 없이");
+    expect(msg).toContain("3건");
+  });
+  it("자유 서술이 없어도 로그인 없이 열린다는 사실은 반드시 알린다", () => {
+    const msg = sharePrivacyNotice({ condNotes: 0 });
+    expect(msg).toContain("로그인 없이");
+    expect(msg).not.toContain("컨디션 메모");
+  });
+  it("meta가 비어도 안전하게 문장을 만든다", () => {
+    expect(sharePrivacyNotice(null)).toContain("로그인 없이");
+    expect(sharePrivacyNotice({})).toContain("로그인 없이");
+  });
+});
+
+describe("packageMeta — condNotes(자유 서술 건수) 집계", () => {
+  const range = { start: "2026-07-01", end: "2026-07-31" };
+  it("라벨·메모가 있는 컨디션만 센다 (빈 칸은 제외)", () => {
+    const healthEvents = [
+      { start: "2026-07-05", end: "2026-07-06", type: "injury", note: "왼쪽 무릎" },
+      { start: "2026-07-10", end: "2026-07-11", type: "illness", label: "몸살" },
+      { start: "2026-07-20", end: "2026-07-21", type: "other" },              // 자유 서술 없음
+      { start: "2026-07-22", end: "2026-07-23", type: "other", note: "   " }, // 공백만 — 제외
+    ];
+    const m = packageMeta("x".repeat(2048), { allDays: {}, bodyLog: [], healthEvents }, range);
+    expect(m.conds).toBe(4);
+    expect(m.condNotes).toBe(2);
+  });
+  it("기간 밖 컨디션은 세지 않는다", () => {
+    const healthEvents = [{ start: "2026-06-01", end: "2026-06-02", type: "injury", note: "지난달" }];
+    const m = packageMeta("x".repeat(1024), { allDays: {}, bodyLog: [], healthEvents }, range);
+    expect(m.conds).toBe(0);
+    expect(m.condNotes).toBe(0);
   });
 });

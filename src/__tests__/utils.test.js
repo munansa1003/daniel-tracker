@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { calcTargets, periodOf, TIME_PERIODS, aggregateDay, getWeekKey, exFeedback, isCalOk, MODE_DEFICIT, MODE_FEEDBACK, adjustForDate, REST_K, REST_EX_REVERT, restTargets, effectiveDayMode, monthAvgWeights, weightForMonth, makeDayTargets } from "../utils.js";
+import { fatMassOf, bodyMetrics } from "../bodyMetrics.js";
 
 describe("calcTargets — 칼로리·매크로 목표 (캘리브레이션 값 보호)", () => {
   it("스모크: 체중 77.3 / 175cm / 42세 → K=1570, P=170, F=46, C=119", () => {
@@ -294,5 +295,49 @@ describe("makeDayTargets — 그 날짜 기준 목표", () => {
   it("체중 기록이 없으면 fallback으로 동작 (크래시 없음)", () => {
     const empty = makeDayTargets({ bodyLog: [], fallbackWeight: 75 });
     expect(empty("cut", "2026-07-09").k).toBe(calcTargets(75, 175, 35, "cut", 0).k);
+  });
+});
+
+/* aggregateDay 결측 방어 — 2026-08 감사 R-28.
+   serving이나 매크로가 빠진 항목 하나가 합계를 NaN으로 만들면, estimateTDEE의
+   `a.k > 0` 게이트에서 false가 되어 그 날이 통째로 계산에서 조용히 빠졌다. */
+describe("aggregateDay — 결측 필드 방어", () => {
+  it("serving이 없으면 1인분으로 센다 (NaN 전파 없음)", () => {
+    const a = aggregateDay({ meals: [{ p: 10, c: 20, f: 5, k: 200 }], exercises: [] });
+    expect(a).toMatchObject({ p: 10, c: 20, f: 5, k: 200 });
+    expect(Number.isFinite(a.net)).toBe(true);
+  });
+  it("매크로가 빠진 항목은 0으로 세되 그 날은 살린다", () => {
+    const a = aggregateDay({ meals: [{ k: 300, serving: 1 }, { p: 5, c: 5, f: 5, k: 100, serving: 2 }], exercises: [] });
+    expect(a.k).toBe(500);
+    expect(a.p).toBe(10);
+    expect(Number.isNaN(a.c)).toBe(false);
+  });
+  it("null 항목·깨진 운동도 크래시 없이 건너뛴다", () => {
+    const a = aggregateDay({ meals: [null], exercises: [null, { kcal: "300" }, { kcal: 200 }] });
+    expect(a).toMatchObject({ p: 0, c: 0, f: 0, k: 0, ex: 200 });
+  });
+  it("정상 데이터의 결과는 그대로 (기존 동작 불변)", () => {
+    const a = aggregateDay({ meals: [{ p: 10, c: 20, f: 5, k: 200, serving: 1.5 }], exercises: [{ kcal: 300 }] });
+    expect(a).toEqual({ p: 15, c: 30, f: 7.5, k: 300, ex: 300, net: 0 });
+  });
+});
+
+/* 체지방량 단일 출처 — 감사 R-33 (CLAUDE.md 지침 위반 시정).
+   analysisExport가 같은 식을 인라인으로 다시 구현하고 있었다. 지금은 값이 같지만
+   반올림 자리수 하나만 달라져도 화면(BodyTab)과 내보내기가 조용히 어긋난다. */
+describe("fatMassOf — 체지방량(kg)", () => {
+  it("체중 × 체지방률, 소수 1자리", () => {
+    expect(fatMassOf(75.7, 18.2)).toBe(13.8);
+    expect(fatMassOf(80, 25)).toBe(20);
+  });
+  it("bodyMetrics의 fatMass와 항상 같은 값 (두 경로가 갈라지지 않는다)", () => {
+    const latest = { date: "2026-08-09", weight: 73.6, fatPct: 18.7, muscle: 39.2 };
+    expect(bodyMetrics(latest, null, { height: 178, age: 42 }).fatMass).toBe(fatMassOf(73.6, 18.7));
+  });
+  it("값이 없거나 깨졌으면 0 (NaN을 화면으로 흘리지 않는다)", () => {
+    expect(fatMassOf(0, 18)).toBe(0);
+    expect(fatMassOf(75, NaN)).toBe(0);
+    expect(fatMassOf(undefined, undefined)).toBe(0);
   });
 });

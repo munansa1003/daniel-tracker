@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { periodOf } from "../utils.js";
+import { recalcExerciseKcal } from "../importMerge.js";
 
 /* ───── 운동 수정 폼 ───── */
 export function EditExForm({ exercise, onSave, onCancel, onDelete, weight }) {
@@ -7,12 +8,16 @@ export function EditExForm({ exercise, onSave, onCancel, onDelete, weight }) {
   const [hour, setHour] = useState(exercise.hour || 0);
   const [memo, setMemo] = useState(exercise.memo || "");
   const is = { width: "100%", padding: "10px 12px", background: "#252525", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, color: "#f5f5f0", fontSize: 14, boxSizing: "border-box", marginBottom: 8 };
-  const estKcal = Math.round((exercise.m * (weight || 77.5) * (parseInt(duration) || 30)) / 60);
+  // 저장될 값과 같은 규칙으로 미리 보여준다 — 워치 실측 항목은 근사로 바뀌지 않는다(감사 R-42)
+  const estKcal = recalcExerciseKcal(exercise, parseInt(duration) || 30, weight || 77.5);
+  const measured = exercise.source === "watch";
   return (
     <div>
       <div style={{ background: "#252525", borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 13 }}>
         <div style={{ fontWeight: 500, marginBottom: 4 }}>{exercise.n}</div>
-        <div style={{ color: "#707070", fontSize: 12 }}>MET {exercise.m}</div>
+        <div style={{ color: "#707070", fontSize: 12 }}>
+          {measured ? `⌚ 워치 실측 ${exercise.kcal}kcal · ${exercise.duration}분` : `MET ${exercise.m}`}
+        </div>
       </div>
       <div style={{ fontSize: 12, color: "#707070", marginBottom: 4 }}>운동 시간 (분)</div>
       <input type="number" min="1" value={duration} onChange={e => setDuration(e.target.value)} style={is} />
@@ -26,7 +31,7 @@ export function EditExForm({ exercise, onSave, onCancel, onDelete, weight }) {
       <div style={{ fontSize: 12, color: "#707070", marginBottom: 4 }}>메모</div>
       <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="선택사항 (예: 근력 세부 종목)" style={is} />
       <div style={{ background: "#252525", borderRadius: 6, padding: 10, marginBottom: 12, fontSize: 12, fontFamily: "monospace", color: "#8a8a8a" }}>
-        예상 소모: -{estKcal} kcal
+        {measured ? "실측 소모" : "예상 소모"}: -{estKcal} kcal
       </div>
       <div style={{ display: "flex", gap: 8 }}>
         <button onClick={onDelete} style={{ padding: 12, background: "rgba(224,82,82,0.15)", border: "1px solid rgba(224,82,82,0.3)", borderRadius: 8, color: "#e05252", fontSize: 14, cursor: "pointer" }}>삭제</button>

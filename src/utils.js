@@ -182,11 +182,20 @@ export function groupExercisesByTime(exercises) {
 }
 
 /* ───── 유틸 ───── */
+// ⚠️ 결측 필드 방어가 필수다(2026-08 감사 R-28). 예전에는 serving이나 매크로가 빠진 항목
+// 하나가 합계를 통째로 NaN으로 만들었고, estimateTDEE의 `a.k > 0` 게이트에서 false가 되어
+// **그 날이 통째로 계산에서 조용히 빠졌다**. 운동은 이미 `|| 0`으로 방어돼 있었다 — 식단만
+// 무방비였다. 값이 깨진 항목은 0으로 세되, 그 날 자체는 살린다.
 export function aggregateDay(d) {
   if (!d) return { p: 0, c: 0, f: 0, k: 0, ex: 0, net: 0 };
+  const n = (v) => (Number.isFinite(v) ? v : 0);
   let p = 0, c = 0, f = 0, k = 0, ex = 0;
-  (d.meals || []).forEach(m => { const s = m.serving; p += m.p * s; c += m.c * s; f += m.f * s; k += m.k * s; });
-  (d.exercises || []).forEach(e => { ex += e.kcal || 0; });
+  (d.meals || []).forEach(m => {
+    if (!m) return;
+    const s = Number.isFinite(m.serving) ? m.serving : 1;   // serving 결측은 1인분으로
+    p += n(m.p) * s; c += n(m.c) * s; f += n(m.f) * s; k += n(m.k) * s;
+  });
+  (d.exercises || []).forEach(e => { ex += n(e && e.kcal); });
   return { p, c, f, k, ex, net: k - ex };
 }
 

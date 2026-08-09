@@ -8,6 +8,7 @@
 import { aggregateDay, isCalOk, adjustForDate, exFeedback, effectiveDayMode, isRestStamp, REST_K } from "./utils.js";
 import { dateInEvent, typeMeta } from "./healthEvents.js";
 import { sampleTimeLabel } from "./bodyDraft.js";
+import { fatMassOf } from "./bodyMetrics.js";
 
 /* 유입 출처 표기 (2026-08 감사 R-04).
    체성분 레코드는 실제로 출처를 들고 있는데(auto·sampleTs·source) 이 문서에는 하나도
@@ -51,8 +52,22 @@ export function resolvePeriod(periodKey, todayStr, allDays, custom) {
 export function packageMeta(pkg, { allDays, bodyLog, healthEvents }, { start, end }) {
   const days = Object.keys(allDays || {}).filter((d) => d >= start && d <= end && (allDays[d]?.meals?.length || allDays[d]?.exercises?.length)).length;
   const weighs = (bodyLog || []).filter((b) => b && typeof b.date === "string" && b.date >= start && b.date <= end).length;
-  const conds = (healthEvents || []).filter((ev) => ev && typeof ev.start === "string" && ev.start <= end && (ev.end || end) >= start).length;
-  return { days, weighs, conds, kb: Math.max(1, Math.round(pkg.length / 1024)) };
+  const inRange = (healthEvents || []).filter((ev) => ev && typeof ev.start === "string" && ev.start <= end && (ev.end || end) >= start);
+  // 사용자가 직접 쓴 문장(라벨·메모)이 몇 건이나 실리는지 — 공유 링크 경고를 구체적으로 쓰기 위해.
+  // 컨디션은 부상·질병·복약처럼 민감한 내용이 적히는 칸이다.
+  const condNotes = inRange.filter((ev) => (ev.label && String(ev.label).trim()) || (ev.note && String(ev.note).trim())).length;
+  return { days, weighs, conds: inRange.length, condNotes, kb: Math.max(1, Math.round(pkg.length / 1024)) };
+}
+
+// 공유 링크 발급 직전에 보여줄 경고 — 감사 R-22.
+// 링크는 **로그인 없이 열리는 URL**이고 패키지에는 컨디션 메모 같은 자유 서술이 그대로 실린다.
+// 기존 안내는 "공유 시점 스냅샷이 저장됩니다"뿐이라, 무엇이 누구에게 보이는지가 빠져 있었다.
+export function sharePrivacyNotice(meta) {
+  const n = (meta && meta.condNotes) || 0;
+  const base = "이 URL을 가진 사람은 누구나 로그인 없이 내용을 볼 수 있어요.";
+  return n > 0
+    ? `${base} 직접 쓴 컨디션 메모 ${n}건(부상·질병 등)도 그대로 실립니다.`
+    : `${base} 기간 내 기록·체중·집계가 그대로 실립니다.`;
 }
 
 // 운동 유형 분류(키워드) — 종목↔체성분 연결 분석용. 미분류는 '기타'로 정직하게.
@@ -333,7 +348,7 @@ export function buildAnalysisPackage(state, { start, end }, todayStr, opts = {})
     safe("체성분 기록", () => {
       L.push(`## 체성분 기록 (${weighs.length}건)`);
       if (weighs.length) {
-        const fatKg = (b) => Math.round(b.weight * b.fatPct / 100 * 10) / 10;
+        const fatKg = (b) => fatMassOf(b.weight, b.fatPct);   // 인라인 재구현 금지 — bodyMetrics 단일 출처(감사 R-33)
         const withComp = weighs.filter((b) => b.fatPct > 0);
         if (withComp.length >= 2) {
           const f0 = withComp[0], f1 = withComp[withComp.length - 1];

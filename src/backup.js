@@ -19,7 +19,23 @@ function sanitizeGoals(goals) {
   return rest;
 }
 
-export function buildBackup({ allDays, bodyLog, goals, customFoods, customExercises, bodyDrafts }, exportedAt) {
+// 앱 안에서 굴러다니는 user 객체는 profile(name·height·age·targetFat)에 계정 식별자
+// (uid·email·isOwner)를 얹은 파생값이다. 백업은 클라우드·메일로 옮겨지므로 계산에 쓰이지 않는
+// 식별자가 실리면 안 된다 — 호출측이 실수로 user를 넘겨도 여기서 걷어낸다(감사 R-07·R-43).
+const PROFILE_IDENTITY_KEYS = ["uid", "email", "isOwner"];
+function sanitizeProfile(profile) {
+  if (!profile || typeof profile !== "object" || Array.isArray(profile)) return null;
+  const out = {};
+  for (const k in profile) {
+    if (!PROFILE_IDENTITY_KEYS.includes(k) && profile[k] !== undefined) out[k] = profile[k];
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+// profile(키·나이)은 목표 계산의 입력이다 — 빠지면 복원 후 기본값(175cm/35세)으로 폴백해
+// **목표 kcal이 조용히 달라진다**(2026-08 감사 R-43). 백업은 "통째로 되살리는 유일한 경로"이므로
+// 계산 입력이 빠져 있으면 안 된다. 선택 필드로 추가해 구버전 백업도 그대로 복원된다.
+export function buildBackup({ allDays, bodyLog, goals, customFoods, customExercises, bodyDrafts, profile }, exportedAt) {
   return {
     app: BACKUP_APP,
     schema: BACKUP_SCHEMA,
@@ -31,6 +47,7 @@ export function buildBackup({ allDays, bodyLog, goals, customFoods, customExerci
       customFoods: customFoods || [],
       customExercises: customExercises || [],
       ...(bodyDrafts && Object.keys(bodyDrafts).length > 0 ? { bodyDrafts } : {}),
+      ...(sanitizeProfile(profile) ? { profile: sanitizeProfile(profile) } : {}),
     },
   };
 }
@@ -59,6 +76,9 @@ export function validateBackup(obj) {
     for (const k in d.bodyDrafts) {
       if (!isDateStr(k)) return { ok: false, error: `체성분 초안 날짜 키 오류: ${k}` };
     }
+  }
+  if (d.profile !== undefined && (!d.profile || typeof d.profile !== "object" || Array.isArray(d.profile))) {
+    return { ok: false, error: "프로필(profile) 형식 오류" };
   }
   if (!d.goals || typeof d.goals !== "object" || Array.isArray(d.goals)) return { ok: false, error: "목표(goals) 형식 오류" };
   if (d.customFoods && !Array.isArray(d.customFoods)) return { ok: false, error: "직접 추가 음식 형식 오류" };

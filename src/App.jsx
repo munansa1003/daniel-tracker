@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar, ComposedChart, Legend, ReferenceLine } from "recharts";
 import store, { getCurrentUserId, setUserId, logout, getMembership, joinWithInvite, getMigratedMark, getSharedFoods, addSharedFood, getSharedExercises, addSharedExercise } from "./store.js";
-import { addTombstone } from "./syncQueue.js";
+import { addTombstone, getTombstoneIds } from "./syncQueue.js";
 import { watchAuth, signInWithGoogle, signOutUser, isOwnerEmail, getIdToken } from "./auth.js";
-import { mergeImports } from "./importMerge.js";
-import { mergeBodyDrafts, draftToRecord, autoConfirmDrafts } from "./bodyDraft.js";
+import { mergeImports, recalcExerciseKcal } from "./importMerge.js";
+import { mergeBodyDrafts, draftToRecord, autoConfirmDrafts, lastMeasuredDate } from "./bodyDraft.js";
 import { APP_NAME, DEFAULT_FOODS, DEFAULT_EX, TARGETS as DEFAULT_TARGETS, COLORS } from "./data.js";
 import { THEME, GlobalStyles } from "./theme.jsx";
 import { today, nowHour, isCompletedDay, calcTargets, sortByHour, periodOf, groupMealsByTime, groupExercisesByTime, aggregateDay, exFeedback, isCalOk, adjustForDate, REST_K, restTargets, effectiveDayMode, isRestStamp, makeDayTargets } from "./utils.js";
@@ -135,11 +135,13 @@ export default function App() {
     </div></>;
 
   const user = { ...profile, uid: account?.uid, email: account?.email, isOwner: isOwnerEmail(account?.email) };
-  return <><GlobalStyles /><MainApp user={user} onLogout={handleLogout} /></>;
+  // profile은 저장된 원본(name·height·age·targetFat) — user와 달리 uid·email이 섞이지 않는다.
+  // 백업 파일은 클라우드·메일로 옮겨지므로 계정 식별자가 실리면 안 된다(감사 R-07·R-43).
+  return <><GlobalStyles /><MainApp user={user} profile={profile} onProfileRestore={setProfile} onLogout={handleLogout} /></>;
 }
 
 // 메인 앱
-function MainApp({ user, onLogout }) {
+function MainApp({ user, profile, onProfileRestore, onLogout }) {
   const [tab, setTab] = useState("home");
   const [date, setDate] = useState(today());
   const [meals, setMeals] = useState([]);
@@ -326,7 +328,10 @@ function MainApp({ user, onLogout }) {
   };
   const removeExercise = (idx) => { const ne = exercises.filter((_, i) => i !== idx); setExercises(ne); saveDay(date, meals, ne); };
   const editExercise = (idx, updated) => {
-    const ne = sortByHour(exercises.map((e, i) => i === idx ? { ...e, ...updated, kcal: Math.round((e.m * TARGETS.weight * (updated.duration || e.duration)) / 60) } : e));
+    // 워치 실측 항목은 kcal을 MET 근사로 덮지 않는다(감사 R-42) — recalcExerciseKcal 참조
+    const ne = sortByHour(exercises.map((e, i) => i === idx
+      ? { ...e, ...updated, kcal: recalcExerciseKcal(e, updated.duration, TARGETS.weight) }
+      : e));
     setExercises(ne); saveDay(date, meals, ne); setEditExIdx(null);
   };
 
@@ -379,8 +384,11 @@ function MainApp({ user, onLogout }) {
     const local = store.getLocalAll();
     const drafts = local["body-drafts"] || bodyDrafts;
     if (!drafts || !(d in drafts)) return;
-    // 명시적 폐기 — 재전송 병합에서 되살아나지 않도록 흔적을 남긴다(감사 R-02)
-    addTombstone(getCurrentUserId(), "body-drafts", d);
+    // 명시적 폐기 — 흔적을 남긴다. 재전송 병합(R-02)과 사서함 재착지(R-27) 양쪽에서 쓰인다.
+    // 날짜가 아니라 **측정 단위**(date|sampleTs)로 기억한다 — 같은 날 다시 재면 새 측정이므로
+    // 정상적으로 들어와야 한다.
+    const discardTs = drafts[d] && drafts[d].sampleTs;
+    addTombstone(getCurrentUserId(), "body-drafts", `${d}|${discardTs}`);
     const nd = { ...drafts }; delete nd[d];
     setBodyDrafts(nd); await store.set("body-drafts", nd);
   };
@@ -513,10 +521,13 @@ function MainApp({ user, onLogout }) {
     Object.entries(allDays).sort().forEach(([d, data]) => { const a = aggregateDay(data); rows.push([d, Math.round(a.p), Math.round(a.c), Math.round(a.f), Math.round(a.k), Math.round(a.ex), Math.round(a.net), isRestStamp(data) ? "rest" : ""]); });
     rows.push([]); rows.push(["=== 식단 상세 ==="]); rows.push(["날짜","시간","음식","수량","P(g)","C(g)","F(g)","K(kcal)"]);
     Object.entries(allDays).sort().forEach(([d, data]) => (data.meals || []).forEach(m => rows.push([d, `${String(m.hour||0).padStart(2,"0")}:00`, m.n, m.serving, (m.p*m.serving).toFixed(1), (m.c*m.serving).toFixed(1), (m.f*m.serving).toFixed(1), Math.round(m.k*m.serving)])));
-    rows.push([]); rows.push(["=== 운동 상세 ==="]); rows.push(["날짜","시간","운동","시간(분)","소모(kcal)","MET"]);
-    Object.entries(allDays).sort().forEach(([d, data]) => (data.exercises || []).forEach(e => rows.push([d, `${String(e.hour||0).padStart(2,"0")}:00`, e.n, e.duration, e.kcal, e.m])));
-    rows.push([]); rows.push(["=== 체성분 ==="]); rows.push(["날짜","체중(kg)","골격근량(kg)","체지방률(%)"]);
-    bodyLog.forEach(b => rows.push([b.date, b.weight, b.muscle, b.fatPct]));
+    // 출처(source·device)와 체성분 점수를 함께 싣는다 — 표 형태 산출물은 이것 하나뿐인데
+    // 자동 수신분과 손입력을 구분할 근거가 전혀 없었다(감사 R-48). 분석 계약(analysisExport)은
+    // 이미 [자동확정]/[자동수신]을 표기한다 — CSV만 뒤처져 있었다.
+    rows.push([]); rows.push(["=== 운동 상세 ==="]); rows.push(["날짜","시간","운동","시간(분)","소모(kcal)","MET","출처","기기"]);
+    Object.entries(allDays).sort().forEach(([d, data]) => (data.exercises || []).forEach(e => rows.push([d, `${String(e.hour||0).padStart(2,"0")}:00`, e.n, e.duration, e.kcal, e.m, e.source === "watch" ? "워치" : "손입력", e.device || ""])));
+    rows.push([]); rows.push(["=== 체성분 ==="]); rows.push(["날짜","체중(kg)","골격근량(kg)","체지방률(%)","점수","출처"]);
+    bodyLog.forEach(b => rows.push([b.date, b.weight, b.muscle, b.fatPct, b.score ?? "", b.auto ? "자동확정" : b.source === "import" ? "자동수신" : "손입력"]));
     const csv = "\uFEFF" + rows.map(r => r.map(v => { const s = String(v ?? ""); return s.includes(",") || s.includes('"') ? `"${s.replace(/"/g,'""')}"` : s; }).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `daniel_tracker_${today()}.csv`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
@@ -538,7 +549,7 @@ function MainApp({ user, onLogout }) {
 
   // JSON 전체 백업 — 복원 가능한 유일한 형태 (CSV는 열람용)
   const exportJson = async () => {
-    const backup = buildBackup({ allDays, bodyLog, goals, customFoods, customExercises: customEx, bodyDrafts }, new Date().toISOString());
+    const backup = buildBackup({ allDays, bodyLog, goals, customFoods, customExercises: customEx, bodyDrafts, profile }, new Date().toISOString());
     downloadFile(JSON.stringify(backup, null, 2), `daniel_backup_${today()}.json`, "application/json");
     const now = today();
     setLastBackup(now); setJustBacked(true);
@@ -566,7 +577,7 @@ function MainApp({ user, onLogout }) {
     );
     if (!ok) return;
     // 1) 현재 상태 안전본 — 실수로 옛 백업을 넣어도 되돌릴 길을 남긴다
-    const safety = buildBackup({ allDays, bodyLog, goals, customFoods, customExercises: customEx, bodyDrafts }, new Date().toISOString());
+    const safety = buildBackup({ allDays, bodyLog, goals, customFoods, customExercises: customEx, bodyDrafts, profile }, new Date().toISOString());
     downloadFile(JSON.stringify(safety), `daniel_safety_${today()}.json`, "application/json");
     // 2) 적용 — 상태 즉시 교체 후 store 반영(로컬 우선이라 즉시 안전)
     const d = obj.data;
@@ -590,6 +601,8 @@ function MainApp({ user, onLogout }) {
       await store.set("goals", restoredGoals);
       await store.set("custom-foods", d.customFoods || []);
       await store.set("custom-exercises", d.customExercises || []);
+      // 프로필(키·나이)이 담긴 백업이면 함께 복원한다 — 없으면 현재 값을 유지(구버전 백업 호환)
+      if (d.profile && typeof d.profile === "object") { onProfileRestore(d.profile); await store.set("profile", d.profile); }
       alert(`복원 완료 — ${s.days}일 · 체성분 ${s.bodyLog}건`);
     } catch (e) {
       console.error("restore error:", e);
@@ -604,24 +617,32 @@ function MainApp({ user, onLogout }) {
     return Math.floor(diff);
   }, [lastBackup]);
 
-  // 계정 생성 후 15일 이상인지 확인
+  // 계정 생성 후 15일 이상인지 확인 — 백업 리마인더의 전제(갓 시작한 계정은 백업을 안 채근).
+  // createdAt은 **기기 로컬 값**이라 새 기기·브라우저 데이터 삭제 후에는 비어 있다. 없다고
+  // false로 두면 정작 "기록은 많은데 이 기기엔 백업 이력이 없는" 상황에서 15일간 침묵한다 —
+  // 백업이 가장 필요한 바로 그때다(감사 R-46). 로컬 값이 없으면 **기록 자체**로 나이를 센다:
+  // 첫 기록일이 15일 이상 전이면 그 계정은 이미 성숙한 것이다(기록은 기기 간 동기화된다).
   const accountMature = useMemo(() => {
+    const matureSince = (ds) => ds && (new Date(today()) - new Date(ds)) / 86400000 >= 15;
     try {
-      const uid = getCurrentUserId();
-      const created = localStorage.getItem("dt_" + uid + "_createdAt");
-      if (!created) return false;
-      return (new Date(today()) - new Date(created)) / 86400000 >= 15;
-    } catch { return false; }
-  }, []);
+      const created = localStorage.getItem("dt_" + getCurrentUserId() + "_createdAt");
+      if (created) return matureSince(created.slice(0, 10));
+    } catch { /* 저장소 접근 불가 — 아래 기록 기준으로 판단 */ }
+    const firstRecord = Object.keys(allDays).sort()[0];
+    const firstWeigh = bodyLog.length ? bodyLog[0].date : null;
+    const earliest = [firstRecord, firstWeigh].filter(Boolean).sort()[0];
+    return matureSince(earliest);
+  }, [allDays, bodyLog]);
 
   // 인앱 리마인더 — 앱을 열 때 상태에 맞춰 홈 배너로 알림. goals.reminders 토글로 켬/끔.
   const saveReminders = (next) => saveGoals({ ...goals, reminders: next });
   const pendingRmd = useMemo(() => {
     const td = allDays[today()];
     const recordedToday = !!(td && (((td.meals || []).length) || ((td.exercises || []).length)));
-    const lastWeighDate = bodyLog.length ? bodyLog[bodyLog.length - 1].date : null;
+    // 미확정 초안도 "잰 날"이다 — 자동 확정만 막힌 상황에서 틀린 독촉을 막는다(감사 R-21)
+    const lastWeighDate = lastMeasuredDate(bodyLog, bodyDrafts);
     return pendingReminders({ reminders: goals.reminders, recordedToday, lastWeighDate, todayStr: today(), accountMature, backupDaysAgo });
-  }, [allDays, bodyLog, goals.reminders, accountMature, backupDaysAgo]);
+  }, [allDays, bodyLog, bodyDrafts, goals.reminders, accountMature, backupDaysAgo]);
   const rmdOn = (k) => goals.reminders?.[k] !== false;
 
   // 건강 이벤트(부상·질병·휴식) — goals.healthEvents. 계산 제외 판정은 적응형 TDEE에 주입.
@@ -700,8 +721,16 @@ function MainApp({ user, onLogout }) {
   const pushReady = useMemo(() => pushConfigured(), []);
   const pushState = useMemo(() => {
     const recordedDates = Object.keys(allDays).filter(d => { const x = allDays[d]; return x && (((x.meals || []).length) || ((x.exercises || []).length)); }).sort();
+    // 로컬 createdAt이 없으면 첫 기록일로 대체한다 — 새 기기에서 null을 올리면 크론이
+    // accountMature=false로 읽어 백업 리마인더가 조용히 꺼진다(감사 R-46).
+    // 서버 쪽에서도 기존 값을 null로 덮지 않도록 막아 뒀다(mergePushState, R-44).
     let accountCreatedAt = null;
     try { accountCreatedAt = localStorage.getItem("dt_" + getCurrentUserId() + "_createdAt") || null; } catch { /* 무시 */ }
+    if (!accountCreatedAt) {
+      const firstRecord = Object.keys(allDays).sort()[0];
+      const firstWeigh = bodyLog.length ? bodyLog[0].date : null;
+      accountCreatedAt = [firstRecord, firstWeigh].filter(Boolean).sort()[0] || null;
+    }
     // 지난 주(월~일) 요약 — 월요일 저녁 성적표 푸시용. 주 시작은 통계 탭과 동일(월요일).
     const lastMon = (() => { const d = new Date(today() + "T12:00:00"); const dow = d.getDay(); d.setDate(d.getDate() + (dow === 0 ? -6 : 1 - dow) - 7); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); })();
     let recorded = 0, workouts = 0, calOk = 0, protHit = 0;
@@ -719,14 +748,16 @@ function MainApp({ user, onLogout }) {
     }
     return {
       lastRecordDate: recordedDates.length ? recordedDates[recordedDates.length - 1] : null,
-      lastWeighDate: bodyLog.length ? bodyLog[bodyLog.length - 1].date : null,
+      lastWeighDate: lastMeasuredDate(bodyLog, bodyDrafts),   // 초안 포함 — 크론 푸시도 같은 기준(감사 R-21)
       lastBackup: lastBackup || null,
       accountCreatedAt: accountCreatedAt ? accountCreatedAt.slice(0, 10) : null,
       weekReport: { weekStart: lastMon, recorded, calOk, protHit, workouts },
     };
     // dayTargets가 의존성에 있어야 한다 — 키·나이(user)를 고치면 목표가 바뀌는데, 이것이
     // 빠져 있으면 주간 성적표의 단백질 달성일이 옛 기준으로 굳어 크론 푸시까지 옛 값으로 나간다.
-  }, [allDays, bodyLog, lastBackup, targetsByMode, dayTargets, appAdjust, tdeeHistory]);
+    // bodyDrafts도 마찬가지 — lastWeighDate가 초안을 포함하므로(R-21), 빠지면 초안이 들어와도
+    // KV 스냅샷이 갱신되지 않아 밤 크론이 옛 날짜로 "체중 재세요"를 보낸다.
+  }, [allDays, bodyLog, bodyDrafts, lastBackup, targetsByMode, dayTargets, appAdjust, tdeeHistory]);
   const doEnablePush = () => enablePush({ state: pushState, reminders: goals.reminders });
   const doDisablePush = () => disablePush();
   // 구독돼 있으면 상태·토글 변화 시 KV 갱신(구독 없으면 no-op).
@@ -756,8 +787,11 @@ function MainApp({ user, onLogout }) {
     setImportInfo({
       cutover: data.cutover || null, log: Array.isArray(data.log) ? data.log : [], enabled: !!data.enabled,
       bodyCutover: data.bodyCutover || null, bodyLog: Array.isArray(data.bodyLog) ? data.bodyLog : [], bodyEnabled: !!data.bodyEnabled,
+      // bodyCloudEnabled가 두 번 적혀 있었다(값이 같아 무해했지만, 뒤엣것이 앞엣것을 덮는다 —
+      // 값이 달랐다면 조용히 틀렸을 자리다). 정적 검사로는 안 걸린다: ESLint 활성 규칙이
+      // no-undef·jsx-no-undef·rules-of-hooks 3개뿐이라 no-dupe-keys가 없다(감사 R-32).
+      // 규칙 추가는 CLAUDE.md상 사용자 지시가 필요한 별도 단계 — 여기서는 중복만 제거한다.
       bodyCloudEnabled: !!data.bodyCloudEnabled, bodyCloudStatus: data.bodyCloudStatus || "off",
-      bodyCloudEnabled: !!data.bodyCloudEnabled,
     });
     // 병합 기준은 localStorage 미러(세션 중 항상 최신 진실) — state 스냅샷 지연과 무관
     const local = store.getLocalAll();
@@ -780,7 +814,10 @@ function MainApp({ user, onLogout }) {
     const curDrafts = local["body-drafts"] || {};
     const curLog = Array.isArray(local["bodylog"]) ? local["bodylog"] : [];
     if (bodyEntries.length || Object.keys(curDrafts).length) {
-      const bd = mergeBodyDrafts(curDrafts, curLog, bodyEntries, { todayStr: today() });
+      const bd = mergeBodyDrafts(curDrafts, curLog, bodyEntries, {
+        todayStr: today(),
+        discarded: getTombstoneIds(uid, "body-drafts"),   // 버린 측정은 다시 안 받는다(R-27)
+      });
       // 자동 확정(A안): 클라우드 직수신으로 4종 실측이 완비되고 LBM 가드를 통과한 초안은
       // 사용자 입력 없이 확정. 가드 보류분은 초안으로 남아 기존 카드(수동 확정)로 폴백.
       const ac = autoConfirmDrafts(bd.drafts, curLog);
@@ -1831,7 +1868,7 @@ function MainApp({ user, onLogout }) {
 
         {/* 가로모드 폭 캡(홈과 동일 960) — 초광폭 창에서 히어로 차트·2컬럼 카드 무제한 확장 방지 */}
         {tab === "body" && <div style={landscape ? { maxWidth: 960, margin: "0 auto" } : undefined}><BodyTab bodyLog={bodyLog} addBody={addBody} date={date} onEditBody={editBody} onDeleteBody={deleteBody} user={user} goals={goals} onSaveGoals={saveGoals} allDays={allDays} bodyDrafts={bodyDrafts} onConfirmDraft={confirmBodyDraft} onDiscardDraft={discardBodyDraft} /></div>}
-        {tab === "stats" && <div style={landscape ? { maxWidth: 960, margin: "0 auto" } : undefined}><StatsTab bodyLog={bodyLog} allDays={allDays} goals={goals} onSaveGoals={saveGoals} appTargets={TARGETS} targetsByMode={targetsByMode} dayTargets={dayTargets} mode={mode} appAdjust={appAdjust} tdeeHistory={tdeeHistory} /></div>}
+        {tab === "stats" && <div style={landscape ? { maxWidth: 960, margin: "0 auto" } : undefined}><StatsTab bodyLog={bodyLog} allDays={allDays} goals={goals} onSaveGoals={saveGoals} user={user} appTargets={TARGETS} targetsByMode={targetsByMode} dayTargets={dayTargets} mode={mode} appAdjust={appAdjust} tdeeHistory={tdeeHistory} /></div>}
       </div>
 
       {/* Nav — 세로: 하단 탭바 / 가로: 좌측 세로 레일 (같은 탭 목록, 표시만 분기) */}
@@ -2058,7 +2095,16 @@ function MainApp({ user, onLogout }) {
           </div>
           <div style={{ fontSize: 11, color: "#707070", marginBottom: 8 }}>데이터 관리</div>
           <div style={{ background: "#252525", borderRadius: 10 }}>
-            <div onClick={() => { try { const uid = getCurrentUserId(); localStorage.removeItem("dt_" + uid + "_body-coaching"); alert("AI 코칭 캐시가 초기화되었습니다."); } catch {} }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", cursor: "pointer" }}>
+            {/* localStorage만 지우면 Firestore 사본이 다음 동기화에 그대로 되살아난다 —
+                "정리했는데 옛 분석이 그대로"가 된다(감사 R-26). 서버 사본까지 지운다.
+                오프라인이면 서버 삭제가 실패하므로 조용히 성공했다고 하지 않는다. */}
+            <div onClick={async () => {
+              const uid = getCurrentUserId();
+              try { localStorage.removeItem("dt_" + uid + "_body-coaching"); } catch { /* 저장소 접근 불가 */ }
+              const ok = await store.delete("body-coaching");   // 체성분 탭은 재진입 시 다시 읽으므로 별도 상태 초기화 불필요
+              alert(ok ? "AI 코칭 캐시가 초기화되었습니다."
+                       : "이 기기에서는 지웠어요. 서버 사본은 지우지 못했으니(오프라인일 수 있어요) 온라인에서 다시 시도해주세요.");
+            }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", cursor: "pointer" }}>
               <div>
                 <div style={{ fontSize: 12, color: "#f5f5f0" }}>AI 분석 캐시 정리</div>
                 <div style={{ fontSize: 10, color: "#707070", marginTop: 2 }}>AI 코칭 캐시 삭제 (재분석 유도)</div>
@@ -2078,7 +2124,9 @@ function MainApp({ user, onLogout }) {
                     : "꺼짐 — 서버 환경변수 설정 필요 (docs/shortcut-recipe.md)"}
                 </div>
               </div>
-              <div onClick={() => syncImports({ force: true })} style={{ background: "#2f2f2f", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: "#f5f5f0", cursor: "pointer", flexShrink: 0 }}>지금 확인</div>
+              {/* 진행 중 가드 — 없으면 연타가 동시 요청을 만들고, force는 스로틀을 건너뛰므로
+                  그대로 인바디 로그인 시도가 겹친다(감사 R-12). 체성분 카드와 동일 동작. */}
+              <div onClick={() => { if (!syncingImports) syncImports({ force: true }); }} style={{ background: "#2f2f2f", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: syncingImports ? "#707070" : "#f5f5f0", cursor: syncingImports ? "default" : "pointer", flexShrink: 0 }}>{syncingImports ? "확인 중…" : "지금 확인"}</div>
             </div>
             {(importInfo?.log || []).slice(0, 5).map((g, i, arr) => (
               <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "7px 12px", borderBottom: i < arr.length - 1 ? "0.5px solid rgba(255,255,255,0.04)" : "none", fontSize: 10, fontFamily: "monospace", color: "#8a8a8a" }}>

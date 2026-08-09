@@ -7,9 +7,15 @@
 //       해당하면 web-push로 1건 발송. 만료(404/410)된 구독은 정리.
 //
 // 필요한 env: CRON_SECRET, VITE_VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT, KV_REST_API_*
+//
+// 실행 시간: 구독 uid 수만큼 순차 루프이고 uid당 KV GET 2~4회 + web-push 최대 2회다.
+// 구독자가 늘면 기본 타임아웃을 넘길 수 있어 vercel.json에서 maxDuration을 60초로 잡아 둔다
+// (감사 R-47). 지금은 1인이라 여유가 크지만, 잘리면 뒤쪽 uid가 조용히 누락되는 형태라
+// 증상이 "일부 사람만 푸시가 안 옴"으로 나타나 원인을 찾기 어렵다.
 
 import webpush from "web-push";
 import { kv, kvConfigured } from "./_lib/kv.js";
+import { rateLimit, safeEqual } from "./_lib/security.js";
 import { pendingReminders, reminderPush, weeklyReportPush, importSilencePush, daysBetween, REMINDER_DEFAULTS } from "../src/reminders.js";
 
 // 수신 로그(List)의 최신 항목에서 `at`만 꺼낸다. 로그가 없으면 null(= 그 경로를 쓴 적 없음).
@@ -28,8 +34,24 @@ function todayKST() {
 }
 
 export default async function handler(req, res) {
+  // 이 엔드포인트는 구독자 전원에게 푸시를 쏜다 — 인터넷에 그대로 노출된 URL이다.
+  // 옛 조건은 `if (secret && ...)`라 **CRON_SECRET이 없으면 검문 자체를 건너뛰었다**:
+  // env 하나가 빠지는 것만으로 아무나 호출해 푸시를 반복 발송할 수 있었다(감사 R-40).
+  // 이제 없으면 통과가 아니라 정지다. 401(비밀값 불일치)과 503(설정 누락)을 구분해,
+  // 밤 8시 푸시가 안 올 때 "env를 안 넣었다"를 로그에서 바로 읽을 수 있게 한다.
+  //
+  // ⚠️ 운영 주의: Vercel 환경변수에 CRON_SECRET이 없으면 예약 푸시가 **동작하지 않는다**.
+  // (열어두는 쪽이 더 위험하므로 의도한 fail-closed. Vercel Cron은 이 변수가 설정돼 있으면
+  //  Authorization: Bearer <secret>를 자동으로 붙인다 — 값만 넣으면 그대로 동작한다.)
   const secret = process.env.CRON_SECRET;
-  if (secret && req.headers.authorization !== `Bearer ${secret}`) {
+  if (!secret) {
+    console.error("[cron-reminders] CRON_SECRET 미설정 — 예약 푸시를 실행하지 않는다. Vercel 환경변수에 CRON_SECRET을 추가할 것.");
+    return res.status(503).json({ error: "CRON_SECRET not configured" });
+  }
+  // 비밀값 대조보다 rate limit이 **먼저**다 — 뒤에 두면 공격자가 시도 횟수를 공짜로 쓴다
+  // (health-import·body-import에서 같은 순서 문제를 고쳤다 — 감사 R-39).
+  if (!(await rateLimit(req, res, { key: "cron", max: 10, windowSec: 60 }))) return;
+  if (!safeEqual(req.headers.authorization, `Bearer ${secret}`)) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 

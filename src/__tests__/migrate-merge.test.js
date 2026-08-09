@@ -6,6 +6,7 @@ import { describe, it, expect, vi } from "vitest";
 // store.js는 firebase를 임포트하므로 통째로 mock (mergeMigrated는 순수라 실제 구현 사용)
 vi.mock("../firebase.js", () => ({ db: {}, auth: {} }));
 import { mergeMigrated } from "../store.js";
+import { recalcExerciseKcal } from "../importMerge.js";
 
 describe("mergeMigrated — 마이그레이션 병합", () => {
   it("bodylog: 날짜 합집합, 같은 날짜는 새 계정 기록 우선, 날짜순 정렬", () => {
@@ -62,5 +63,29 @@ describe("mergeMigrated — 마이그레이션 병합", () => {
   it("한쪽이 없으면 있는 쪽을 그대로 반환", () => {
     expect(mergeMigrated("bodylog", [{ date: "2026-07-01", weight: 77 }], undefined)).toEqual([{ date: "2026-07-01", weight: 77 }]);
     expect(mergeMigrated("goals", undefined, { mode: "cut" })).toEqual({ mode: "cut" });
+  });
+});
+
+/* 자동 수신 운동의 실측 kcal 보존 — 2026-08 감사 R-42.
+   워치가 측정한 소모 kcal을 편집 폼이 MET 근사로 갈아치워, 메모만 고쳐도
+   실측값이 추정값으로 바뀌었다. */
+describe("recalcExerciseKcal — 실측과 추정의 구분", () => {
+  const watch = { n: "러닝", m: 8, duration: 60, kcal: 437, source: "watch" };
+  const manual = { n: "러닝", m: 8, duration: 60, kcal: 600 };
+
+  it("워치 항목: 시간이 그대로면 실측 kcal을 그대로 유지", () => {
+    expect(recalcExerciseKcal(watch, 60, 75)).toBe(437);
+  });
+  it("워치 항목: 시간을 바꾸면 실측값을 비율로만 조정 (MET 근사로 대체하지 않음)", () => {
+    expect(recalcExerciseKcal(watch, 30, 75)).toBe(219);   // 437 × 30/60
+    expect(recalcExerciseKcal(watch, 90, 75)).toBe(656);   // 437 × 90/60
+  });
+  it("수동 항목: 기존대로 MET로 재계산", () => {
+    expect(recalcExerciseKcal(manual, 60, 75)).toBe(600);  // 8 × 75 × 60/60
+    expect(recalcExerciseKcal(manual, 30, 75)).toBe(300);
+  });
+  it("시간이 비었으면 원래 시간을 쓴다", () => {
+    expect(recalcExerciseKcal(watch, undefined, 75)).toBe(437);
+    expect(recalcExerciseKcal(manual, 0, 75)).toBe(600);
   });
 });

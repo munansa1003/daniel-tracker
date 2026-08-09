@@ -101,7 +101,7 @@ vi.mock("../../api/_lib/inbody-cloud.js", async (importOriginal) => {
   return { ...actual, pullRecentMetrics: vi.fn() };
 });
 
-import inboxHandler from "../../api/import-inbox.js";
+import inboxHandler, { pullCount } from "../../api/import-inbox.js";
 import { __kvReset, __kvState, __kvNetDelay } from "../../api/_lib/kv.js";
 import {
   inbodyDatetimeToHae, scanToSamples, scansToMetricsPayload, pullRecentMetrics,
@@ -467,5 +467,34 @@ describe("사서함 pull 합류 — 클라우드 직수신·스로틀·실패 �
     pullRecentMetrics.mockResolvedValue(cloudResult());
     await pullInbox();
     expect(lastBodyLog()).toMatchObject({ source: "cloud", accepted: 0, ignored: 1 });
+  });
+});
+
+/* 당겨올 건수는 마지막 성공 이후 벌어진 만큼 넓어진다 — 감사 R-30.
+   "최근 5건" 고정이던 옛 동작에서는, 앱을 며칠 안 열면 5건 창 밖으로 밀려난 측정이
+   클라우드 경로로는 영영 들어오지 않았다(HAE가 죽었을 때가 바로 이 경로가 필요한 때다). */
+describe("pullCount — 공백이 길수록 넓게 당긴다 (R-30)", () => {
+  const T = Date.parse("2026-08-09T12:00:00Z");
+  const ago = (days) => new Date(T - days * 86400000).toISOString();
+
+  it("방금 성공했으면 기존과 같은 최소치", () => {
+    expect(pullCount(ago(0), T)).toBe(5);
+  });
+  it("하루 벌어질 때마다 창이 넓어진다", () => {
+    expect(pullCount(ago(1), T)).toBe(8);
+    expect(pullCount(ago(3), T)).toBe(14);
+    expect(pullCount(ago(6), T)).toBe(23);
+  });
+  it("상한을 넘지 않는다 (시간 예산 보호)", () => {
+    expect(pullCount(ago(30), T)).toBe(30);
+    expect(pullCount(ago(365), T)).toBe(30);
+  });
+  it("첫 pull(기준 없음)·값 손상 시에는 상한으로 — 좁혀서 유실하느니 넓게", () => {
+    expect(pullCount(null, T)).toBe(30);
+    expect(pullCount("", T)).toBe(30);
+    expect(pullCount("깨진 값", T)).toBe(30);
+  });
+  it("시계가 뒤로 간 경우에도 음수로 내려가지 않는다", () => {
+    expect(pullCount(new Date(T + 86400000).toISOString(), T)).toBe(5);
   });
 });

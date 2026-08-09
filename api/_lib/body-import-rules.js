@@ -93,7 +93,7 @@ function toKg(qty, units) {
    }
    entries의 각 필드는 그 날짜의 "아침 창 내 최신 샘플" 값(B2·B3), sampleTs는 필드 최신치의 최대값.
    같은 페이로드가 다시 오면 같은 entries가 나온다(결정적) — seen 멱등의 전제. */
-export function planBodyImport(body, { cutoverDate, tzOffsetMin }) {
+export function planBodyImport(body, { cutoverDate, tzOffsetMin, source = "" }) {
   const matchedNames = [];
   const unmatchedNames = [];
   const sources = [];
@@ -168,7 +168,12 @@ export function planBodyImport(body, { cutoverDate, tzOffsetMin }) {
   const entries = Object.keys(fields).sort().map((date) => {
     const f = fields[date];
     const sampleTs = Math.max(...Object.values(f).map((x) => x.ts));
-    const entry = { key: `${date}|${sampleTs}`, date, sampleTs };
+    // 사서함 키에 소스를 넣는다(2026-08 감사 R-14). HAE는 분 단위로 절삭돼 초가 00이고,
+    // 클라우드는 초까지 살아 있다 — 측정 시각의 초가 정확히 00이면 두 경로의 키가 충돌해
+    // 나중에 온 클라우드 항목이 "이미 접수됨"으로 막혔고, 그날 골격근·점수가 영영 유입되지
+    // 않았다(약 1/60). 소스를 붙이면 같은 측정이라도 경로별로 각자 접수되고, 병합 계층이
+    // 필드 단위로 합쳐 골격근이 살아남는다. 키는 병합 계층에서 불투명한 ack 식별자로만 쓰인다.
+    const entry = { key: source ? `${date}|${sampleTs}|${source}` : `${date}|${sampleTs}`, date, sampleTs };
     if (f.weight) entry.weight = f.weight.v;
     if (f.fatPct) entry.fatPct = f.fatPct.v;
     if (f.lbm) entry.lbm = f.lbm.v;
