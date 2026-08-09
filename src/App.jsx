@@ -7,7 +7,7 @@ import { mergeImports } from "./importMerge.js";
 import { mergeBodyDrafts, draftToRecord, autoConfirmDrafts } from "./bodyDraft.js";
 import { APP_NAME, DEFAULT_FOODS, DEFAULT_EX, TARGETS as DEFAULT_TARGETS, COLORS } from "./data.js";
 import { THEME, GlobalStyles } from "./theme.jsx";
-import { today, nowHour, isCompletedDay, calcTargets, sortByHour, periodOf, groupMealsByTime, groupExercisesByTime, aggregateDay, exFeedback, isCalOk, adjustForDate, REST_K, restTargets, effectiveDayMode, isRestStamp } from "./utils.js";
+import { today, nowHour, isCompletedDay, calcTargets, sortByHour, periodOf, groupMealsByTime, groupExercisesByTime, aggregateDay, exFeedback, isCalOk, adjustForDate, REST_K, restTargets, effectiveDayMode, isRestStamp, makeDayTargets } from "./utils.js";
 import { estimateTDEE } from "./adaptiveTDEE.js";
 import { pendingReminders } from "./reminders.js";
 import { pushConfigured, enablePush, disablePush, syncPushState } from "./push.js";
@@ -648,14 +648,18 @@ function MainApp({ user, onLogout }) {
   const tdeeHistory = useMemo(() => (adaptiveOn ? (goals.tdeeHistory || []) : []), [adaptiveOn, goals.tdeeHistory]);
   const appAdjust = adjustForDate(tdeeHistory, today());
 
-  // 월 평균 체중 + BMR (목표·적응형 역산 공용)
+  // 월 평균 체중 + BMR (목표·적응형 역산 공용).
+  // ⚠️ 기준은 "오늘"의 달이다 — 예전에는 사용자가 보고 있는 날짜(date)의 달을 썼는데,
+  // 그러면 달력을 지난달로 넘기는 것만으로 저장되는 운동 kcal(addExercise)과 적응형 역산의
+  // bmr까지 바뀌었다. 즉 UI 상태가 저장값에 샜다(2026-08 감사 R-10).
+  // 과거 날짜의 "판정"은 아래 dayTargets가 그 날짜의 달로 따로 계산한다.
   const monthWeight = useMemo(() => {
-    const currentMonth = date.slice(0, 7);
+    const currentMonth = today().slice(0, 7);
     const monthEntries = bodyLog.filter(b => b.date.startsWith(currentMonth));
     if (monthEntries.length > 0) return monthEntries.reduce((s, b) => s + b.weight, 0) / monthEntries.length;
     if (bodyLog.length > 0) return bodyLog[bodyLog.length - 1].weight;
     return DEFAULT_TARGETS.weight;
-  }, [bodyLog, date]);
+  }, [bodyLog]);
   const bmr = 10 * monthWeight + 6.25 * (user.height || 175) - 5 * (user.age || 35) + 5;
 
   // 같은 체중으로 두 모드 목표를 모두 산출(홈은 현재 모드, 달력/통계는 그 날의 모드). 보정치 반영.
@@ -672,9 +676,16 @@ function MainApp({ user, onLogout }) {
   // 실측 유지칼로리 역산(최근 4주) — 설정 목표 탭 카드/제안에 사용
   const tdeeEstimate = useMemo(() => estimateTDEE(bodyLog, allDays, today(), bmr, 28, isExcludedCalc), [bodyLog, allDays, bmr, today(), isExcludedCalc]);
 
-  // 그 날 유효 보정치로 목표 K를 조정(과거 판정 보존): 현재 목표K − 현재보정 + 그날보정
-  // 휴식일(rest)은 고정 프리셋이라 적응형 보정과 무관하게 항상 1,675.
-  const dayTargetK = (m, ds) => m === "rest" ? REST_K : (targetsByMode[m] || targetsByMode.cut).k - appAdjust + adjustForDate(tdeeHistory, ds);
+  // 그 날짜 기준 목표 세트 — 체중은 "그 날짜가 속한 달"의 평균, 보정은 그 날 유효 보정치.
+  // 단일 출처(utils.makeDayTargets)라 App·StatsTab·내보내기가 같은 값을 본다(감사 R-10·R-34).
+  const dayTargets = useMemo(() => makeDayTargets({
+    bodyLog,
+    height: user.height || 175,
+    age: user.age || 35,
+    fallbackWeight: DEFAULT_TARGETS.weight,
+    tdeeHistory,
+  }), [bodyLog, user, tdeeHistory]);
+  const dayTargetK = (m, ds) => dayTargets(m, ds).k;
 
   // 보정 제안: 켜짐 + 신뢰도 높음 + 현재 보정과 40kcal↑ 벌어질 때만
   const adaptiveProposal = useMemo(() => {
@@ -704,7 +715,7 @@ function MainApp({ user, onLogout }) {
       if ((day.exercises || []).length) workouts++;
       const dM = effectiveDayMode(day, a.ex, day.mode || "cut"); // 휴식일 도장이면 고정 1,675 기준
       if (a.k > 0 && isCalOk(a.k, a.ex, dayTargetK(dM, ds), dM)) calOk++;
-      if (a.p >= (targetsByMode[dM] || targetsByMode.cut).p) protHit++;
+      if (a.p >= dayTargets(dM, ds).p) protHit++;
     }
     return {
       lastRecordDate: recordedDates.length ? recordedDates[recordedDates.length - 1] : null,
@@ -806,7 +817,8 @@ function MainApp({ user, onLogout }) {
   const restStamped = isRestStamp(dayRec);
   const homeMode = effectiveDayMode(dayRec, exTotal, mode);
   const restReverted = restStamped && mode !== "maintain" && homeMode !== "rest"; // 운동 300 초과 → 훈련일 공식 복귀 중
-  const HOME_TARGETS = targetsByMode[homeMode] || TARGETS;
+  // 선택 날짜 기준 목표 — 지난달 날짜를 보면 그 달 기준으로 판정한다(감사 R-10)
+  const HOME_TARGETS = dayTargets(homeMode, date);
 
   // 운동 되먹기: 감량 50% / 유지 100% / 휴식일 0(고정 목표)을 그날 탄수·섭취 목표로 보충
   const carbBonus = useMemo(() => Math.round((exTotal * exFeedback(homeMode)) / 4), [exTotal, homeMode]);
@@ -1817,7 +1829,7 @@ function MainApp({ user, onLogout }) {
 
         {/* 가로모드 폭 캡(홈과 동일 960) — 초광폭 창에서 히어로 차트·2컬럼 카드 무제한 확장 방지 */}
         {tab === "body" && <div style={landscape ? { maxWidth: 960, margin: "0 auto" } : undefined}><BodyTab bodyLog={bodyLog} addBody={addBody} date={date} onEditBody={editBody} onDeleteBody={deleteBody} user={user} goals={goals} onSaveGoals={saveGoals} allDays={allDays} bodyDrafts={bodyDrafts} onConfirmDraft={confirmBodyDraft} onDiscardDraft={discardBodyDraft} /></div>}
-        {tab === "stats" && <div style={landscape ? { maxWidth: 960, margin: "0 auto" } : undefined}><StatsTab bodyLog={bodyLog} allDays={allDays} goals={goals} onSaveGoals={saveGoals} appTargets={TARGETS} targetsByMode={targetsByMode} mode={mode} appAdjust={appAdjust} tdeeHistory={tdeeHistory} /></div>}
+        {tab === "stats" && <div style={landscape ? { maxWidth: 960, margin: "0 auto" } : undefined}><StatsTab bodyLog={bodyLog} allDays={allDays} goals={goals} onSaveGoals={saveGoals} appTargets={TARGETS} targetsByMode={targetsByMode} dayTargets={dayTargets} mode={mode} appAdjust={appAdjust} tdeeHistory={tdeeHistory} /></div>}
       </div>
 
       {/* Nav — 세로: 하단 탭바 / 가로: 좌측 세로 레일 (같은 탭 목록, 표시만 분기) */}
@@ -2033,7 +2045,7 @@ function MainApp({ user, onLogout }) {
             <ClaudeExport todayStr={today()} onResync={resyncAll}
               shareLink={goals.shareLink || null}
               onShareLinkChange={(link) => saveGoals({ ...goals, shareLink: link })}
-              state={{ allDays, bodyLog, goals, user, mode, targets: TARGETS, targetsByMode, appAdjust, tdeeHistory, healthEvents }} />
+              state={{ allDays, bodyLog, goals, user, mode, targets: TARGETS, targetsByMode, dayTargets, appAdjust, tdeeHistory, healthEvents }} />
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px" }}>
               <div>
                 <div style={{ fontSize: 12, color: "#f5f5f0" }}>마지막 백업</div>

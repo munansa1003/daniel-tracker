@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { calcTargets, periodOf, TIME_PERIODS, aggregateDay, getWeekKey, exFeedback, isCalOk, MODE_DEFICIT, MODE_FEEDBACK, adjustForDate, REST_K, REST_EX_REVERT, restTargets, effectiveDayMode } from "../utils.js";
+import { calcTargets, periodOf, TIME_PERIODS, aggregateDay, getWeekKey, exFeedback, isCalOk, MODE_DEFICIT, MODE_FEEDBACK, adjustForDate, REST_K, REST_EX_REVERT, restTargets, effectiveDayMode, monthAvgWeights, weightForMonth, makeDayTargets } from "../utils.js";
 
 describe("calcTargets — 칼로리·매크로 목표 (캘리브레이션 값 보호)", () => {
   it("스모크: 체중 77.3 / 175cm / 42세 → K=1570, P=170, F=46, C=119", () => {
@@ -228,5 +228,71 @@ describe("getWeekKey — ISO 주차", () => {
   it("연말·연초 경계: 2025-12-29(월)은 2026-W01에 속한다", () => {
     expect(getWeekKey("2025-12-29")).toBe("2026-W01");
     expect(getWeekKey("2026-01-01")).toBe("2026-W01");
+  });
+});
+
+/* ── 날짜별 목표 기준 (2026-08 감사 R-10) ──────────────────────────────
+   목표는 "그 달 평균 측정 체중"에서 나오는데, 그 평균을 **보고 있는 날짜**의 달에서
+   뽑고 있었다. 같은 과거 날의 ✓/✗가 달력을 어디로 넘겼는지에 따라 달라졌고,
+   새 측정 1건이 그 달 전체 판정을 소급으로 움직였다. 이제 그 날짜의 달로 고정한다. */
+describe("monthAvgWeights / weightForMonth", () => {
+  const log = [
+    { date: "2026-06-05", weight: 78 }, { date: "2026-06-25", weight: 76 },
+    { date: "2026-08-01", weight: 75 },
+  ];
+  it("달별 평균 — 측정이 없는 달은 키 자체가 없다", () => {
+    const m = monthAvgWeights(log);
+    expect(m["2026-06"]).toBe(77);
+    expect(m["2026-08"]).toBe(75);
+    expect(m["2026-07"]).toBeUndefined();
+  });
+  it("체중 없는/손상된 항목은 무시", () => {
+    expect(monthAvgWeights([{ date: "2026-06-01", weight: 0 }, null, { weight: 70 }])).toEqual({});
+    expect(monthAvgWeights(null)).toEqual({});
+  });
+  it("측정 없는 달은 가장 가까운 '이전' 달을 쓴다 (미래 체중으로 과거를 판정하지 않는다)", () => {
+    const m = monthAvgWeights(log);
+    expect(weightForMonth(m, "2026-07", 99)).toBe(77);   // 6월 평균
+    expect(weightForMonth(m, "2026-09", 99)).toBe(75);   // 8월 평균
+  });
+  it("이전 달이 없으면 가장 이른 달, 기록이 아예 없으면 fallback", () => {
+    expect(weightForMonth(monthAvgWeights(log), "2025-01", 99)).toBe(77);
+    expect(weightForMonth({}, "2026-07", 99)).toBe(99);
+  });
+});
+
+describe("makeDayTargets — 그 날짜 기준 목표", () => {
+  const bodyLog = [
+    { date: "2025-10-05", weight: 80 }, { date: "2025-10-25", weight: 79 },
+    { date: "2026-07-05", weight: 75 },
+  ];
+  const dt = makeDayTargets({ bodyLog, height: 175, age: 42, fallbackWeight: 75, tdeeHistory: [] });
+
+  it("같은 날짜는 언제 물어도 같은 답 (보는 시점 비의존 — R-10의 핵심 성질)", () => {
+    expect(dt("cut", "2025-10-09")).toEqual(dt("cut", "2025-10-09"));
+    // 10월은 10월 평균(79.5kg), 7월은 7월 평균(75kg) — 서로 다른 기준
+    expect(dt("cut", "2025-10-09").k).toBeGreaterThan(dt("cut", "2026-07-09").k);
+  });
+  it("그 달 평균과 직접 계산이 일치한다", () => {
+    expect(dt("cut", "2025-10-09")).toEqual(calcTargets(79.5, 175, 42, "cut", 0));
+    expect(dt("maintain", "2026-07-09")).toEqual(calcTargets(75, 175, 42, "maintain", 0));
+  });
+  it("휴식일은 그 달 체중으로 P·F만 재고 K는 항상 1,675", () => {
+    expect(dt("rest", "2025-10-09").k).toBe(REST_K);
+    expect(dt("rest", "2025-10-09")).toEqual(restTargets(79.5));
+  });
+  it("그 날 유효 보정치를 반영하고, 옛 산식과 정수 보정에서 동일하다", () => {
+    const hist = [{ from: "2026-06-01", adjust: -55 }];
+    const d2 = makeDayTargets({ bodyLog, height: 175, age: 42, fallbackWeight: 75, tdeeHistory: hist });
+    expect(d2("cut", "2026-07-09").k).toBe(calcTargets(75, 175, 42, "cut", -55).k);
+    expect(d2("cut", "2025-10-09").k).toBe(calcTargets(79.5, 175, 42, "cut", 0).k); // 이력 이전 → 보정 0
+    // 옛 산식 `현재목표K − 현재보정 + 그날보정`과 수학적으로 동일(round(x+a)−a+b = round(x)+b)
+    const appAdjust = -55;
+    const legacy = calcTargets(75, 175, 42, "cut", appAdjust).k - appAdjust + adjustForDate(hist, "2026-07-09");
+    expect(d2("cut", "2026-07-09").k).toBe(legacy);
+  });
+  it("체중 기록이 없으면 fallback으로 동작 (크래시 없음)", () => {
+    const empty = makeDayTargets({ bodyLog: [], fallbackWeight: 75 });
+    expect(empty("cut", "2026-07-09").k).toBe(calcTargets(75, 175, 35, "cut", 0).k);
   });
 });

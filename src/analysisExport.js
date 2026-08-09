@@ -86,9 +86,13 @@ export function buildAnalysisPackage(state, { start, end }, todayStr, opts = {})
   let recordedCount = 0;
 
   try {
-    const { allDays = {}, bodyLog = [], goals = {}, user = {}, mode = "cut", targets = {}, targetsByMode = {}, appAdjust = 0, tdeeHistory = [], healthEvents = [] } = state || {};
-    // 휴식일(rest)은 고정 프리셋 — 적응형 보정 무관하게 항상 1,675 (앱 dayTargetK와 동일 규칙)
-    const dayTargetK = (m, ds) => m === "rest" ? REST_K : ((targetsByMode[m] || targetsByMode.cut || targets).k || 0) - appAdjust + adjustForDate(tdeeHistory, ds);
+    const { allDays = {}, bodyLog = [], goals = {}, user = {}, mode = "cut", targets = {}, targetsByMode = {}, dayTargets, appAdjust = 0, tdeeHistory = [], healthEvents = [] } = state || {};
+    // 그 날짜 기준 목표 K. 앱이 만든 단일 출처(utils.makeDayTargets)를 받으면 그것을 쓰고,
+    // 없으면 기존 산식으로 폴백한다(공유 뷰 샘플 등 옛 호출부 호환 — 감사 R-10).
+    // 휴식일(rest)은 고정 프리셋 — 적응형 보정 무관하게 항상 1,675.
+    const dayTargetK = (m, ds) => m === "rest" ? REST_K
+      : dayTargets ? dayTargets(m, ds).k
+      : ((targetsByMode[m] || targetsByMode.cut || targets).k || 0) - appAdjust + adjustForDate(tdeeHistory, ds);
 
     const totalDays = Math.round((toDate(end) - toDate(start)) / MS_DAY) + 1;
     const periodLabel = totalDays <= 15 ? "격주" : totalDays <= 32 ? "1개월" : totalDays <= 95 ? "3개월" : `${totalDays}일`;

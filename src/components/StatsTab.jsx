@@ -3,17 +3,21 @@ import { THEME } from "../theme.jsx";
 import { today, isCompletedDay, calcTargets, aggregateDay, isCalOk, adjustForDate, effectiveDayMode, REST_K } from "../utils.js";
 import { useOrientation } from "../hooks/useOrientation.js";
 
-export function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, targetsByMode, mode = "cut", appAdjust = 0, tdeeHistory = [] }) {
+export function StatsTab({ bodyLog, allDays, goals, onSaveGoals, appTargets, targetsByMode, dayTargets: dayTargetsProp, mode = "cut", appAdjust = 0, tdeeHistory = [] }) {
   const landscape = useOrientation(); // 가로모드 여부 — 표시 재배치 전용, 계산과 무관
   const [statsTab, setStatsTab] = useState("report");
   const [summaryPeriod, setSummaryPeriod] = useState("1m");
   const totalDays = Object.keys(allDays).length;
   const targets = appTargets || calcTargets(goals.weight || 75, 175, 35, mode);
-  // 그 날의 모드로 목표 세트를 고르는 헬퍼(달력/주간 판정용). 세트가 없으면 현재 targets로 폴백.
-  const dayTargets = (m) => (targetsByMode ? (targetsByMode[m] || targetsByMode.cut) : targets);
-  // 그 날 유효 적응형 보정치로 목표 K 조정(과거 판정 보존). 보정 없으면 dayTargets(m).k와 동일.
-  // 휴식일(rest)은 고정 프리셋 — 보정 무관하게 항상 1,675 (App.dayTargetK와 동일 규칙).
-  const dayTargetK = (m, ds) => m === "rest" ? REST_K : dayTargets(m).k - appAdjust + adjustForDate(tdeeHistory, ds);
+  // 그 날짜 기준 목표 세트 — App이 만든 단일 출처(utils.makeDayTargets)를 그대로 쓴다.
+  // 체중 기준은 "그 날짜가 속한 달"의 평균이라, 보는 시점이나 선택 날짜에 따라 같은 날의
+  // 판정이 달라지지 않는다(2026-08 감사 R-10). prop이 없는 옛 호출부는 기존 동작으로 폴백.
+  const dayTargets = dayTargetsProp
+    || ((m, ds) => {
+      const base = targetsByMode ? (targetsByMode[m] || targetsByMode.cut) : targets;
+      return m === "rest" ? base : { ...base, k: base.k - appAdjust + adjustForDate(tdeeHistory, ds) };
+    });
+  const dayTargetK = (m, ds) => (m === "rest" ? REST_K : dayTargets(m, ds).k);
   const [weekOffset, setWeekOffset] = useState(0); // 0=이번주, -1=지난주, -2=2주전...
   const latest = bodyLog[bodyLog.length - 1];
   const first = bodyLog[0];
