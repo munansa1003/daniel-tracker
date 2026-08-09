@@ -121,7 +121,10 @@ async function cloudPullIfDue(uid, force = false) {
       // 인바디가 계정을 잠글 수 있다. 카운터를 올려 상한을 넘으면 force도 창을 지키게 한다.
       // INCR로 올린다(감사 R-01): GET→parseInt→SET은 read-modify-write라 동시 실패 시
       // 증분이 유실돼 상한 도달이 늦어진다 = 계정을 더 두드린다.
-      try { await kv("INCR", failKey); } catch { /* 무시 */ }
+      // 카운터를 못 올리면 상한 방어가 조용히 무력화된다(연타가 계속 인바디를 두드림).
+      // 막을 수는 없어도 반드시 드러낸다 — 침묵이 이 계층의 최대 위험이다.
+      try { await kv("INCR", failKey); }
+      catch (ie) { console.error("[import-inbox] fail counter INCR 실패 — 연속 실패 상한이 동작하지 않을 수 있음:", ie); }
       // 인증 실패는 재시도로 낫지 않는다 — 이 크리덴셜을 즉시 봉인해 남은 시도 횟수를 지킨다.
       if (isAuthError) {
         // 봉인 쓰기가 실패하면 다음 force가 다시 인바디를 두드린다 — 조용히 넘기지 않고
