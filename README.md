@@ -75,7 +75,7 @@ daniel-tracker/
 | `VITE_RECAPTCHA_SITE_KEY` | 프론트(빌드) | ✅ | App Check(reCAPTCHA v3). 미설정 시 App Check 비활성 → `firestore.rules` 배포 상태면 **앱이 Firestore 접근 불가** |
 | `ANTHROPIC_API_KEY` | 서버리스 | ✅ | Claude API 키. 없으면 AI 분석 전부 실패(500) |
 | `VITE_VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | 빌드+서버리스 | 선택 | 웹푸시(리마인더·주간 성적표). 미설정 시 푸시 기능 비활성 |
-| `CRON_SECRET` | 서버리스 | 선택 | 크론 엔드포인트 보호 (Vercel이 헤더 자동 첨부) |
+| `CRON_SECRET` | 서버리스 | **✅ 필수** | 크론 엔드포인트 보호 (Vercel이 헤더 자동 첨부). **미설정 시 예약 푸시가 503으로 정지한다** — 값이 없을 때 열어두면 아무나 구독자 전원에게 푸시를 쏠 수 있어 fail-closed로 바꿨다(2026-08 감사 R-40). 생성: `openssl rand -hex 32` · 확인: `curl -i <도메인>/api/cron-reminders` → `503`이면 미설정, `401`이면 정상 |
 | `FIREBASE_WEB_API_KEY` | 서버리스 | 선택 | push-sync ID 토큰 검증용. 미설정 시 코드의 공개 웹 키 사용 |
 | `VITE_OWNER_EMAIL` | 프론트(빌드) | 선택 | 운영자 이메일 교체 시(기본 하드코딩). **firestore.rules의 isOwner()도 함께 수정** |
 | `PRODUCTION_ORIGIN` | 서버리스 | ✅ | API origin 화이트리스트(콤마로 여러 개). 미설정 시 프로덕션 도메인의 API 호출이 403 |
