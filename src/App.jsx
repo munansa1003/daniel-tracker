@@ -1847,7 +1847,7 @@ function MainApp({ user, profile, onProfileRestore, onLogout }) {
 
         {/* 가로모드 폭 캡(홈과 동일 960) — 초광폭 창에서 히어로 차트·2컬럼 카드 무제한 확장 방지 */}
         {tab === "body" && <div style={landscape ? { maxWidth: 960, margin: "0 auto" } : undefined}><BodyTab bodyLog={bodyLog} addBody={addBody} date={date} onEditBody={editBody} onDeleteBody={deleteBody} user={user} goals={goals} onSaveGoals={saveGoals} allDays={allDays} bodyDrafts={bodyDrafts} onConfirmDraft={confirmBodyDraft} onDiscardDraft={discardBodyDraft} /></div>}
-        {tab === "stats" && <div style={landscape ? { maxWidth: 960, margin: "0 auto" } : undefined}><StatsTab bodyLog={bodyLog} allDays={allDays} goals={goals} onSaveGoals={saveGoals} appTargets={TARGETS} targetsByMode={targetsByMode} dayTargets={dayTargets} mode={mode} appAdjust={appAdjust} tdeeHistory={tdeeHistory} /></div>}
+        {tab === "stats" && <div style={landscape ? { maxWidth: 960, margin: "0 auto" } : undefined}><StatsTab bodyLog={bodyLog} allDays={allDays} goals={goals} onSaveGoals={saveGoals} user={user} appTargets={TARGETS} targetsByMode={targetsByMode} dayTargets={dayTargets} mode={mode} appAdjust={appAdjust} tdeeHistory={tdeeHistory} /></div>}
       </div>
 
       {/* Nav — 세로: 하단 탭바 / 가로: 좌측 세로 레일 (같은 탭 목록, 표시만 분기) */}

@@ -8,6 +8,7 @@
 import { aggregateDay, isCalOk, adjustForDate, exFeedback, effectiveDayMode, isRestStamp, REST_K } from "./utils.js";
 import { dateInEvent, typeMeta } from "./healthEvents.js";
 import { sampleTimeLabel } from "./bodyDraft.js";
+import { fatMassOf } from "./bodyMetrics.js";
 
 /* 유입 출처 표기 (2026-08 감사 R-04).
    체성분 레코드는 실제로 출처를 들고 있는데(auto·sampleTs·source) 이 문서에는 하나도
@@ -347,7 +348,7 @@ export function buildAnalysisPackage(state, { start, end }, todayStr, opts = {})
     safe("체성분 기록", () => {
       L.push(`## 체성분 기록 (${weighs.length}건)`);
       if (weighs.length) {
-        const fatKg = (b) => Math.round(b.weight * b.fatPct / 100 * 10) / 10;
+        const fatKg = (b) => fatMassOf(b.weight, b.fatPct);   // 인라인 재구현 금지 — bodyMetrics 단일 출처(감사 R-33)
         const withComp = weighs.filter((b) => b.fatPct > 0);
         if (withComp.length >= 2) {
           const f0 = withComp[0], f1 = withComp[withComp.length - 1];

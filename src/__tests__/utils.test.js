@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { calcTargets, periodOf, TIME_PERIODS, aggregateDay, getWeekKey, exFeedback, isCalOk, MODE_DEFICIT, MODE_FEEDBACK, adjustForDate, REST_K, REST_EX_REVERT, restTargets, effectiveDayMode, monthAvgWeights, weightForMonth, makeDayTargets } from "../utils.js";
+import { fatMassOf, bodyMetrics } from "../bodyMetrics.js";
 
 describe("calcTargets — 칼로리·매크로 목표 (캘리브레이션 값 보호)", () => {
   it("스모크: 체중 77.3 / 175cm / 42세 → K=1570, P=170, F=46, C=119", () => {
@@ -319,5 +320,24 @@ describe("aggregateDay — 결측 필드 방어", () => {
   it("정상 데이터의 결과는 그대로 (기존 동작 불변)", () => {
     const a = aggregateDay({ meals: [{ p: 10, c: 20, f: 5, k: 200, serving: 1.5 }], exercises: [{ kcal: 300 }] });
     expect(a).toEqual({ p: 15, c: 30, f: 7.5, k: 300, ex: 300, net: 0 });
+  });
+});
+
+/* 체지방량 단일 출처 — 감사 R-33 (CLAUDE.md 지침 위반 시정).
+   analysisExport가 같은 식을 인라인으로 다시 구현하고 있었다. 지금은 값이 같지만
+   반올림 자리수 하나만 달라져도 화면(BodyTab)과 내보내기가 조용히 어긋난다. */
+describe("fatMassOf — 체지방량(kg)", () => {
+  it("체중 × 체지방률, 소수 1자리", () => {
+    expect(fatMassOf(75.7, 18.2)).toBe(13.8);
+    expect(fatMassOf(80, 25)).toBe(20);
+  });
+  it("bodyMetrics의 fatMass와 항상 같은 값 (두 경로가 갈라지지 않는다)", () => {
+    const latest = { date: "2026-08-09", weight: 73.6, fatPct: 18.7, muscle: 39.2 };
+    expect(bodyMetrics(latest, null, { height: 178, age: 42 }).fatMass).toBe(fatMassOf(73.6, 18.7));
+  });
+  it("값이 없거나 깨졌으면 0 (NaN을 화면으로 흘리지 않는다)", () => {
+    expect(fatMassOf(0, 18)).toBe(0);
+    expect(fatMassOf(75, NaN)).toBe(0);
+    expect(fatMassOf(undefined, undefined)).toBe(0);
   });
 });

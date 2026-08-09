@@ -7,6 +7,11 @@
 //       해당하면 web-push로 1건 발송. 만료(404/410)된 구독은 정리.
 //
 // 필요한 env: CRON_SECRET, VITE_VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT, KV_REST_API_*
+//
+// 실행 시간: 구독 uid 수만큼 순차 루프이고 uid당 KV GET 2~4회 + web-push 최대 2회다.
+// 구독자가 늘면 기본 타임아웃을 넘길 수 있어 vercel.json에서 maxDuration을 60초로 잡아 둔다
+// (감사 R-47). 지금은 1인이라 여유가 크지만, 잘리면 뒤쪽 uid가 조용히 누락되는 형태라
+// 증상이 "일부 사람만 푸시가 안 옴"으로 나타나 원인을 찾기 어렵다.
 
 import webpush from "web-push";
 import { kv, kvConfigured } from "./_lib/kv.js";
