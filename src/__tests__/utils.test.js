@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { calcTargets, periodOf, TIME_PERIODS, aggregateDay, getWeekKey, exFeedback, isCalOk, MODE_DEFICIT, MODE_FEEDBACK, adjustForDate, REST_K, REST_EX_REVERT, restTargets, effectiveDayMode, monthAvgWeights, weightForMonth, makeDayTargets } from "../utils.js";
+import { calcTargets, periodOf, TIME_PERIODS, aggregateDay, getWeekKey, exFeedback, isCalOk, MODE_DEFICIT, MODE_FEEDBACK, adjustForDate, REST_K, REST_EX_REVERT, restTargets, effectiveDayMode, monthAvgWeights, weightForMonth, makeDayTargets, effectiveTdeeHistory } from "../utils.js";
 import { fatMassOf, bodyMetrics } from "../bodyMetrics.js";
 
 describe("calcTargets — 칼로리·매크로 목표 (캘리브레이션 값 보호)", () => {
@@ -339,5 +339,57 @@ describe("fatMassOf — 체지방량(kg)", () => {
     expect(fatMassOf(0, 18)).toBe(0);
     expect(fatMassOf(75, NaN)).toBe(0);
     expect(fatMassOf(undefined, undefined)).toBe(0);
+  });
+});
+
+/* 적응형 토글이 과거 판정을 소급 변경하던 문제 — 2026-08 감사 R-29.
+   옛 동작: 토글 OFF면 tdeeHistory를 통째로 []로 → 보정이 오늘만이 아니라 **과거까지** 사라져
+   그때 ✓였던 날이 ✗가 된다. 다시 켜면 되돌아온다. 이력을 두는 이유와 정면으로 어긋났다.
+   고친 동작: 끄기 = "오늘부터 0". 과거는 그때의 보정을 유지한다. */
+describe("effectiveTdeeHistory — 끄기는 오늘부터, 과거는 보존", () => {
+  const TODAY = "2026-08-10";
+  const hist = [{ from: "2026-07-03", adjust: 68 }];
+
+  it("켜져 있으면 이력을 그대로 쓴다", () => {
+    expect(effectiveTdeeHistory(hist, true, TODAY)).toEqual(hist);
+  });
+
+  it("꺼져 있어도 과거 날짜는 그때의 보정을 유지한다 (핵심 계약)", () => {
+    const eff = effectiveTdeeHistory(hist, false, TODAY);
+    expect(adjustForDate(eff, "2026-07-06")).toBe(68);   // 옛 동작은 0이었다
+    expect(adjustForDate(eff, "2026-07-31")).toBe(68);
+  });
+
+  it("꺼져 있으면 오늘·이후는 0 — 오늘의 목표는 토글을 끈 의미 그대로", () => {
+    const eff = effectiveTdeeHistory(hist, false, TODAY);
+    expect(adjustForDate(eff, TODAY)).toBe(0);
+    expect(adjustForDate(eff, "2026-09-01")).toBe(0);
+  });
+
+  it("보정을 적용하기 전 날짜는 여전히 0 (없던 보정을 만들지 않는다)", () => {
+    const eff = effectiveTdeeHistory(hist, false, TODAY);
+    expect(adjustForDate(eff, "2026-07-02")).toBe(0);
+  });
+
+  it("오늘자 항목이 이미 있으면 중복으로 쌓지 않고 0으로 확정한다", () => {
+    const withToday = [{ from: "2026-07-03", adjust: 68 }, { from: TODAY, adjust: 120 }];
+    const eff = effectiveTdeeHistory(withToday, false, TODAY);
+    expect(eff.filter((h) => h.from === TODAY)).toHaveLength(1);
+    expect(adjustForDate(eff, TODAY)).toBe(0);
+    expect(adjustForDate(eff, "2026-07-06")).toBe(68);   // 과거는 그대로
+  });
+
+  it("이력이 비었거나 깨져 있어도 안전 — 꺼짐이면 오늘 0 하나만", () => {
+    expect(effectiveTdeeHistory([], false, TODAY)).toEqual([{ from: TODAY, adjust: 0 }]);
+    expect(effectiveTdeeHistory(null, false, TODAY)).toEqual([{ from: TODAY, adjust: 0 }]);
+    expect(effectiveTdeeHistory([null, { adjust: 5 }], false, TODAY)).toEqual([{ from: TODAY, adjust: 0 }]);
+    expect(effectiveTdeeHistory(null, true, TODAY)).toEqual([]);
+  });
+
+  it("정렬을 유지한다 — adjustForDate가 '마지막 적용치'를 순서로 판정하므로", () => {
+    const messy = [{ from: "2026-07-20", adjust: 30 }, { from: "2026-07-03", adjust: 68 }];
+    const eff = effectiveTdeeHistory(messy, false, TODAY);
+    expect(eff.map((h) => h.from)).toEqual(["2026-07-03", "2026-07-20", TODAY]);
+    expect(adjustForDate(eff, "2026-07-25")).toBe(30);
   });
 });

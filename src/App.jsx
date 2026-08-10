@@ -3,11 +3,13 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, 
 import store, { getCurrentUserId, setUserId, logout, getMembership, joinWithInvite, getMigratedMark, getSharedFoods, addSharedFood, getSharedExercises, addSharedExercise } from "./store.js";
 import { addTombstone, getTombstoneIds } from "./syncQueue.js";
 import { watchAuth, signInWithGoogle, signOutUser, isOwnerEmail, getIdToken } from "./auth.js";
-import { mergeImports, recalcExerciseKcal } from "./importMerge.js";
+import { mergeImports, recalcExerciseKcal, findWatchOverlap } from "./importMerge.js";
 import { mergeBodyDrafts, draftToRecord, autoConfirmDrafts, lastMeasuredDate } from "./bodyDraft.js";
+import { planAutoDelete } from "./bulkDelete.js";
+import { shiftDays } from "./analysisExport.js";   // 순수 날짜 유틸 — ClaudeExport가 이미 쓰는 모듈
 import { APP_NAME, DEFAULT_FOODS, DEFAULT_EX, TARGETS as DEFAULT_TARGETS, COLORS } from "./data.js";
 import { THEME, GlobalStyles } from "./theme.jsx";
-import { today, nowHour, isCompletedDay, calcTargets, sortByHour, periodOf, groupMealsByTime, groupExercisesByTime, aggregateDay, exFeedback, isCalOk, adjustForDate, REST_K, restTargets, effectiveDayMode, isRestStamp, makeDayTargets } from "./utils.js";
+import { today, nowHour, isCompletedDay, calcTargets, sortByHour, periodOf, groupMealsByTime, groupExercisesByTime, aggregateDay, exFeedback, isCalOk, adjustForDate, effectiveTdeeHistory, REST_K, restTargets, effectiveDayMode, isRestStamp, makeDayTargets } from "./utils.js";
 import { estimateTDEE } from "./adaptiveTDEE.js";
 import { pendingReminders } from "./reminders.js";
 import { pushConfigured, enablePush, disablePush, syncPushState } from "./push.js";
@@ -329,6 +331,11 @@ function MainApp({ user, profile, onProfileRestore, onLogout }) {
     const duration = parseInt(min) || 30;
     const kcal = Math.round((ex.m * TARGETS.weight * duration) / 60);
     const hour = parseInt(exHour) || nowHour();
+    // 워치가 이미 올린 운동을 손으로 또 넣으면 소모가 두 번 계산되고, 그 값은 잔여 칼로리와
+    // 적응형 TDEE 역산까지 흘러간다(감사 R-18). 다만 **막지는 않는다** — 진짜로 두 번 운동한
+    // 날이 있으므로 차단하면 정상 기록을 막게 된다. 판단 근거만 주고 선택은 사용자가 한다.
+    const dup = findWatchOverlap(exercises, { ...ex, hour }, hour);
+    if (dup && !confirm(`⌚ 같은 시간대에 자동 수신된 운동이 이미 있어요.\n\n  ${String(dup.hour).padStart(2, "0")}시 ${dup.n} ${dup.duration}분 ${Math.round(dup.kcal)}kcal\n\n그래도 추가하면 소모 칼로리가 두 번 계산됩니다.\n(정말 두 번 운동했다면 그대로 추가하세요)`)) return;
     const entry = { ...ex, duration, kcal, ts: Date.now(), hour };
     const ne = sortByHour([...exercises, entry]);
     setExercises(ne); saveDay(date, meals, ne);
@@ -618,6 +625,41 @@ function MainApp({ user, profile, onProfileRestore, onLogout }) {
     }
   };
 
+
+  // ── 자동 유입분 기간 일괄 삭제 (감사 R-19) ──────────────────────────
+  // 단축어 오설정·계정 혼선으로 몇 주치가 잘못 들어오면, 되돌릴 방법이 "1건씩" 아니면
+  // "백업 복원"뿐이었다. 둘 다 현실적이지 않다.
+  // 파괴적 동작이므로 순서를 지킨다: ① 무엇이 지워지는지 먼저 계산해 보여주고
+  // ② 안전본을 자동으로 내려받은 뒤 ③ 확인을 받고 지운다. 삭제 흔적(tombstone)도 남겨
+  // 오프라인 대기분 재전송이나 사서함 재착지로 되살아나지 않게 한다(R-02·R-27).
+  const [bulkRange, setBulkRange] = useState(null);   // null=닫힘 | {start, end}
+  const bulkPlan = useMemo(
+    () => (bulkRange ? planAutoDelete({ allDays, bodyLog, bodyDrafts, start: bulkRange.start, end: bulkRange.end }) : null),
+    [bulkRange, allDays, bodyLog, bodyDrafts]
+  );
+  const runBulkDelete = async () => {
+    if (!bulkPlan) return;
+    const { exercises, bodyRecords, drafts } = bulkPlan.counts;
+    if (exercises + bodyRecords + drafts === 0) { alert("이 기간에 지울 자동 수신분이 없어요."); return; }
+    if (!confirm(`${bulkRange.start} ~ ${bulkRange.end}\n\n운동 ${exercises}건 · 체성분 ${bodyRecords}건 · 초안 ${drafts}건을 지웁니다.\n손으로 입력한 기록은 지우지 않아요.\n\n안전본(JSON)을 먼저 내려받은 뒤 진행합니다.`)) return;
+
+    // 안전본 먼저 — 지우기 전 상태 그대로. 되돌리려면 이 파일을 복원하면 된다.
+    const safety = buildBackup({ allDays, bodyLog, goals, customFoods, customExercises: customEx, bodyDrafts, profile }, new Date().toISOString());
+    downloadFile(JSON.stringify(safety), `daniel_safety_${today()}.json`, "application/json");
+
+    const uid = getCurrentUserId();
+    for (const d of bulkPlan.bodyDates) addTombstone(uid, "bodylog", d);
+    for (const k of bulkPlan.draftKeys) addTombstone(uid, "body-drafts", k);
+
+    for (const [d, rec] of Object.entries(bulkPlan.updatedDays)) await store.set(`day:${d}`, rec);
+    if (Object.keys(bulkPlan.updatedDays).length) setAllDays(prev => ({ ...prev, ...bulkPlan.updatedDays }));
+    if (bodyRecords) { setBodyLog(bulkPlan.bodyLog); await store.set("bodylog", bulkPlan.bodyLog); }
+    if (drafts) { setBodyDrafts(bulkPlan.bodyDrafts); await store.set("body-drafts", bulkPlan.bodyDrafts); }
+
+    setBulkRange(null);
+    alert(`삭제 완료 — 운동 ${exercises}건 · 체성분 ${bodyRecords}건 · 초안 ${drafts}건\n안전본을 내려받았으니 되돌리려면 그 파일을 복원하세요.`);
+  };
+
   // 백업 경과 일수 계산
   const backupDaysAgo = useMemo(() => {
     if (!lastBackup) return 999;
@@ -672,9 +714,15 @@ function MainApp({ user, profile, onProfileRestore, onLogout }) {
   // 화이트리스트라 targetsByMode[mode]가 항상 유효 — 홈 TARGETS 무가드 접근도 안전.
   const mode = goals.mode === "maintain" ? "maintain" : "cut";
 
-  // 적응형 유지칼로리 — 이력 기반 보정치. 마스터 토글 OFF면 0(공식). 오늘의 목표에 쓰이는 현재 보정치.
+  // 적응형 유지칼로리 — 이력 기반 보정치. 마스터 토글 OFF는 "**오늘부터** 보정 0"이다.
+  // 옛 동작은 이력을 통째로 []로 만들어 **과거 판정까지 소급 변경**했다(감사 R-29):
+  // 7월에 +68을 적용해 그때 ✓였던 날이, 나중에 토글을 끄는 것만으로 ✗로 바뀌었다.
+  // 이제 과거는 그때의 보정을 유지하고 오늘·이후만 0이 된다. 오늘의 목표는 이전과 동일하다.
   const adaptiveOn = !!goals.adaptiveOn;
-  const tdeeHistory = useMemo(() => (adaptiveOn ? (goals.tdeeHistory || []) : []), [adaptiveOn, goals.tdeeHistory]);
+  const tdeeHistory = useMemo(
+    () => effectiveTdeeHistory(goals.tdeeHistory, adaptiveOn, today()),
+    [adaptiveOn, goals.tdeeHistory]
+  );
   const appAdjust = adjustForDate(tdeeHistory, today());
 
   // 월 평균 체중 + BMR (목표·적응형 역산 공용).
@@ -841,7 +889,16 @@ function MainApp({ user, profile, onProfileRestore, onLogout }) {
   useEffect(() => { syncImportsRef.current = syncImports; }, [syncImports]);
 
   // 적응형 핸들러 (전부 비파괴적·되돌리기 가능)
-  const setAdaptiveOn = (on) => saveGoals({ ...goals, adaptiveOn: on });
+  // 끄기는 이력에 "오늘부터 0"을 **기록**한다 — 읽는 쪽 보정(effectiveTdeeHistory)에만 기대면
+  // 끈 시점이 데이터에 남지 않아 기기마다 오늘이 달라질 수 있다. 과거 항목은 지우지 않는다.
+  const setAdaptiveOn = (on) => {
+    if (on) return saveGoals({ ...goals, adaptiveOn: true });
+    const t = today();
+    const prev = Array.isArray(goals.tdeeHistory) ? goals.tdeeHistory : [];
+    const hist = [...prev.filter(h => h && h.from !== t), { from: t, adjust: 0 }]
+      .sort((x, y) => (x.from < y.from ? -1 : 1));
+    saveGoals({ ...goals, adaptiveOn: false, tdeeHistory: hist });
+  };
   const applyAdaptive = (delta) => {
     const t = today();
     const prev = Array.isArray(goals.tdeeHistory) ? goals.tdeeHistory : [];
@@ -2119,6 +2176,41 @@ function MainApp({ user, profile, onProfileRestore, onLogout }) {
               </div>
               <span style={{ fontSize: 11, color: "#707070" }}>→</span>
             </div>
+            {/* 자동 유입분 기간 일괄 삭제 (감사 R-19) — 미리보기 → 안전본 → 확인 → 삭제 */}
+            <div onClick={() => setBulkRange(bulkRange ? null : { start: shiftDays(today(), -13), end: today() })}
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", borderTop: "0.5px solid rgba(255,255,255,0.04)", cursor: "pointer" }}>
+              <div>
+                <div style={{ fontSize: 12, color: "#f5f5f0" }}>자동 수신분 일괄 삭제</div>
+                <div style={{ fontSize: 10, color: "#707070", marginTop: 2 }}>기간을 골라 ⌚·인바디 자동 수신분만 제거 (손입력은 유지)</div>
+              </div>
+              <span style={{ fontSize: 11, color: "#707070" }}>{bulkRange ? "▲" : "→"}</span>
+            </div>
+            {bulkRange && (
+              <div style={{ padding: "0 12px 12px", borderTop: "0.5px solid rgba(255,255,255,0.04)" }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10 }}>
+                  <input type="date" value={bulkRange.start} max={bulkRange.end}
+                    onChange={(e) => setBulkRange({ ...bulkRange, start: e.target.value })}
+                    style={{ flex: 1, background: "#1a1a1a", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, color: "#f5f5f0", fontSize: 12, padding: "8px 10px" }} />
+                  <span style={{ color: "#707070", fontSize: 11 }}>~</span>
+                  <input type="date" value={bulkRange.end} min={bulkRange.start} max={today()}
+                    onChange={(e) => setBulkRange({ ...bulkRange, end: e.target.value })}
+                    style={{ flex: 1, background: "#1a1a1a", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, color: "#f5f5f0", fontSize: 12, padding: "8px 10px" }} />
+                </div>
+                {/* 지우기 전에 무엇이 지워지는지 정확히 보여준다 — 파괴적 동작의 최소 예의 */}
+                <div style={{ fontSize: 11, color: "#8a8a8a", marginTop: 9, lineHeight: 1.6 }}>
+                  이 기간의 자동 수신분: <b style={{ color: "#f5f5f0" }}>운동 {bulkPlan?.counts.exercises ?? 0}건</b> ·
+                  {" "}<b style={{ color: "#f5f5f0" }}>체성분 {bulkPlan?.counts.bodyRecords ?? 0}건</b> ·
+                  {" "}<b style={{ color: "#f5f5f0" }}>초안 {bulkPlan?.counts.drafts ?? 0}건</b>
+                </div>
+                <div style={{ fontSize: 10, color: "#707070", marginTop: 5, lineHeight: 1.5 }}>
+                  손으로 입력한 기록은 지우지 않아요. 지우기 직전에 <b style={{ color: "#8a8a8a" }}>안전본(JSON)</b>을 자동으로 내려받습니다 — 되돌리려면 그 파일을 복원하세요.
+                </div>
+                <button onClick={runBulkDelete}
+                  style={{ width: "100%", marginTop: 10, padding: 11, borderRadius: 10, fontSize: 12.5, fontWeight: 600, background: "rgba(224,82,82,0.14)", color: "#e05252", border: "1px solid rgba(224,82,82,0.4)", cursor: "pointer" }}>
+                  선택 기간의 자동 수신분 삭제
+                </button>
+              </div>
+            )}
           </div>
           {/* 자동 가져오기(워치 → 검문소 → 사서함) 관측 카드 — 컷오버·최근 수신 5건 */}
           <div style={{ fontSize: 11, color: "#707070", margin: "14px 0 8px" }}>자동 가져오기 (애플워치)</div>

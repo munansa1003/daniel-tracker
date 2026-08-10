@@ -31,4 +31,18 @@ describe("운영자 이메일 — auth.js와 firestore.rules 동기화 (R-49)", 
   it("규칙은 이메일 인증까지 요구한다 (클라이언트 판정보다 엄격한 쪽이 서버)", () => {
     expect(rulesSrc).toContain("request.auth.token.email_verified == true");
   });
+
+  /* 규칙 제안본(firestore.rules.proposed)이 있으면 그쪽도 같은 값이어야 한다 — 감사 R-36.
+     제안본은 배포 대기 상태로 저장소에 남아 있는 파일이라, 운영자 이메일을 바꿀 때
+     현행본만 고치면 **나중에 제안본을 배포하는 순간 옛 이메일로 되돌아간다.**
+     지연된 함정이라 그때는 원인이 이 파일로 이어지지 않는다. */
+  it("제안본이 있다면 그것도 같은 운영자 이메일을 쓴다", () => {
+    let proposed;
+    try { proposed = read("../../firestore.rules.proposed"); }
+    catch { return; }   // 제안본이 없으면(배포 완료 후 삭제) 검사할 것도 없다
+    const m = /request\.auth\.token\.email == '([^']+)'/.exec(proposed);
+    expect(m, "제안본에서 운영자 이메일을 찾지 못함").toBeTruthy();
+    const inRules = /request\.auth\.token\.email == '([^']+)'/.exec(rulesSrc)[1];
+    expect(m[1].toLowerCase()).toBe(inRules.toLowerCase());
+  });
 });

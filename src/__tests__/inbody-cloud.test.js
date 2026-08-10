@@ -498,3 +498,40 @@ describe("pullCount — 공백이 길수록 넓게 당긴다 (R-30)", () => {
     expect(pullCount(new Date(T + 86400000).toISOString(), T)).toBe(5);
   });
 });
+
+/* ack는 건수가 많아도 교착되지 않는다 — 감사 R-37.
+   옛 동작은 500건을 넘으면 400으로 거절했다. 그런데 사서함 적재에는 상한이 없어서,
+   오래 안 열어 쌓이면 ack가 영영 실패하고 → 사서함이 안 비고 → 다음 pull에도 같은 수가
+   내려오는 교착이 된다. 상한을 올리는 대신 나눠서 지운다(상한 자체가 새 실패 모드다). */
+describe("ack — 대량 건수 교착 방지 (R-37)", () => {
+  const seedInbox = (n) => {
+    const st = __kvState();
+    const h = new Map();
+    for (let i = 0; i < n; i++) h.set(`key-${i}`, JSON.stringify({ importKey: `key-${i}` }));
+    st.hashes.set(`import:inbox:${UID}`, h);
+    return [...h.keys()];
+  };
+
+  it("600건을 한 번에 ack해도 성공하고 사서함이 완전히 빈다", async () => {
+    const keys = seedInbox(600);
+    const r = out(await inboxCall({ uid: UID, idToken: "id-token-good", action: "ack", keys }));
+    expect(r.ok).toBe(true);
+    expect(r.removed).toBe(600);
+    expect(__kvState().hashes.get(`import:inbox:${UID}`).size).toBe(0);
+  });
+
+  it("경계(200의 배수·나머지)에서도 하나도 남기지 않는다", async () => {
+    for (const n of [199, 200, 201, 400]) {
+      __kvReset();
+      const keys = seedInbox(n);
+      const r = out(await inboxCall({ uid: UID, idToken: "id-token-good", action: "ack", keys }));
+      expect(r.removed).toBe(n);
+      expect(__kvState().hashes.get(`import:inbox:${UID}`).size).toBe(0);
+    }
+  });
+
+  it("키가 하나도 없으면 여전히 400 — '없음'과 '많음'을 뒤섞지 않는다", async () => {
+    const res = await inboxCall({ uid: UID, idToken: "id-token-good", action: "ack", keys: [] });
+    expect(res.statusCode).toBe(400);
+  });
+});
