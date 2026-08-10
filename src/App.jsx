@@ -9,7 +9,7 @@ import { planAutoDelete } from "./bulkDelete.js";
 import { shiftDays } from "./analysisExport.js";   // 순수 날짜 유틸 — ClaudeExport가 이미 쓰는 모듈
 import { APP_NAME, DEFAULT_FOODS, DEFAULT_EX, TARGETS as DEFAULT_TARGETS, COLORS } from "./data.js";
 import { THEME, GlobalStyles } from "./theme.jsx";
-import { today, nowHour, isCompletedDay, calcTargets, sortByHour, periodOf, groupMealsByTime, groupExercisesByTime, aggregateDay, exFeedback, isCalOk, adjustForDate, REST_K, restTargets, effectiveDayMode, isRestStamp, makeDayTargets } from "./utils.js";
+import { today, nowHour, isCompletedDay, calcTargets, sortByHour, periodOf, groupMealsByTime, groupExercisesByTime, aggregateDay, exFeedback, isCalOk, adjustForDate, effectiveTdeeHistory, REST_K, restTargets, effectiveDayMode, isRestStamp, makeDayTargets } from "./utils.js";
 import { estimateTDEE } from "./adaptiveTDEE.js";
 import { pendingReminders } from "./reminders.js";
 import { pushConfigured, enablePush, disablePush, syncPushState } from "./push.js";
@@ -706,9 +706,15 @@ function MainApp({ user, profile, onProfileRestore, onLogout }) {
   // 화이트리스트라 targetsByMode[mode]가 항상 유효 — 홈 TARGETS 무가드 접근도 안전.
   const mode = goals.mode === "maintain" ? "maintain" : "cut";
 
-  // 적응형 유지칼로리 — 이력 기반 보정치. 마스터 토글 OFF면 0(공식). 오늘의 목표에 쓰이는 현재 보정치.
+  // 적응형 유지칼로리 — 이력 기반 보정치. 마스터 토글 OFF는 "**오늘부터** 보정 0"이다.
+  // 옛 동작은 이력을 통째로 []로 만들어 **과거 판정까지 소급 변경**했다(감사 R-29):
+  // 7월에 +68을 적용해 그때 ✓였던 날이, 나중에 토글을 끄는 것만으로 ✗로 바뀌었다.
+  // 이제 과거는 그때의 보정을 유지하고 오늘·이후만 0이 된다. 오늘의 목표는 이전과 동일하다.
   const adaptiveOn = !!goals.adaptiveOn;
-  const tdeeHistory = useMemo(() => (adaptiveOn ? (goals.tdeeHistory || []) : []), [adaptiveOn, goals.tdeeHistory]);
+  const tdeeHistory = useMemo(
+    () => effectiveTdeeHistory(goals.tdeeHistory, adaptiveOn, today()),
+    [adaptiveOn, goals.tdeeHistory]
+  );
   const appAdjust = adjustForDate(tdeeHistory, today());
 
   // 월 평균 체중 + BMR (목표·적응형 역산 공용).
@@ -875,7 +881,16 @@ function MainApp({ user, profile, onProfileRestore, onLogout }) {
   useEffect(() => { syncImportsRef.current = syncImports; }, [syncImports]);
 
   // 적응형 핸들러 (전부 비파괴적·되돌리기 가능)
-  const setAdaptiveOn = (on) => saveGoals({ ...goals, adaptiveOn: on });
+  // 끄기는 이력에 "오늘부터 0"을 **기록**한다 — 읽는 쪽 보정(effectiveTdeeHistory)에만 기대면
+  // 끈 시점이 데이터에 남지 않아 기기마다 오늘이 달라질 수 있다. 과거 항목은 지우지 않는다.
+  const setAdaptiveOn = (on) => {
+    if (on) return saveGoals({ ...goals, adaptiveOn: true });
+    const t = today();
+    const prev = Array.isArray(goals.tdeeHistory) ? goals.tdeeHistory : [];
+    const hist = [...prev.filter(h => h && h.from !== t), { from: t, adjust: 0 }]
+      .sort((x, y) => (x.from < y.from ? -1 : 1));
+    saveGoals({ ...goals, adaptiveOn: false, tdeeHistory: hist });
+  };
   const applyAdaptive = (delta) => {
     const t = today();
     const prev = Array.isArray(goals.tdeeHistory) ? goals.tdeeHistory : [];
