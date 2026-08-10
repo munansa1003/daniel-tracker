@@ -52,6 +52,14 @@ const CLOUD_STATUS_TEXT = {
   failed: { t: "✗ 확인 실패 — 아래 오류 줄 참조", c: "#e05252" },
 };
 
+// 수신 로그 시각 — 서버는 UTC ISO로 기록하므로 브라우저 로컬(한국) 시각으로 바꿔 보여준다
+const fmtLogAt = (iso) => {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return String(iso || "");
+  const p = (n) => String(n).padStart(2, "0");
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
 
 
 /* ═══════════════════════════════════════════════ */
@@ -2130,7 +2138,7 @@ function MainApp({ user, profile, onProfileRestore, onLogout }) {
             </div>
             {(importInfo?.log || []).slice(0, 5).map((g, i, arr) => (
               <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "7px 12px", borderBottom: i < arr.length - 1 ? "0.5px solid rgba(255,255,255,0.04)" : "none", fontSize: 10, fontFamily: "monospace", color: "#8a8a8a" }}>
-                <span>{String(g.at || "").slice(5, 16).replace("T", " ")}</span>
+                <span>{fmtLogAt(g.at)}</span>
                 <span>{({ "workout-end": "운동종료", "evening-backup": "저녁백업", "manual-tap": "원탭" })[g.source] || g.source}</span>
                 <span>+{g.accepted} 중복{g.ignored} 제외{g.filtered} 거부{g.rejected}</span>
               </div>
@@ -2163,7 +2171,7 @@ function MainApp({ user, profile, onProfileRestore, onLogout }) {
             {(importInfo?.bodyLog || []).slice(0, 5).map((g, i, arr) => (
               <div key={i} style={{ padding: "7px 12px", borderBottom: i < arr.length - 1 ? "0.5px solid rgba(255,255,255,0.04)" : "none", fontSize: 10, fontFamily: "monospace", color: "#8a8a8a" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                  <span>{String(g.at || "").slice(5, 16).replace("T", " ")}</span>
+                  <span>{fmtLogAt(g.at)}</span>
                   <span>{({ hae: "단축어", cloud: "클라우드" })[g.source] || ""}</span>
                   {g.error
                     ? <span style={{ color: "#e05252", overflowWrap: "anywhere" }}>오류 — {g.error}</span>
