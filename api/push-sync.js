@@ -15,12 +15,16 @@ import { mergePushState } from "./_lib/push-state.js";
 // Firebase ID 토큰 검증 — uid 사칭(타인 구독 덮어쓰기·주간 성적표 가로채기) 차단.
 // Admin SDK 없이 Google identitytoolkit(accounts:lookup)으로 서명·만료를 검증한다.
 // API 키는 클라이언트 번들에 이미 공개된 웹 키(비밀 아님) — env로 교체 가능.
-const FIREBASE_WEB_API_KEY = process.env.FIREBASE_WEB_API_KEY || "AIzaSyDnY73MnZviHLP1W-hE7fsamOqL35lpyRc";
+// 새 이름 `WEB_API_KEY` 우선 · 옛 이름 `FIREBASE_WEB_API_KEY`도 계속 읽는다.
+// (`FIREBASE_` 접두사는 Functions env에서 예약어라 배포가 거부된다 — _lib/verify-auth.js 주석 참조)
+function webApiKey() {
+  return process.env.WEB_API_KEY || process.env.FIREBASE_WEB_API_KEY || "AIzaSyDnY73MnZviHLP1W-hE7fsamOqL35lpyRc";
+}
 
 async function verifyUid(idToken, uid) {
   if (!idToken || typeof idToken !== "string") return false;
   try {
-    const r = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${FIREBASE_WEB_API_KEY}`, {
+    const r = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${webApiKey()}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ idToken }),

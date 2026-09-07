@@ -47,8 +47,11 @@ export default async function handler(req, res) {
       tokenConfigured: !!expected,          // 환경변수가 이 배포에 주입됐는지
       tokenLength: expected ? expected.length : 0, // 값 자체는 노출하지 않음(길이만)
       shareEnabled: kvConfigured(),         // 공유 링크(Phase 2) 사용 가능 여부
-      vercelEnv: process.env.VERCEL_ENV || "unknown",
-      commit: (process.env.VERCEL_GIT_COMMIT_SHA || "").slice(0, 7) || "unknown",
+      // "어느 배포가 응답했나" 3칸 — 필드 이름은 그대로 두고 출처만 플랫폼별로 고른다.
+      // Vercel(VERCEL_*)이 없으면 Cloud Run이 넣어 주는 K_SERVICE/K_REVISION을 쓴다.
+      // 이름을 바꾸지 않는 이유: 이 JSON을 보는 쪽(사람·기존 스모크)의 계약이기 때문이다.
+      vercelEnv: process.env.VERCEL_ENV || process.env.K_SERVICE || "unknown",
+      commit: (process.env.VERCEL_GIT_COMMIT_SHA || "").slice(0, 7) || process.env.K_REVISION || "unknown",
       branch: process.env.VERCEL_GIT_COMMIT_REF || "unknown",
     });
   }
