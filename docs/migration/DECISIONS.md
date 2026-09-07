@@ -37,6 +37,39 @@
 (토큰 미설정이면 503, 불일치면 401) 응답했다. 단축어의 '파일 첨부' 경로가 Firebase에서도
 Vercel과 같게 동작한다.
 
+### ⚠️ 에뮬레이터는 OPTIONS를 가로챈다 — **프로덕션과 다르다** (CI 스모크에서 발견)
+
+CI의 `emulator-smoke`가 처음 돌 때 `OPTIONS /api/analyze-food`만 실패했다. 추적 결과:
+
+- 함수 에뮬레이터가 런타임 env에 `FIREBASE_DEBUG_FEATURES={"enableCors":true,…}`를 넣는다
+  (`firebase-tools` `lib/emulator/functionsEmulator.js:996-998`).
+- `firebase-functions`의 `onRequest`는 그 플래그가 보이면 **핸들러를 cors 미들웨어로 감싼다**
+  (`lib/v2/providers/https.js:53-65`). 그 미들웨어가 preflight를 **204로 먼저 끝내** 우리 라우터가
+  아예 돌지 않는다 — 그래서 `X-Function-Group` 헤더도 없다.
+- 프로덕션에서는 `cors` 옵션을 주지 않았고 디버그 플래그도 없다 → 감싸기가 없다 →
+  **OPTIONS가 핸들러까지 가서 Vercel과 같게 동작한다**(`checkOrigin` → 403/200).
+
+즉 코드 문제가 아니라 **에뮬레이터 전용 차이**다. 스모크 테스트는 두 환경 모두에서 참인 것
+(라우팅됨 + 5xx 아님)만 보도록 고쳤고, OPTIONS가 핸들러까지 간다는 계약은 단위 테스트
+(`functions-router.test.js`·`functions-integration.test.js`)가 지킨다.
+
+앱은 전부 동일 원점 상대 경로로 호출해 브라우저가 preflight를 보내지 않으므로(01 §6.5-4)
+어느 쪽이든 사용자 영향은 없다.
+
+### ℹ️ 에뮬레이터의 `firebase-admin` 경고는 무시한다
+
+에뮬레이터가 매 함수 로드마다 이렇게 경고한다:
+
+```
+⚠  The Cloud Functions emulator requires the module "firebase-admin" to be installed as a dependency.
+i  functions: Your functions could not be parsed due to an issue with your node_modules (see above)
+```
+
+**경고일 뿐이다** — 함수 4개는 정상 로드·실행됐다(같은 로그의 `Loaded functions definitions from
+source: api, cronReminders, exportView, ingress`). `firebase-admin`은 **의도적으로 넣지 않는다**:
+서버가 Firestore 자격증명을 갖지 않는 것이 이 저장소의 보안 태세다(01 §1 원칙 2).
+이 경고를 없애려고 의존성을 추가하지 말 것. `firebase-config.test.js`가 추가를 막는다.
+
 ### ✅ Cloud Run 환경변수로 진단 필드가 채워진다
 
 `/export/diag`가 `vercelEnv: "exportView"`(= `K_SERVICE`) · `commit: "1"`(= `K_REVISION`)로
@@ -127,8 +160,21 @@ Vercel과 같게 동작한다.
 
   그리고 rewrite 매칭 자체는 Hosting 에뮬레이터의 라우팅 로그로 확인했다(§1 첫 항목) —
   막힌 것은 매칭 **뒤의** 프록시 홉이다.
-- **남은 일**: CI의 `emulator-smoke` job이 이 PR에서 바로 돈다(자격증명 불필요). 그 job의 초록불이
-  Hosting 경유 경로까지의 최종 확인이다.
+- **해소**: CI의 `emulator-smoke` job이 이 PR에서 실제로 돌았고 **Hosting 경유 경로가 동작했다**.
+  첫 실행 12건 중 11건 통과 · 1건은 위 §1의 에뮬레이터 전용 OPTIONS 차이(코드 문제 아님)라
+  테스트를 고쳤다. CI 로그에서 확인된 것:
+
+  ```
+  [hosting] Rewriting /api/health-import → ingress   "POST /api/health-import" 503
+  [hosting] Rewriting /api/body-import   → ingress   "POST /api/body-import"   503
+  [hosting] Rewriting /api/analyze-food  → api       "POST /api/analyze-food"  403
+  [hosting] Rewriting /export/view/<32hex> → exportView   404
+  [hosting] Rewriting /export/diag       → exportView     200
+  "GET /nonexistent-page" 200  (SPA fallback)   ·  "GET /sw.js" 200
+  ```
+
+  즉 **이 샌드박스에서 막힌 것은 세션의 프록시뿐**이었고, 실제 Hosting rewrite → 함수 프록시는
+  정상이다.
 
 ---
 

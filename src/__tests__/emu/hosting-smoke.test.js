@@ -58,9 +58,21 @@ describe("rewrite → 함수 (겹치는 glob의 우선순위)", () => {
     expect(r.status).toBe(403);          // Origin이 없으니 checkOrigin이 막는 것이 정답
   });
 
-  it("OPTIONS도 api 그룹까지 간다", async () => {
+  it("OPTIONS는 함수까지 라우팅되고 4xx/5xx로 죽지 않는다", async () => {
+    // ⚠️ 여기서 `X-Function-Group`을 요구하면 안 된다 — **에뮬레이터에서만** 그 헤더가 없다.
+    // 원인: 함수 에뮬레이터가 `FIREBASE_DEBUG_FEATURES={"enableCors":true}`를 넣고
+    // (firebase-tools `lib/emulator/functionsEmulator.js:996-998`), firebase-functions의
+    // `onRequest`가 그 플래그를 보면 핸들러를 cors 미들웨어로 감싼다
+    // (`lib/v2/providers/https.js:53-65`). 그 미들웨어가 preflight를 **204로 먼저 끝내서**
+    // 우리 라우터가 아예 돌지 않는다.
+    // 프로덕션에서는 `cors` 옵션을 주지 않았고 디버그 플래그도 없으므로 이 감싸기가 없다 →
+    // OPTIONS가 핸들러까지 가서 Vercel과 같게 동작한다(checkOrigin → 403/200).
+    // 그 계약은 functions-router.test.js·functions-integration.test.js가 지킨다.
+    //
+    // 그래서 여기서는 두 환경 모두에서 참인 것만 본다: 라우팅이 되고(404가 아니고)
+    // 터지지 않는다(5xx가 아니다). 204(에뮬레이터)·403(프로덕션, Origin 없음)이 정상이다.
     const r = await get("/api/analyze-food", { method: "OPTIONS" });
-    expect(r.headers.get("x-function-group")).toBe("api");
+    expect([200, 204, 403]).toContain(r.status);
   });
 
   it("/api/health-import 는 **ingress**가 받는다 — 구체 경로가 /api/** 를 이긴다", async () => {
