@@ -71,6 +71,19 @@ source: api, cronReminders, exportView, ingress`). 에뮬레이터는 `package.j
 이 경고를 없애려고 `firebase-admin`을 직접 의존성에 추가하지 말 것 — 자세한 이유와 실제 방벽은
 §2 맨 아래 "`firebase-admin`은 막을 수 없고 막을 필요도 없다" 항목에 있다.
 
+### ⚠️ `defineString`의 `default`는 **런타임 폴백이 아니다** — params 어댑터는 사실상 no-op
+
+실행해서 확인했다: `defineString(name, { default: "X" }).value()`는 런타임에 `process.env[name]`을
+읽을 뿐이고, 값이 없으면 **`"X"`가 아니라 빈 문자열**을 돌려준다. `default`는 배포(그리고
+에뮬레이터 기동) 시점에 CLI가 함수 env로 **미리 구워 넣는** 값이다 — 실제로 이 세션의
+에뮬레이터가 `.env.local`에 `PRODUCTION_ORIGIN=https://daniel-tracker-cb781.web.app`을 써 넣었다.
+
+따라서 `api/_lib/params-bridge.js`는 **관찰된 모든 환경에서 채울 빈 자리가 없는** 안전망이다.
+설계(01 §2)가 요구한 형태이고 비용이 0이라 그대로 두되, "이 어댑터가 프로덕션을 떠받친다"는
+착각을 막기 위해 모듈 주석과 여기에 사실을 적어 둔다. 실질적 함의 하나:
+**미설정 값의 폴백은 코드가 아니라 배포가 준다** — 그래서 CI의 `.env.<project>` 생성 step이
+빈 값을 쓰지 않는 것(빈 값은 default를 덮어쓴다)이 중요하다.
+
 ### ✅ Cloud Run 환경변수로 진단 필드가 채워진다
 
 `/export/diag`가 `vercelEnv: "exportView"`(= `K_SERVICE`) · `commit: "1"`(= `K_REVISION`)로

@@ -30,7 +30,7 @@ describe("shouldShowOriginBanner — 새 주소 안내", () => {
     }
   });
 
-  it("이미 새 원점이면 보이지 않는다 — 여기서 '새 주소로 가세요'는 말이 안 된다", () => {
+  it("옛 원점이 아니면 보이지 않는다 — 새 주소에서 '새 주소로 가세요'는 말이 안 된다", () => {
     for (const h of ["bodyplan.example", "daniel-tracker-cb781.web.app", "localhost"]) {
       expect(shouldShowOriginBanner({ newOrigin: ORIGIN, hostname: h, todayStr: TODAY }), h).toBe(false);
     }
@@ -173,13 +173,37 @@ describe("MigrationBanners 렌더", () => {
     expect(h).toBe("");
   });
 
-  it("닫기 버튼이 onDismissOrigin에 연결돼 있다", () => {
+  // 요소 트리를 훑어 조건에 맞는 첫 요소를 찾는다(렌더된 HTML에는 핸들러가 남지 않는다).
+  const find = (node, pred) => {
+    if (!node || typeof node !== "object") return null;
+    if (Array.isArray(node)) { for (const c of node) { const r = find(c, pred); if (r) return r; } return null; }
+    if (pred(node)) return node;
+    return find(node.props?.children, pred);
+  };
+
+  it("닫기 버튼의 onClick이 **바로 그 콜백**이다 (엉뚱한 핸들러를 걸면 걸린다)", () => {
+    // 앞 버전은 "트리 어딘가에 함수가 있다"만 봤다 — 닫기 버튼을 onEnablePush에 연결해도 통과했다.
     const onDismissOrigin = vi.fn();
-    // renderToStaticMarkup은 핸들러를 실행하지 않으므로 요소 트리에서 직접 확인한다.
-    const el = MigrationBanners({ ...base, newOrigin: ORIGIN, onDismissOrigin });
-    const json = JSON.stringify(el, (k, v) => (typeof v === "function" ? "FN" : v));
-    expect(json).toContain("FN");
-    expect(renderToStaticMarkup(<MigrationBanners {...base} newOrigin={ORIGIN} onDismissOrigin={onDismissOrigin} />))
-      .toContain("오늘 하루 안 보기");
+    const onEnablePush = vi.fn();
+    const el = MigrationBanners({ ...base, newOrigin: ORIGIN, onDismissOrigin, onEnablePush });
+    const btn = find(el, (n) => n.props?.["aria-label"] === "오늘 하루 안 보기");
+    expect(btn, "닫기 버튼을 찾지 못했다(자기검증)").toBeTruthy();
+    expect(btn.props.onClick).toBe(onDismissOrigin);
+    btn.props.onClick();
+    expect(onDismissOrigin).toHaveBeenCalledTimes(1);
+    expect(onEnablePush).not.toHaveBeenCalled();
+  });
+
+  it("푸시 배너의 '켜기' onClick이 onEnablePush다", () => {
+    const onDismissOrigin = vi.fn();
+    const onEnablePush = vi.fn();
+    const el = MigrationBanners({
+      ...base, newOrigin: ORIGIN, hostname: "bodyplan.example",
+      pushReady: true, hasSubscription: false, reminders: { record: true },
+      onDismissOrigin, onEnablePush,
+    });
+    const btn = find(el, (n) => n.type === "button" && n.props?.children === "켜기");
+    expect(btn, "켜기 버튼을 찾지 못했다(자기검증)").toBeTruthy();
+    expect(btn.props.onClick).toBe(onEnablePush);
   });
 });

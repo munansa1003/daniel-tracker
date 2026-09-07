@@ -24,11 +24,20 @@ vi.mock("../../api/_lib/kv.js", () => ({
 
 const { apiApp, ingressApp, exportViewApp } = await import("../../functions.js");
 
-// functions-framework의 본문 파서 순서(JSON 먼저, 나머지는 raw Buffer)를 그대로 흉내낸다.
+// functions-framework의 본문 파서 **순서 그대로** 흉내낸다(`server.js:70-88`):
+// json → text → urlencoded → raw(`*/*`). 이 순서가 중요하다 —
+// `text/plain`은 raw(Buffer)가 아니라 **text(string)**로 도착한다. 앞 버전은 json → raw만
+// 흉내내 text/plain을 Buffer로 만들었는데, 그건 프로덕션과 다른 모양이었다.
+// 핸들러의 `typeof body === "string" || Buffer.isBuffer(body)` 분기가 **둘 다** 받으므로
+// 결과는 같지만, 테스트가 실제와 다른 것을 확인하고 있으면 그 차이가 언젠가 물어뜯는다.
 const jsonParser = express.json({ limit: "10mb" });
+const textParser = express.text({ limit: "10mb" });
+const urlencodedParser = express.urlencoded({ extended: true, limit: "10mb" });
 const rawParser = express.raw({ type: "*/*", limit: "10mb" });
 const framework = (app) => (req, res) =>
-  jsonParser(req, res, () => rawParser(req, res, () => app(req, res)));
+  jsonParser(req, res, () =>
+    textParser(req, res, () =>
+      urlencodedParser(req, res, () => rawParser(req, res, () => app(req, res)))));
 
 const servers = [];
 function listen(app) {
@@ -152,10 +161,14 @@ describe("ingress 그룹 — 단축어 검문(런북 B3 스모크)", () => {
     expect(r.status).toBe(401);
   });
 
-  it("비JSON 본문이 Buffer로 도착해도 기존 분기가 JSON으로 파싱한다", async () => {
+  // text/plain → string · application/octet-stream → Buffer. 핸들러의 한 분기가 둘 다 받는다.
+  it.each([
+    ["text/plain (string으로 도착)", "text/plain"],
+    ["application/octet-stream (Buffer로 도착)", "application/octet-stream"],
+  ])("비JSON 본문 %s 도 기존 분기가 JSON으로 파싱한다", async (_label, ct) => {
     const r = await fetch(`${INGRESS}/api/health-import`, {
       method: "POST",
-      headers: { "Content-Type": "text/plain", "X-Import-Token": TOKEN },
+      headers: { "Content-Type": ct, "X-Import-Token": TOKEN },
       body: '{"source":"test","workouts":[]}',
     });
     const body = await r.json();
@@ -163,19 +176,23 @@ describe("ingress 그룹 — 단축어 검문(런북 B3 스모크)", () => {
     expect(body.message || "").not.toContain("본문 JSON 파싱 실패");
   });
 
-  it("비JSON 본문이 진짜 JSON이 아니면 400 — Buffer 분기가 실제로 도는 증거", async () => {
-    const r = await fetch(`${INGRESS}/api/health-import`, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain", "X-Import-Token": TOKEN },
-      body: "this is not json",
+  it.each(["text/plain", "application/octet-stream"])(
+    "%s 본문이 진짜 JSON이 아니면 400 — 그 분기가 실제로 도는 증거", async (ct) => {
+      const r = await fetch(`${INGRESS}/api/health-import`, {
+        method: "POST",
+        headers: { "Content-Type": ct, "X-Import-Token": TOKEN },
+        body: "this is not json",
+      });
+      expect(r.status).toBe(400);
+      expect((await r.json()).message).toContain("본문 JSON 파싱 실패");
     });
-    expect(r.status).toBe(400);
-    expect((await r.json()).message).toContain("본문 JSON 파싱 실패");
-  });
 });
 
 describe("exportView 그룹 — AI 공유 링크(P1)", () => {
-  it("/export/view/<32hex>는 404 + X-Share-View — 경로형 토큰이 핸들러까지 갔다는 증거", async () => {
+  // 참고: 이 404 자체는 `:t` 주입을 지워도 나온다 — 핸들러가 `req.url`도 직접 파싱하기 때문이다.
+  // 주입 자체의 계약은 functions-router.test.js가 본다. 여기서 보는 것은 "라우터를 지나
+  // 핸들러의 공유-뷰 경로까지 갔고, 헤더 계약이 그대로다"이다.
+  it("/export/view/<32hex>는 404 + X-Share-View · no-store · noindex", async () => {
     const r = await fetch(`${EXPORT}/export/view/${"0".repeat(32)}`);
     expect(r.status).toBe(404);
     expect(r.headers.get("x-share-view")).toBeTruthy();

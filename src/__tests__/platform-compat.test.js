@@ -66,7 +66,19 @@ describe("getClientIp — rate limit 버킷 키의 우선순위", () => {
 });
 
 describe("WEB_API_KEY — 이름이 둘인 이유(FIREBASE_ 접두사는 Functions에서 예약어)", () => {
-  // 세 파일이 같은 값을 같은 규칙으로 읽는다. 하나만 고치면 로그인 검증이 파일마다 달라진다.
+  // 이 값을 읽는 곳은 **세 곳**이다: _lib/verify-auth.js · _lib/verify-uid.js ·
+  // push-sync.js(자체 사본). 아래 동작 테스트는 앞의 두 모듈만 실제로 호출할 수 있어서
+  // (push-sync의 verifyUid는 export되지 않는다), 세 번째는 소스 대조로 함께 묶는다.
+  // "세 파일이 같다"고 적고 둘만 보면, 나머지 하나가 조용히 갈라진다.
+  it("세 파일이 **글자 그대로 같은** 폴백 사슬을 쓴다", () => {
+    const read = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf8");
+    const RE = /return process\.env\.WEB_API_KEY \|\| process\.env\.FIREBASE_WEB_API_KEY \|\| "([^"]+)";/;
+    const files = ["../../api/_lib/verify-auth.js", "../../api/_lib/verify-uid.js", "../../api/push-sync.js"];
+    const found = files.map((f) => RE.exec(read(f)));
+    found.forEach((m, i) => expect(m, `${files[i]} 에서 폴백 사슬을 찾지 못했다(자기검증)`).toBeTruthy());
+    expect(new Set(found.map((m) => m[1])).size, "폴백 상수가 파일마다 다르다").toBe(1);
+  });
+
   const load = async () => {
     vi.resetModules();
     return {

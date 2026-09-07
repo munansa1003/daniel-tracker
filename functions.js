@@ -56,6 +56,9 @@ const VAPID_PRIVATE_KEY = defineSecret("VAPID_PRIVATE_KEY");
 
 // ── 비밀 아닌 설정값 ───────────────────────────────────────────────────────
 // 전부 default를 준다. default가 없으면 배포 때 CLI가 값을 물어봐(비대화형 CI에서 실패한다).
+// ⚠️ default는 **배포 시점**에 CLI가 함수 env로 구워 넣는 값이다 — 런타임 `.value()`의 폴백이
+// 아니다(값이 없으면 빈 문자열을 돌려준다). 즉 "코드에 기본값이 있으니 미설정이어도 된다"가
+// 아니라 "배포가 그 값을 넣어 준다"가 맞는 이해다.
 // 값은 `.env.<project>`로 주입하며 그 파일은 **커밋하지 않는다**(공개 저장소 — uid·메일 노출).
 // CI가 배포 직전에 GitHub Variables로 만든다(03 §6).
 const PRODUCTION_ORIGIN = defineString("PRODUCTION_ORIGIN", { default: "https://daniel-tracker-cb781.web.app" });

@@ -12,6 +12,8 @@
 // 실물 핸들러와의 결합은 functions-integration.test.js가 따로 본다.
 import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 import { createServer } from "node:http";
+import { readdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 const { echo, calls } = vi.hoisted(() => {
   const calls = [];
@@ -28,6 +30,11 @@ const { echo, calls } = vi.hoisted(() => {
   return { echo, calls };
 });
 
+const { bridgeSpy, runRemindersSpy } = vi.hoisted(() => ({
+  bridgeSpy: vi.fn(() => []),
+  runRemindersSpy: vi.fn(async () => ({ ok: true, checked: 0, sent: 0, cleaned: 0 })),
+}));
+
 vi.mock("../../api/analyze-food.js", () => ({ default: echo("analyze-food") }));
 vi.mock("../../api/analyze-exercise.js", () => ({ default: echo("analyze-exercise") }));
 vi.mock("../../api/analyze-body.js", () => ({ default: echo("analyze-body") }));
@@ -38,9 +45,12 @@ vi.mock("../../api/share-revoke.js", () => ({ default: echo("share-revoke") }));
 vi.mock("../../api/health-import.js", () => ({ default: echo("health-import") }));
 vi.mock("../../api/body-import.js", () => ({ default: echo("body-import") }));
 vi.mock("../../api/export-view.js", () => ({ default: echo("export-view") }));
-vi.mock("../../api/cron-reminders.js", () => ({ default: vi.fn(), runReminders: vi.fn() }));
+vi.mock("../../api/cron-reminders.js", () => ({ default: vi.fn(), runReminders: runRemindersSpy }));
 
-const { apiApp, ingressApp, exportViewApp, API_HANDLERS, INGRESS_HANDLERS } = await import("../../functions.js");
+// params 어댑터는 배선 여부만 보면 되므로 스파이로 바꾼다(동작은 platform-compat.test.js가 본다).
+vi.mock("../../api/_lib/params-bridge.js", () => ({ bridgeParams: bridgeSpy, resetParamsBridge: () => {} }));
+
+const { apiApp, ingressApp, exportViewApp, API_HANDLERS, INGRESS_HANDLERS, cronReminders } = await import("../../functions.js");
 
 // 앱마다 임시 포트에 띄운다. Hosting 에뮬레이터 없이도 라우터 자체는 순수 Node로 검증된다.
 const servers = [];
@@ -70,9 +80,16 @@ describe("api 그룹 — 앱이 부르는 7개 경로", () => {
     expect(calls).toEqual([name]);
   });
 
-  it("핸들러 맵이 Vercel 파일 목록과 1:1 — 새 api 파일을 추가하고 배선을 잊으면 여기서 걸린다", () => {
-    expect(Object.keys(API_HANDLERS).sort()).toEqual([...names].sort());
-    expect(Object.keys(INGRESS_HANDLERS).sort()).toEqual(["body-import", "health-import"]);
+  it("**디스크의 api/*.js 전부**가 어느 그룹엔가 배선돼 있다", () => {
+    // 앞 버전은 맵의 키를 같은 파일의 하드코딩 배열과 비교했다 — 새 파일을 추가하고 배선을
+    // 잊어도 절대 걸리지 않는, 이름만 그럴듯한 단언이었다. 이제 실제 디렉터리를 읽는다.
+    const dir = fileURLToPath(new URL("../../api", import.meta.url));
+    const onDisk = readdirSync(dir).filter((f) => f.endsWith(".js")).map((f) => f.slice(0, -3)).sort();
+    // 이 둘은 HTTP 라우트가 아니다: cron-reminders는 onSchedule, export-view는 /export/* 전용.
+    const routed = onDisk.filter((n) => n !== "cron-reminders" && n !== "export-view");
+    const wired = [...Object.keys(API_HANDLERS), ...Object.keys(INGRESS_HANDLERS)].sort();
+    expect(onDisk.length).toBeGreaterThan(8);          // 자기검증: 디렉터리를 실제로 읽었다
+    expect(wired).toEqual(routed);
   });
 
   it("미등록 이름은 404 JSON — 핸들러를 부르지 않는다", async () => {
@@ -97,6 +114,20 @@ describe("api 그룹 — 앱이 부르는 7개 경로", () => {
   it("응답에 X-Function-Group: api — 어느 함수가 답했는지 헤더로 남는다", async () => {
     const r = await fetch(`${API}/api/push-sync`, { method: "POST" });
     expect(r.headers.get("x-function-group")).toBe("api");
+  });
+
+  it("요청마다 params 어댑터가 **그 그룹의 키로** 호출된다", async () => {
+    // 이 배선(group() 미들웨어의 bridgeParams 한 줄)은 지워도 다른 테스트가 전부 통과한다.
+    // 어댑터의 동작 자체는 platform-compat.test.js가 보므로, 여기서는 "배선이 있는가"만 본다.
+    // 그룹 키가 섞이면 에뮬레이터(4그룹 한 프로세스)에서 param이 안 채워지므로 키까지 확인한다.
+    bridgeSpy.mockClear();
+    await fetch(`${API}/api/push-sync`, { method: "POST" });
+    expect(bridgeSpy).toHaveBeenCalled();
+    expect(bridgeSpy.mock.calls[0][1]).toEqual({ key: "api" });
+    // 넘긴 param 목록에 이 그룹이 실제로 쓰는 이름이 들어 있다
+    expect(Object.keys(bridgeSpy.mock.calls[0][0])).toEqual(
+      expect.arrayContaining(["PRODUCTION_ORIGIN", "PREVIEW_ORIGIN_SUFFIX", "KV_REST_API_URL", "ANTHROPIC_API_KEY"])
+    );
   });
 });
 
@@ -168,5 +199,20 @@ describe("exportView 그룹 — vercel.json의 쿼리 치환을 라우터가 재
     const r = await fetch(`${EXPORT}/export/other`);
     expect(r.status).toBe(404);
     expect(calls).toEqual([]);
+  });
+});
+
+describe("cronReminders — onSchedule 본문이 실제로 발송 본체를 부른다", () => {
+  it(".run()이 runReminders를 부르고 params 어댑터도 돈다", async () => {
+    // 이 본문은 HTTP가 아니라 스케줄러가 부른다 — 라우터 테스트로는 절대 안 걸린다.
+    // 본체를 안 부르는 상태로 배포되면 증상은 "밤 8시에 아무 일도 안 일어남" 하나뿐이고,
+    // 그것도 하루 뒤에야 안다.
+    runRemindersSpy.mockClear();
+    bridgeSpy.mockClear();
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    await cronReminders.run({ scheduleTime: "2026-09-07T11:00:00Z", jobName: "test" });
+    log.mockRestore();
+    expect(runRemindersSpy).toHaveBeenCalledTimes(1);
+    expect(bridgeSpy.mock.calls.at(-1)[1]).toEqual({ key: "cronReminders" });
   });
 });
