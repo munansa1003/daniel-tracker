@@ -164,6 +164,18 @@ source: api, cronReminders, exportView, ingress`). 에뮬레이터는 `package.j
   페이지가 나간다 — 원인을 찾기 가장 어려운 형태다.
 - **되돌리는 법**: `functions.js`의 `req.path.replace(/\/+$/, "")`를 `req.path`로.
 
+### `[자동결정]` `api` 그룹에도 `IMPORT_TOKEN`을 바인딩한다
+
+- **왜**: `01 §2` 매핑표는 `import-inbox`(= `api` 그룹)의 시크릿을 `KV_REST_API_TOKEN`만으로
+  적었는데, 그 핸들러가 설정 카드에 보낼 상태를
+  `enabled: !!(IMPORT_TOKEN && IMPORT_UID && IMPORT_CUTOVER_DATE)`로 계산한다
+  (`import-inbox.js:255,259`). 토큰을 `ingress`에만 두면 **자동 가져오기가 멀쩡히 동작하는데
+  카드는 항상 "꺼짐"**이라고 말한다 — 사용자를 없는 고장으로 보내는 거짓말이다.
+  최소 권한을 한 칸 넓히는 쪽이 낫다고 판단했다(그 토큰은 이 앱 자신의 값이고, `api`는
+  이 앱 자신의 엔드포인트다). 나머지 `IMPORT_*`는 `.env.<project>`라 코드베이스 전체에 이미 붙는다.
+- **되돌리는 법**: `functions.js`의 `API_PARAMS`와 `api`의 `secrets:`에서 `IMPORT_TOKEN` 제거
+  (테스트의 기대 목록도 함께). 그때는 카드가 거짓 "꺼짐"을 표시한다는 것을 알고 하는 것이다.
+
 ### ℹ️ `firebase-admin`은 **막을 수 없고 막을 필요도 없다** — 대신 import를 막는다
 
 `firebase-functions@7`은 `firebase-admin`을 **선택 아닌 peer**로 선언한다
@@ -275,21 +287,34 @@ Firestore를 직접 쓸 수 있게 되고 "day 문서를 쓰는 주체는 앱 �
 (빨간불이 아니라 회색). 즉 이 PR을 머지해도 변수를 넣기 전까지는 아무것도 배포되지 않는다.
 반면 `ci.yml`의 `emulator-smoke` job은 자격증명이 필요 없어 **지금 바로 돈다**.
 
-### 4.3 컷오버 당일 (02 Phase B) — 순서 엄수
+### 4.3 컷오버 당일 (02 Phase B) — **순서 엄수**
+
+| # | 작업 | 확인 |
+|---|---|---|
+| B1 | **Vercel 크론 비활성**(또는 `vercel.json`의 `crons` 제거 배포) — Scheduler 잡 생성보다 **먼저**. 안 그러면 밤 8시 푸시가 2번 간다 | Vercel Cron 탭이 비어 있음 |
+| B2 | main 머지 → CI가 Hosting(live) + Functions(prod) 배포. Scheduler 잡 자동 생성 | `firebase functions:list` · Scheduler 콘솔에 잡 1개 |
+| B3 | 배포 후 스모크 — `deploy.yml`이 자동으로 돈다(`PROD_HOSTNAME` 변수 필요) | job 초록불 |
+| B4 | 새 도메인에서 **Google 로그인** → 홈 목표 K가 옛 앱과 같은지 · 설정의 자동 가져오기 카드에 수신 로그가 보이는지(같은 KV) | 화면. 실패하면 A5(승인 도메인)·A6(App Check)·A7(OAuth URI) 재확인 |
+| B5 | 단축어 2개(운동·체성분)의 POST URL을 새 도메인으로 교체 → 수동 실행 | 단축어 알림 "N건 추가" 또는 "중복 N 무시" + 앱 수신 로그 |
+| B6 | **옛 앱 로그아웃 → 새 앱에서 알림 켜기** (순서 반대면 옛 앱의 로그아웃이 방금 만든 새 구독을 지운다) | 당일 밤 8시 푸시 도착으로 확인 |
+| B7 | 새 도메인에서 공유 링크 발급 → **Claude 웹에서 실제 열람** | 리더가 본문을 읽음 |
+| B8 | 홈 화면에 새 앱 추가 · **옛 앱은 병행 기간 끝까지 보존**(롤백용) | |
+| B9 | **밤 8시: 푸시 1회 도착 확인** · Cloud Logging에서 `cronReminders`의 `sent` 값 확인 | 미도착이면 Scheduler 실행 이력(403이면 invoker IAM) · `VAPID_*` 시크릿 바인딩 |
+
+> B9가 이 이전의 마지막 미검증 항목이다 — 크론은 하루 한 번만 돌아 배포 직후에 확인할 수 없다.
+> `cronReminders`는 Hosting을 거치지 않고 IAM(스케줄러 SA의 invoker)만으로 보호되므로,
+> 스모크로 대신 확인할 방법이 없다. 반드시 당일 밤에 사람이 확인한다.
+
+### 4.4 병행 기간 · 종료 전 (02 Phase C)
 
 | # | 작업 |
 |---|---|
-| B1 | **Vercel 크론 비활성**(또는 `vercel.json`의 `crons` 제거 배포) — Scheduler 잡 생성보다 **먼저**. 안 그러면 밤 8시 푸시가 2번 간다 |
-| B5 | 단축어 2개(운동·체성분)의 POST URL을 새 도메인으로 교체 → 수동 실행으로 200 확인 |
-| B6 | **옛 앱 로그아웃 → 새 앱에서 알림 켜기** (순서 반대면 새 구독이 지워진다) |
-| B7 | 새 도메인에서 공유 링크 발급 → **Claude 웹에서 실제 열람** |
-
-### 4.4 병행 종료 전 (02 Phase C)
-
-| # | 작업 |
-|---|---|
+| C1 | 매일: Cloud Logging 오류 0 · 예산 알림 없음 · 앱의 자동 수신 로그 정상 |
+| C2 | T+7: 옛 원점에서 발급한 공유 링크가 전부 만료됐는지(최대 TTL 7일) |
+| C3 | 지인(멤버)에게 새 주소 안내 · 옛 앱 삭제 요청 |
 | C4 | **Upstash 소유권 확인**(DR-14) — Vercel Marketplace 통합이면 통합 삭제가 DB 삭제로 이어질 수 있다. 확인 전에는 Vercel 프로젝트를 지우지 않는다 |
 | C5 | 문서 URL 일괄 갱신(`docs/hae-setup.md` 등) — 도메인이 정해진 뒤 |
+| C6 | **DR-2 리전 실측** — 설계는 "스테이징 실측으로 결정(기본 후보 서울)"이었고, 코드에는 기본값 `asia-northeast3`가 들어가 있다. 실측을 아직 안 했으므로 과제로 남긴다: staging에 서울/타이완 두 리전으로 `api`를 배포해 서울 폰에서 `import-inbox` pull p50/p95를 각 20회 비교. 바꾸려면 `functions.js`의 `FUNCTIONS_REGION` 한 곳만 고치면 되고(테스트가 `firebase.json`과의 일치를 강제한다), 재배포로 URL·Scheduler 잡이 새로 만들어진다 |
 
 ### 4.5 이 세션이 하지 않은 것 (금지 목록)
 

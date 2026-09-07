@@ -69,7 +69,13 @@ const VAPID_SUBJECT = defineString("VAPID_SUBJECT", { default: "" });
 const VITE_VAPID_PUBLIC_KEY = defineString("VITE_VAPID_PUBLIC_KEY", { default: "" });
 
 // 그룹별로 "이 함수가 실제로 쓰는" param만 다리를 놓는다(최소 권한과 같은 정신).
-const API_PARAMS = { PRODUCTION_ORIGIN, PREVIEW_ORIGIN_SUFFIX, KV_REST_API_URL, ANTHROPIC_API_KEY, KV_REST_API_TOKEN };
+// `api` 그룹이 IMPORT_TOKEN을 받는 이유(설계 문서 §2 표에는 없던 것 — 구현 중 발견):
+// `import-inbox.js:255,259`가 설정 카드에 보낼 `enabled`·`bodyEnabled`를
+// `IMPORT_TOKEN && IMPORT_UID && IMPORT_CUTOVER_DATE`로 계산한다. 그 핸들러는 `api` 그룹에 있고,
+// 토큰을 `ingress`에만 바인딩하면 **자동 가져오기가 멀쩡히 동작하는데 카드가 항상 "꺼짐"**이라고
+// 말한다. 사용자를 없는 고장으로 보내는 거짓말이라, 최소 권한을 한 칸 넓히는 쪽을 택했다.
+// (`IMPORT_UID`·`IMPORT_CUTOVER_DATE`류는 `.env.<project>`라 코드베이스 전체에 이미 붙는다.)
+const API_PARAMS = { PRODUCTION_ORIGIN, PREVIEW_ORIGIN_SUFFIX, KV_REST_API_URL, ANTHROPIC_API_KEY, KV_REST_API_TOKEN, IMPORT_TOKEN };
 const INGRESS_PARAMS = { KV_REST_API_URL, IMPORT_UID, IMPORT_CUTOVER_DATE, IMPORT_BODY_CUTOVER_DATE, IMPORT_TZ_OFFSET, IMPORT_TOKEN, KV_REST_API_TOKEN };
 const EXPORT_VIEW_PARAMS = { KV_REST_API_URL, KV_REST_API_TOKEN };
 const CRON_PARAMS = { KV_REST_API_URL, VAPID_SUBJECT, VITE_VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, KV_REST_API_TOKEN };
@@ -169,7 +175,7 @@ export const api = onRequest(
     memory: "512MiB",          // 사진 base64 JSON 파싱(analyze-food)이 가장 큼
     timeoutSeconds: 60,
     maxInstances: 3,
-    secrets: [ANTHROPIC_API_KEY, KV_REST_API_TOKEN],
+    secrets: [ANTHROPIC_API_KEY, KV_REST_API_TOKEN, IMPORT_TOKEN],
   },
   apiApp
 );

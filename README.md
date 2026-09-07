@@ -105,7 +105,8 @@ daniel-tracker/
 
 ```bash
 npm install
-cp .env.example .env   # 값 채우기 (최소 VITE_RECAPTCHA_SITE_KEY는 dev에서 비워도 동작)
+cp .env.example .env.local   # ⚠️ `.env`가 아니라 `.env.local` — 아래 경고 참조
+                            # (최소 VITE_RECAPTCHA_SITE_KEY는 dev에서 비워도 동작)
 npm run dev
 ```
 

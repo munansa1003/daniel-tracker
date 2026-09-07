@@ -203,7 +203,10 @@ describe("함수 그룹별 자원 — 01 §2 매핑표", () => {
 
   it("시크릿 바인딩이 그룹의 필요와 맞는다 (DR-7 — 존재가 확실한 4개만)", () => {
     const keys = (name) => mod[name].__endpoint.secretEnvironmentVariables.map(s => s.key).sort();
-    expect(keys("api")).toEqual(["ANTHROPIC_API_KEY", "KV_REST_API_TOKEN"]);
+    // IMPORT_TOKEN이 api에도 있는 것은 실수가 아니다: import-inbox가 설정 카드의
+    // enabled/bodyEnabled를 그 값으로 계산한다(import-inbox.js:255,259). 빼면 자동 가져오기가
+    // 동작하는데도 카드가 항상 "꺼짐"이라고 말한다 — 없는 고장으로 사용자를 보낸다.
+    expect(keys("api")).toEqual(["ANTHROPIC_API_KEY", "IMPORT_TOKEN", "KV_REST_API_TOKEN"]);
     expect(keys("ingress")).toEqual(["IMPORT_TOKEN", "KV_REST_API_TOKEN"]);
     expect(keys("exportView")).toEqual(["KV_REST_API_TOKEN"]);
     expect(keys("cronReminders")).toEqual(["KV_REST_API_TOKEN", "VAPID_PRIVATE_KEY"]);
