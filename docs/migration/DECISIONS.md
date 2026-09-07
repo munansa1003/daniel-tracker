@@ -138,8 +138,6 @@ source: api, cronReminders, exportView, ingress`). 에뮬레이터는 `package.j
   모든 실행(훅·로컬·CI 게이트)에서 항상 실패한다. `exclude`에 `src/__tests__/emu/**`를 추가했다.
 - **되돌리는 법**: `vitest.config.js`의 `exclude` 한 줄 삭제(대신 파일 이름을 바꿔야 한다).
 
----
-
 ### `[자동결정]` 푸시 재구독 배너는 **새 원점에서만** 뜬다
 
 - **왜**: 계획서 WP-5의 조건(`pushConfigured()` + 구독 없음 + 서버 reminders 켜짐)만으로는
@@ -204,9 +202,11 @@ Firestore를 직접 쓸 수 있게 되고 "day 문서를 쓰는 주체는 앱 �
 `api/`·`src/`(테스트 제외)·`functions.js`·`scripts/` 어디에도 없음을 단언한다.
 직접 의존성 금지 단언은 그대로 두되, 진짜 방벽은 이 스캔이다.
 
-## 3. `BLOCKED` — 이 샌드박스에서 끝내지 못한 것
+## 3. 이 샌드박스에서 막혔다가 **CI에서 해소된 것** (`BLOCKED` → 해소)
 
-### ⚠️ Hosting 에뮬레이터 경유 스모크는 이 세션에서 실행하지 못했다 (코드 문제 아님)
+> 세션 규칙 §0.2의 `BLOCKED`로 시작했으나 CI 실행으로 풀렸다. 남은 `BLOCKED`는 없다.
+
+### ✅ Hosting 경유 스모크 — 샌드박스에서는 프록시가 막았고, CI에서는 돌았다
 
 - **증상**: `npm run test:emu`에서 Hosting(5000)이 함수(5001)로 **프록시하는 홉**이 403으로 막힌다.
 
