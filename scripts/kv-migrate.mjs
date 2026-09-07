@@ -241,6 +241,43 @@ async function pipe(conn, commands) {
   return out;
 }
 
+// 쓰기 전용 — **키 하나의 명령 묶음을 쪼개지 않고** 보낸다.
+// 왜: 컬렉션 복원은 `DEL` → `RPUSH`… → `PEXPIRE` 한 묶음이다. 이게 두 요청으로 갈라진 상태에서
+// 뒤 요청이 재시도되면(네트워크 오류·429·응답 유실) `DEL`은 앞 요청에서 이미 끝났으므로
+// **RPUSH가 두 번 들어가 리스트가 불어난다**. 묶음을 통째로 보내면 재시도해도 `DEL`부터 다시
+// 도니 결과가 같다(SET·HSET·SADD·ZADD는 원래 멱등이라 문제가 없고, 문제는 RPUSH뿐이다).
+// 묶음 하나가 혼자 상한을 넘을 때만(원소 수만 개짜리 리스트) 어쩔 수 없이 쪼갠다 —
+// 그 경우 재시도가 겹치면 --verify의 값 대조에서 원소 수가 어긋나 잡힌다.
+// 반환: groups와 같은 길이의 배열, 각 원소는 그 묶음의 결과 배열.
+async function pipeGroups(conn, groups) {
+  const results = groups.map(() => null);
+  let batch = [];
+  let count = 0;
+  let bytes = 2;
+  const flush = async () => {
+    if (!batch.length) return;
+    const res = await pipeRaw(conn, batch.flatMap((b) => b.cmds));
+    let i = 0;
+    for (const b of batch) { results[b.gi] = res.slice(i, i + b.cmds.length); i += b.cmds.length; }
+    batch = []; count = 0; bytes = 2;
+  };
+  for (let gi = 0; gi < groups.length; gi++) {
+    const cmds = groups[gi];
+    const size = cmds.reduce((n, c) => n + Buffer.byteLength(JSON.stringify(c), "utf8") + 1, 0);
+    const alone = cmds.length > PIPE_MAX_CMDS || size + 2 > PIPE_MAX_BYTES;
+    if (batch.length && (alone || count + cmds.length > PIPE_MAX_CMDS || bytes + size > PIPE_MAX_BYTES)) {
+      await flush();
+    }
+    if (alone) {                                  // 혼자서도 상한을 넘는다 → 쪼개 보낸다
+      results[gi] = await pipe(conn, cmds);
+      continue;
+    }
+    batch.push({ gi, cmds }); count += cmds.length; bytes += size;
+  }
+  await flush();
+  return results;
+}
+
 // 단일 커맨드 — 결과값만 돌려주고 오류는 던진다.
 async function one(conn, command) {
   assertAllowed(conn, [command]);
@@ -591,18 +628,12 @@ async function applyCopy(src, dst, opt) {
     }
 
     if (plan.length) {
-      const flat = [];
-      const owner = [];
-      for (const p of plan) for (const c of p.cmds) { flat.push(c); owner.push(p.key); }
-      const res = await pipe(dst, flat);
-      const failedKeys = new Set();
-      res.forEach((el, i) => {
-        if (el && el.error && !failedKeys.has(owner[i])) {
-          failedKeys.add(owner[i]);
-          stat.failed.push(`${owner[i]}: ${el.error}`);
-        }
+      const res = await pipeGroups(dst, plan.map((p) => p.cmds));
+      res.forEach((groupRes, i) => {
+        const bad = (groupRes || []).find((el) => el && el.error);
+        if (bad) stat.failed.push(`${plan[i].key}: ${bad.error}`);
+        else stat.copied++;
       });
-      stat.copied += plan.length - failedKeys.size;
     }
     done += batch.length;
     if (keys.length > KEY_BATCH) console.log(`  ... ${Math.min(done, keys.length)}/${keys.length}`);

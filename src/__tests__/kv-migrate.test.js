@@ -27,6 +27,7 @@ const DST_TOKEN = "dst-token-bbbbbbbbbbbbbbbbbbbb";
 function createFake(token) {
   const data = new Map();          // key -> { type, value, expireAt(ms|null) }
   const seen = [];                 // 이 서버가 받은 모든 명령(읽기 전용 검증용)
+  const requests = [];             // HTTP 요청 단위로 묶은 명령(한 키가 한 요청에 담기는지 검증용)
   const flags = { scanDuplicates: false, vanishAfterScan: null, byteLen: new Map(), refuseScan: null };
 
   const now = () => Date.now();
@@ -235,6 +236,7 @@ function createFake(token) {
         if (!Array.isArray(parsed) || parsed.some((c) => !Array.isArray(c))) {
           return send(400, { error: "ERR pipeline expects an array of commands" });
         }
+        requests.push(parsed.map((c) => c.map(String)));
         return send(200, parsed.map(dispatch));
       }
       if (!Array.isArray(parsed)) return send(400, { error: "ERR expected a command array" });
@@ -244,9 +246,9 @@ function createFake(token) {
   });
 
   return {
-    server, data, seen, flags,
+    server, data, seen, requests, flags,
     url: () => `http://127.0.0.1:${server.address().port}`,
-    reset() { data.clear(); seen.length = 0; flags.scanDuplicates = false; flags.vanishAfterScan = null; flags.byteLen.clear(); flags.refuseScan = null; },
+    reset() { data.clear(); seen.length = 0; requests.length = 0; flags.scanDuplicates = false; flags.vanishAfterScan = null; flags.byteLen.clear(); flags.refuseScan = null; },
     // 씨앗 심기 — TTL은 남은 밀리초로 준다(null = 영구)
     seed(key, type, value, ttlMs = null) {
       const stored = type === "hash" ? new Map(Object.entries(value))
@@ -497,6 +499,25 @@ describe("kv-migrate — 복사 순서(중간에 끊겼을 때 남는 상태)", 
     expect(sub).toBeGreaterThanOrEqual(0);
     expect(uids).toBeGreaterThanOrEqual(0);
     expect(sub).toBeLessThan(uids);
+  });
+});
+
+describe("kv-migrate — 재시도 안전성", () => {
+  // 컬렉션 복원은 DEL → RPUSH… → PEXPIRE 한 묶음이다. 이게 두 HTTP 요청으로 갈라진 상태에서
+  // 뒤 요청이 재시도되면 DEL은 이미 끝났으므로 RPUSH가 두 번 들어가 리스트가 불어난다.
+  // 그래서 한 키의 명령은 반드시 한 요청에 담겨야 한다.
+  it("한 키의 쓰기 명령은 여러 커맨드로 쪼개져도 한 HTTP 요청 안에 담긴다", async () => {
+    src.seed("import:log:big", "list", Array.from({ length: 500 }, (_, i) => `entry-${i}`));
+    expect((await run(["--apply"])).code).toBe(0);
+    expect(dst.snapshot()["import:log:big"].value.length).toBe(500);
+
+    const WRITE = new Set(["DEL", "SET", "HSET", "SADD", "RPUSH", "ZADD", "PEXPIRE"]);
+    const owning = dst.requests.filter((req) =>
+      req.some((c) => WRITE.has(c[0]) && c[1] === "import:log:big"));
+    expect(owning.length).toBe(1);                                  // 요청 하나에 다 들어갔다
+    const cmds = owning[0].filter((c) => WRITE.has(c[0]) && c[1] === "import:log:big").map((c) => c[0]);
+    expect(cmds[0]).toBe("DEL");                                    // DEL이 맨 앞
+    expect(cmds.filter((c) => c === "RPUSH").length).toBeGreaterThan(1);   // 실제로 쪼개졌다
   });
 });
 
