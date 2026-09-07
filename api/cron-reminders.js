@@ -29,8 +29,91 @@ async function lastImportAt(key) {
 }
 
 // 크론 실행 시점(UTC)을 KST 날짜 문자열(YYYY-MM-DD)로. 밤 8시 KST 기준 "오늘".
-function todayKST() {
-  return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+function todayKST(now = Date.now()) {
+  return new Date(now + 9 * 3600 * 1000).toISOString().slice(0, 10);
+}
+
+// 설정 누락(VAPID·KV)을 내부 오류와 구분하기 위한 표식.
+// 옛 핸들러가 이 두 경우에 500 + 고유 메시지를 냈고, 그 계약을 그대로 유지한다.
+class ReminderConfigError extends Error {}
+
+// ── 발송 본체 ──────────────────────────────────────────────────────────────
+// 검문(CRON_SECRET·rateLimit)과 분리된 순수 실행부. 호출 주체가 둘이다:
+//   ① Vercel Cron → 아래 default export 핸들러(Bearer 검문 후) — 병행 기간 동안 유지
+//   ② Firebase Cloud Scheduler → functions.js의 onSchedule(검문 없음. 방벽은 IAM invoker다.
+//      스케줄러 SA에만 run.invoker가 있어 URL을 알아도 인터넷에서 호출할 수 없다)
+// 두 경로가 같은 코드를 돌도록 본체를 여기 한 곳에 둔다.
+export async function runReminders({ now = Date.now() } = {}) {
+  const pub = process.env.VITE_VAPID_PUBLIC_KEY;
+  const priv = process.env.VAPID_PRIVATE_KEY;
+  const subj = process.env.VAPID_SUBJECT || "mailto:munansa@gmail.com";
+  if (!pub || !priv) throw new ReminderConfigError("VAPID not configured");
+  if (!kvConfigured()) throw new ReminderConfigError("KV not configured");
+  webpush.setVapidDetails(subj, pub, priv);
+
+  const today = todayKST(now);
+  let checked = 0, sent = 0, cleaned = 0;
+
+  const uids = (await kv("SMEMBERS", "push:uids")) || [];
+  for (const uid of uids) {
+    checked++;
+    const [subRaw, stRaw] = await Promise.all([
+      kv("GET", `push:sub:${uid}`),
+      kv("GET", `push:state:${uid}`),
+    ]);
+    if (!subRaw) { await kv("SREM", "push:uids", uid); continue; }
+
+    const subscription = JSON.parse(subRaw);
+    const st = stRaw ? JSON.parse(stRaw) : {};
+    const accountMature = st.accountCreatedAt ? daysBetween(st.accountCreatedAt, today) >= 15 : false;
+    const backupDaysAgo = st.lastBackup ? daysBetween(st.lastBackup, today) : 999;
+
+    const pending = pendingReminders({
+      reminders: st.reminders,
+      recordedToday: st.lastRecordDate === today,
+      lastWeighDate: st.lastWeighDate || null,
+      todayStr: today,
+      accountMature,
+      backupDaysAgo,
+    });
+    // 상태 리마인더 1건 + (월요일이면) 주간 성적표 — 태그가 달라 둘 다 표시 가능
+    const payloads = [];
+    const daily = reminderPush(pending);
+    if (daily) payloads.push(daily);
+    const rmd = { ...REMINDER_DEFAULTS, ...(st.reminders || {}) };
+    if (rmd.report) {
+      const weekly = weeklyReportPush(st.weekReport || null, today);
+      if (weekly) payloads.push(weekly);
+    }
+    // 자동 수신 침묵 — 앱이 올린 스냅샷이 아니라 **KV 수신 로그를 직접** 본다.
+    // 그래야 앱을 며칠 안 열어도 "단축어가 죽었다"를 감지할 수 있다(감사 R-06).
+    if (rmd.sync) {
+      const [exAt, bdAt] = await Promise.all([
+        lastImportAt(`import:log:${uid}`),
+        lastImportAt(`import:body-log:${uid}`),
+      ]);
+      const silence = importSilencePush({ lastExerciseAt: exAt, lastBodyAt: bdAt, todayStr: today });
+      if (silence) payloads.push(silence);
+    }
+    if (!payloads.length) continue;
+
+    for (const payload of payloads) {
+      try {
+        await webpush.sendNotification(subscription, JSON.stringify(payload));
+        sent++;
+      } catch (err) {
+        if (err.statusCode === 404 || err.statusCode === 410) {
+          await kv("DEL", `push:sub:${uid}`);
+          await kv("SREM", "push:uids", uid);
+          cleaned++;
+          break; // 구독이 죽었으면 나머지도 보낼 수 없음
+        } else {
+          console.error("[cron-reminders] send fail", uid, err.statusCode);
+        }
+      }
+    }
+  }
+  return { ok: true, today, checked, sent, cleaned };
 }
 
 export default async function handler(req, res) {
@@ -55,78 +138,12 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const pub = process.env.VITE_VAPID_PUBLIC_KEY;
-  const priv = process.env.VAPID_PRIVATE_KEY;
-  const subj = process.env.VAPID_SUBJECT || "mailto:munansa@gmail.com";
-  if (!pub || !priv) return res.status(500).json({ error: "VAPID not configured" });
-  if (!kvConfigured()) return res.status(500).json({ error: "KV not configured" });
-  webpush.setVapidDetails(subj, pub, priv);
-
-  const today = todayKST();
-  let checked = 0, sent = 0, cleaned = 0;
-
+  // 본체는 runReminders()에 있다(Firebase onSchedule과 공유). 여기서는 결과·오류를
+  // 옛 HTTP 계약 그대로 옮기기만 한다 — 설정 누락도 내부 오류도 500이되 메시지가 다르다.
   try {
-    const uids = (await kv("SMEMBERS", "push:uids")) || [];
-    for (const uid of uids) {
-      checked++;
-      const [subRaw, stRaw] = await Promise.all([
-        kv("GET", `push:sub:${uid}`),
-        kv("GET", `push:state:${uid}`),
-      ]);
-      if (!subRaw) { await kv("SREM", "push:uids", uid); continue; }
-
-      const subscription = JSON.parse(subRaw);
-      const st = stRaw ? JSON.parse(stRaw) : {};
-      const accountMature = st.accountCreatedAt ? daysBetween(st.accountCreatedAt, today) >= 15 : false;
-      const backupDaysAgo = st.lastBackup ? daysBetween(st.lastBackup, today) : 999;
-
-      const pending = pendingReminders({
-        reminders: st.reminders,
-        recordedToday: st.lastRecordDate === today,
-        lastWeighDate: st.lastWeighDate || null,
-        todayStr: today,
-        accountMature,
-        backupDaysAgo,
-      });
-      // 상태 리마인더 1건 + (월요일이면) 주간 성적표 — 태그가 달라 둘 다 표시 가능
-      const payloads = [];
-      const daily = reminderPush(pending);
-      if (daily) payloads.push(daily);
-      const rmd = { ...REMINDER_DEFAULTS, ...(st.reminders || {}) };
-      if (rmd.report) {
-        const weekly = weeklyReportPush(st.weekReport || null, today);
-        if (weekly) payloads.push(weekly);
-      }
-      // 자동 수신 침묵 — 앱이 올린 스냅샷이 아니라 **KV 수신 로그를 직접** 본다.
-      // 그래야 앱을 며칠 안 열어도 "단축어가 죽었다"를 감지할 수 있다(감사 R-06).
-      if (rmd.sync) {
-        const [exAt, bdAt] = await Promise.all([
-          lastImportAt(`import:log:${uid}`),
-          lastImportAt(`import:body-log:${uid}`),
-        ]);
-        const silence = importSilencePush({ lastExerciseAt: exAt, lastBodyAt: bdAt, todayStr: today });
-        if (silence) payloads.push(silence);
-      }
-      if (!payloads.length) continue;
-
-      for (const payload of payloads) {
-        try {
-          await webpush.sendNotification(subscription, JSON.stringify(payload));
-          sent++;
-        } catch (err) {
-          if (err.statusCode === 404 || err.statusCode === 410) {
-            await kv("DEL", `push:sub:${uid}`);
-            await kv("SREM", "push:uids", uid);
-            cleaned++;
-            break; // 구독이 죽었으면 나머지도 보낼 수 없음
-          } else {
-            console.error("[cron-reminders] send fail", uid, err.statusCode);
-          }
-        }
-      }
-    }
-    return res.status(200).json({ ok: true, today, checked, sent, cleaned });
+    return res.status(200).json(await runReminders());
   } catch (e) {
+    if (e instanceof ReminderConfigError) return res.status(500).json({ error: e.message });
     console.error("[cron-reminders]", e);
     return res.status(500).json({ error: "cron failed" });
   }

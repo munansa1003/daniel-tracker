@@ -1,0 +1,7 @@
+{
+  "projects": {
+    "default": "daniel-tracker-cb781",
+    "prod": "daniel-tracker-cb781",
+    "staging": "bodyplan-staging"
+  }
+}

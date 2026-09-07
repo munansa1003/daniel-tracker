@@ -1,0 +1,238 @@
+// functions.js × 실물 핸들러 — 라우터를 통과한 요청이 검문까지 그대로 도달하는가.
+//
+// functions-router.test.js가 "어디로 가는가"를 봤다면, 여기서는 "가서 무엇이 되는가"를 본다.
+// 배선은 맞는데 요청의 모양(본문 타입·헤더·쿼리)이 Vercel과 달라 검문이 다르게 끝나는 경우가
+// 이 이전의 진짜 위험이고, 그건 핸들러를 모킹하면 절대 안 잡힌다.
+//
+// 여기서 고정하는 계약(02 §2 컷오버 런북 B3의 스모크 3종과 같은 것):
+//   · `/export/view/<32hex>` → 404 + `X-Share-View`  (AI 공유 링크가 살아 있다는 신호)
+//   · `/export/diag`         → JSON `route: "export-view"`
+//   · `/api/health-import` 잘못된 토큰 → 401 (함수가 살아 있고 env 3종이 있다는 신호)
+//
+// 본문 파싱은 functions-framework 흉내를 낸다: JSON은 파싱하고 그 밖의 Content-Type은
+// **Buffer**로 준다. 그래야 "단축어가 본문을 파일로 첨부하는" 경로(기존 Buffer 분기)가
+// Firebase에서도 같은 결과를 내는지 확인할 수 있다.
+import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
+import { createServer } from "node:http";
+import express from "express";
+
+// KV는 인메모리로 — "설정돼 있다"까지만 재현한다. 실제 저장은 여기 관심사가 아니다.
+vi.mock("../../api/_lib/kv.js", () => ({
+  kvConfigured: () => true,
+  kv: async () => null,
+}));
+
+const { apiApp, ingressApp, exportViewApp } = await import("../../functions.js");
+
+// functions-framework의 본문 파서 **순서 그대로** 흉내낸다(`server.js:70-88`):
+// json → text → urlencoded → raw(`*/*`). 이 순서가 중요하다 —
+// `text/plain`은 raw(Buffer)가 아니라 **text(string)**로 도착한다. 앞 버전은 json → raw만
+// 흉내내 text/plain을 Buffer로 만들었는데, 그건 프로덕션과 다른 모양이었다.
+// 핸들러의 `typeof body === "string" || Buffer.isBuffer(body)` 분기가 **둘 다** 받으므로
+// 결과는 같지만, 테스트가 실제와 다른 것을 확인하고 있으면 그 차이가 언젠가 물어뜯는다.
+const jsonParser = express.json({ limit: "10mb" });
+const textParser = express.text({ limit: "10mb" });
+const urlencodedParser = express.urlencoded({ extended: true, limit: "10mb" });
+const rawParser = express.raw({ type: "*/*", limit: "10mb" });
+const framework = (app) => (req, res) =>
+  jsonParser(req, res, () =>
+    textParser(req, res, () =>
+      urlencodedParser(req, res, () => rawParser(req, res, () => app(req, res)))));
+
+const servers = [];
+function listen(app) {
+  return new Promise((resolve) => {
+    const srv = createServer(framework(app));
+    servers.push(srv);
+    srv.listen(0, "127.0.0.1", () => resolve(`http://127.0.0.1:${srv.address().port}`));
+  });
+}
+afterAll(() => { for (const s of servers) s.close(); vi.unstubAllEnvs(); });
+
+const ORIGIN = "https://bodyplan.example";
+const TOKEN = "correct-import-token";
+
+beforeAll(() => {
+  vi.stubEnv("PRODUCTION_ORIGIN", ORIGIN);
+  vi.stubEnv("PREVIEW_ORIGIN_SUFFIX", "");
+  vi.stubEnv("IMPORT_TOKEN", TOKEN);
+  vi.stubEnv("IMPORT_UID", "uid-1");
+  vi.stubEnv("IMPORT_CUTOVER_DATE", "2026-01-01");
+  vi.stubEnv("IMPORT_BODY_CUTOVER_DATE", "2026-01-01");
+  vi.stubEnv("SHARE_TEST_TOKEN", "");
+  // rateLimit이 실제 네트워크를 타지 않도록 KV env는 비워 둔다(fail-open으로 통과).
+  vi.stubEnv("KV_REST_API_URL", "");
+  vi.stubEnv("UPSTASH_REDIS_REST_URL", "");
+});
+
+const API = await listen(apiApp);
+const INGRESS = await listen(ingressApp);
+const EXPORT = await listen(exportViewApp);
+
+describe("api 그룹 — checkOrigin이 라우터 뒤에서 그대로 선다", () => {
+  it("Origin 없는 POST는 403 — 라우터가 통과시켜도 검문은 그대로", async () => {
+    const r = await fetch(`${API}/api/analyze-food`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    expect(r.status).toBe(403);
+    expect(r.headers.get("x-function-group")).toBe("api");
+    expect((await r.json()).error).toBe("Forbidden origin");
+  });
+
+  it("허용 origin의 OPTIONS는 200 + CORS 헤더 — preflight 분기가 살아 있다", async () => {
+    const r = await fetch(`${API}/api/analyze-food`, { method: "OPTIONS", headers: { Origin: ORIGIN } });
+    expect(r.status).toBe(200);
+    expect(r.headers.get("access-control-allow-origin")).toBe(ORIGIN);
+  });
+
+  it("PREVIEW_ORIGIN_SUFFIX가 켜지면 프리뷰 채널 origin도 통과한다(스테이징 전용)", async () => {
+    vi.stubEnv("PREVIEW_ORIGIN_SUFFIX", "bodyplan-staging--*.web.app");
+    const ok = await fetch(`${API}/api/analyze-food`, {
+      method: "OPTIONS",
+      headers: { Origin: "https://bodyplan-staging--pr-12-ab34cd.web.app" },
+    });
+    // 같은 `.web.app`이라도 프로젝트가 다르면 막힌다 — 패턴이 프로젝트를 묶는다는 증거
+    const other = await fetch(`${API}/api/analyze-food`, {
+      method: "OPTIONS",
+      headers: { Origin: "https://someone-else--pr-1-zz.web.app" },
+    });
+    vi.stubEnv("PREVIEW_ORIGIN_SUFFIX", "");
+    expect(ok.status).toBe(200);
+    expect(other.status).toBe(403);
+  });
+
+  it("PREVIEW_ORIGIN_SUFFIX가 비어 있으면 프리뷰 origin은 막힌다 — prod의 기본 상태", async () => {
+    const r = await fetch(`${API}/api/analyze-food`, {
+      method: "OPTIONS",
+      headers: { Origin: "https://bodyplan-staging--pr-12-ab34cd.web.app" },
+    });
+    expect(r.status).toBe(403);
+  });
+
+  it("`*` 없는 접미사는 **라벨 경계**에서만 맞는다 — 붙여 쓴 남의 도메인은 막힌다", async () => {
+    // 단순 endsWith였다면 `evilbodyplan-staging.web.app`이 통과했다.
+    vi.stubEnv("PREVIEW_ORIGIN_SUFFIX", "bodyplan-staging.web.app");
+    const sub = await fetch(`${API}/api/analyze-food`, {
+      method: "OPTIONS", headers: { Origin: "https://ch.bodyplan-staging.web.app" },
+    });
+    const glued = await fetch(`${API}/api/analyze-food`, {
+      method: "OPTIONS", headers: { Origin: "https://evilbodyplan-staging.web.app" },
+    });
+    const exact = await fetch(`${API}/api/analyze-food`, {
+      method: "OPTIONS", headers: { Origin: "https://bodyplan-staging.web.app" },
+    });
+    vi.stubEnv("PREVIEW_ORIGIN_SUFFIX", "");
+    expect(sub.status).toBe(200);      // 서브도메인 = 프리뷰 채널
+    expect(glued.status).toBe(403);    // 라벨 경계 없음 = 남의 도메인
+    expect(exact.status).toBe(403);    // 고정 도메인은 PRODUCTION_ORIGIN에 적는 자리
+  });
+
+  it("http:// origin은 접미사가 맞아도 막힌다", async () => {
+    vi.stubEnv("PREVIEW_ORIGIN_SUFFIX", "bodyplan-staging.web.app");
+    const r = await fetch(`${API}/api/analyze-food`, {
+      method: "OPTIONS", headers: { Origin: "http://ch.bodyplan-staging.web.app" },
+    });
+    vi.stubEnv("PREVIEW_ORIGIN_SUFFIX", "");
+    expect(r.status).toBe(403);
+  });
+});
+
+describe("ingress 그룹 — 단축어 검문(런북 B3 스모크)", () => {
+  it("잘못된 토큰은 401 + X-Function-Group: ingress", async () => {
+    const r = await fetch(`${INGRESS}/api/health-import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Import-Token": "wrong" },
+      body: "{}",
+    });
+    expect(r.status).toBe(401);
+    expect(r.headers.get("x-function-group")).toBe("ingress");
+  });
+
+  it("비JSON Content-Type이어도 401이다 — 400(파싱 실패)이 아니다", async () => {
+    // 단축어의 'URL 콘텐츠 가져오기'가 본문을 파일로 첨부하면 이 모양으로 온다.
+    // 토큰 검문이 본문 파싱보다 앞이므로, 여기서 400이 나오면 순서가 뒤집힌 것이다.
+    const r = await fetch(`${INGRESS}/api/health-import`, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain", "X-Import-Token": "wrong" },
+      body: '{"data":{"workouts":[]}}',
+    });
+    expect(r.status).toBe(401);
+  });
+
+  // text/plain → string · application/octet-stream → Buffer. 핸들러의 한 분기가 둘 다 받는다.
+  it.each([
+    ["text/plain (string으로 도착)", "text/plain"],
+    ["application/octet-stream (Buffer로 도착)", "application/octet-stream"],
+  ])("비JSON 본문 %s 도 기존 분기가 JSON으로 파싱한다", async (_label, ct) => {
+    const r = await fetch(`${INGRESS}/api/health-import`, {
+      method: "POST",
+      headers: { "Content-Type": ct, "X-Import-Token": TOKEN },
+      body: '{"source":"test","workouts":[]}',
+    });
+    const body = await r.json();
+    // 봉투 검증에서 무엇이 나오든 상관없다. 확인하려는 것은 "파싱 자체는 됐다" 한 가지다.
+    expect(body.message || "").not.toContain("본문 JSON 파싱 실패");
+  });
+
+  it.each(["text/plain", "application/octet-stream"])(
+    "%s 본문이 진짜 JSON이 아니면 400 — 그 분기가 실제로 도는 증거", async (ct) => {
+      const r = await fetch(`${INGRESS}/api/health-import`, {
+        method: "POST",
+        headers: { "Content-Type": ct, "X-Import-Token": TOKEN },
+        body: "this is not json",
+      });
+      expect(r.status).toBe(400);
+      expect((await r.json()).message).toContain("본문 JSON 파싱 실패");
+    });
+});
+
+describe("exportView 그룹 — AI 공유 링크(P1)", () => {
+  // 참고: 이 404 자체는 `:t` 주입을 지워도 나온다 — 핸들러가 `req.url`도 직접 파싱하기 때문이다.
+  // 주입 자체의 계약은 functions-router.test.js가 본다. 여기서 보는 것은 "라우터를 지나
+  // 핸들러의 공유-뷰 경로까지 갔고, 헤더 계약이 그대로다"이다.
+  it("/export/view/<32hex>는 404 + X-Share-View · no-store · noindex", async () => {
+    const r = await fetch(`${EXPORT}/export/view/${"0".repeat(32)}`);
+    expect(r.status).toBe(404);
+    expect(r.headers.get("x-share-view")).toBeTruthy();
+    expect(r.headers.get("cache-control")).toBe("no-store");
+    expect(r.headers.get("x-robots-tag")).toContain("noindex");
+  });
+
+  it("토큰 형식이 아니면 같은 404 — 존재 여부가 새지 않는다", async () => {
+    const r = await fetch(`${EXPORT}/export/view/not-a-token`);
+    expect(r.status).toBe(404);
+  });
+
+  it("뒤에 조각이 더 붙어도 **같은 404 페이지**다 — no-store·noindex가 빠지지 않는다", async () => {
+    // Hosting `**`와 express `:t`의 폭 차이로 이 모양이 라우터 catch-all(맨 JSON)로
+    // 떨어졌었다. 공유 뷰의 헤더 계약은 URL이 조금 망가져도 유지돼야 한다.
+    const r = await fetch(`${EXPORT}/export/view/${"0".repeat(32)}/preview`);
+    expect(r.status).toBe(404);
+    expect(r.headers.get("x-share-view")).toBeTruthy();
+    expect(r.headers.get("cache-control")).toBe("no-store");
+    expect(r.headers.get("x-robots-tag")).toContain("noindex");
+  });
+
+  it("/export/diag는 200 JSON route=export-view (런북 B3 스모크)", async () => {
+    const r = await fetch(`${EXPORT}/export/diag`);
+    expect(r.status).toBe(200);
+    const body = await r.json();
+    expect(body.route).toBe("export-view");
+    expect(body.tokenConfigured).toBe(false);   // SHARE_TEST_TOKEN 미설정 = 진단 샘플 off
+    expect(body.shareEnabled).toBe(true);
+  });
+
+  it("진단에 값은 실리지 않는다 — 설정 여부·길이만", async () => {
+    const r = await fetch(`${EXPORT}/export/diag`);
+    const raw = await r.text();
+    expect(raw).not.toContain(TOKEN);
+    expect(JSON.parse(raw).tokenLength).toBe(0);
+  });
+
+  it("GET이 아니면 405 — 공개 경로의 메서드 제한이 그대로", async () => {
+    const r = await fetch(`${EXPORT}/export/view`, { method: "POST" });
+    expect(r.status).toBe(405);
+  });
+});

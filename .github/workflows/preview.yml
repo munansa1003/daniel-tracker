@@ -1,0 +1,144 @@
+# .github/workflows/preview.yml — PR → 스테이징 프로젝트의 프리뷰 채널 배포.
+#
+# ⚠️ 가드가 먼저다: `vars.FIREBASE_PROJECT_STAGING`이 비어 있으면 이 job은 통째로 **skip**된다.
+#    이 변수는 반드시 **저장소(Repository) 변수**여야 한다 — job 레벨 `if`는 Environment가
+#    해석되기 전에 평가되므로, Environment 변수로만 두면 언제나 빈 값으로 읽혀 이 job이
+#    **영구히 회색 skip**된다(에러가 아니라 침묵이라 알아채기 어렵다).
+#    아래 `env:` 블록의 변수들은 job 안에서 읽으므로 Environment에 둬도 정상 동작한다.
+#    스테이징 프로젝트를 만들기 전까지 PR에 빨간불이 뜨지 않는다(회색 skip).
+#    게이트와 에뮬레이터 스모크는 ci.yml이 자격증명 없이 이미 돌고 있으므로,
+#    이 워크플로가 skip돼도 PR의 검증 자체는 비지 않는다.
+#
+# 프리뷰 채널은 **스테이징 프로젝트에만** 만든다. prod 프로젝트에 채널을 만들면 그 채널이
+# prod 함수·prod KV(사서함·푸시 구독·공유 스냅샷)를 두드린다(DR-5).
+#
+# 원점 문제(03 §2 C안): 채널 주소는 배포마다 호스트가 달라진다.
+#   · 로그인 승인 도메인 → CLI가 자동 등록(배포 SA에 Firebase Authentication Admin 필요)
+#   · App Check → 스테이징은 VITE_RECAPTCHA_SITE_KEY를 비워 끈다
+#   · checkOrigin → PREVIEW_ORIGIN_SUFFIX 패턴으로 그 프로젝트의 채널만 허용
+name: Preview (staging)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  id-token: write        # Workload Identity Federation
+  pull-requests: write   # 채널 URL 코멘트
+
+concurrency:
+  group: preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    if: ${{ vars.FIREBASE_PROJECT_STAGING != '' }}
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      # 스테이징은 App Check를 켜지 않는다 — 변수를 비워 두면 src/firebase.js가 스스로 끈다.
+      VITE_RECAPTCHA_SITE_KEY: ${{ vars.VITE_RECAPTCHA_SITE_KEY }}
+      VITE_VAPID_PUBLIC_KEY: ${{ vars.VITE_VAPID_PUBLIC_KEY }}
+      VITE_OWNER_EMAIL: ${{ vars.VITE_OWNER_EMAIL }}
+      VITE_AUTH_DOMAIN: ${{ vars.VITE_AUTH_DOMAIN }}
+      # VITE_NEW_ORIGIN은 프리뷰에 넣지 않는다 — 원점 안내 배너는 프로덕션 컷오버용이다.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      # 배포 직전 상태를 다시 확인한다(ci.yml과 같은 게이트).
+      - run: npx eslint src api --max-warnings=0
+      - run: npx vitest run
+
+      - run: npm run build
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SA_EMAIL }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Write functions env (staging)
+        env:
+          PROJECT: ${{ vars.FIREBASE_PROJECT_STAGING }}
+          # 이름은 prod와 같다 — `environment: staging`이 걸려 있어 Environment 변수가
+          # 저장소 변수를 덮는다. 즉 값만 스테이징 것으로 갈리고 워크플로는 한 벌이다.
+          # KV·IMPORT_UID를 스테이징 값으로 두지 않으면 프리뷰가 **실데이터 사서함**을 두드린다.
+          PRODUCTION_ORIGIN: ${{ vars.PRODUCTION_ORIGIN }}
+          PREVIEW_ORIGIN_SUFFIX: ${{ vars.PREVIEW_ORIGIN_SUFFIX }}
+          KV_REST_API_URL: ${{ vars.KV_REST_API_URL }}
+          IMPORT_UID: ${{ vars.IMPORT_UID }}
+          IMPORT_CUTOVER_DATE: ${{ vars.IMPORT_CUTOVER_DATE }}
+          IMPORT_BODY_CUTOVER_DATE: ${{ vars.IMPORT_BODY_CUTOVER_DATE }}
+          IMPORT_TZ_OFFSET: ${{ vars.IMPORT_TZ_OFFSET }}
+          VAPID_SUBJECT: ${{ vars.VAPID_SUBJECT }}
+          VITE_VAPID_PUBLIC_KEY: ${{ vars.VITE_VAPID_PUBLIC_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          f=".env.$PROJECT"
+          : > "$f"
+          for k in PRODUCTION_ORIGIN PREVIEW_ORIGIN_SUFFIX KV_REST_API_URL IMPORT_UID \
+                   IMPORT_CUTOVER_DATE IMPORT_BODY_CUTOVER_DATE IMPORT_TZ_OFFSET \
+                   VAPID_SUBJECT VITE_VAPID_PUBLIC_KEY; do
+            v="${!k-}"
+            if [ -n "$v" ]; then printf '%s=%s\n' "$k" "$v" >> "$f"; fi
+          done
+          echo "wrote $f with keys: $(cut -d= -f1 "$f" | tr '\n' ' ')"
+
+      # DR-15(pinTag)를 채택했으므로 채널 배포가 그 시점의 함수 리비전을 함께 고정한다 —
+      # 원칙적으로 이 step은 매번 필요하지 않다. 그러나 **프로젝트에 함수가 한 번도 없으면**
+      # 고정할 리비전 자체가 없어 채널 배포가 실패한다. 그래서 항상 시도하되 실패는 넘긴다:
+      # 첫 PR에서는 함수를 만들고, 이후에는 실패해도(권한·동시성) 채널 배포가 이어진다.
+      - name: Deploy functions (staging, best-effort)
+        continue-on-error: true
+        run: >
+          npx -y firebase-tools@15.29.0 deploy --only functions
+          --project "${{ vars.FIREBASE_PROJECT_STAGING }}" --force --non-interactive
+
+      - name: Deploy preview channel (staging)
+        id: channel
+        run: |
+          set -euo pipefail
+          npx -y firebase-tools@15.29.0 hosting:channel:deploy "pr-${{ github.event.pull_request.number }}" \
+            --project "${{ vars.FIREBASE_PROJECT_STAGING }}" --expires 7d --json > channel.json
+          url="$(node -e "const j=require('./channel.json');console.log(Object.values(j.result)[0].url)")"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      # 채널이 실제로 살아 있는지 — 런북 B3와 같은 4종.
+      # 파이프를 쓰지 않는다: `| head -1`·`| grep -q`는 뒤쪽이 먼저 끝나 curl이 SIGPIPE로 죽고,
+      # `pipefail`이 켜져 있으면 **성공한 검사가 실패로 뒤집힌다**. 변수에 받아 두고 검사한다.
+      - name: Smoke (curl)
+        shell: bash
+        run: |
+          set -euo pipefail
+          U="${{ steps.channel.outputs.url }}"
+          curl -sfI -o /dev/null "$U/"
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$U/export/view/00000000000000000000000000000000")" = "404"
+          diag="$(curl -sf "$U/export/diag")"
+          case "$diag" in *'"route":"export-view"'*) ;; *) echo "unexpected /export/diag: $diag"; exit 1 ;; esac
+          # 겹치는 rewrite glob의 우선순위를 눈이 아니라 헤더로 확인한다(01 §3.2):
+          # /api/health-import 는 /api/**(api)가 아니라 ingress가 받아야 한다.
+          hdr="$(curl -s -D - -o /dev/null -X POST "$U/api/health-import" -H 'X-Import-Token: wrong' -d '{}')"
+          case "$hdr" in *[Xx]-[Ff]unction-[Gg]roup:*ingress*) ;; *) echo "not routed to ingress"; echo "$hdr"; exit 1 ;; esac
+
+      # 채널 URL은 `env:`로 넘긴다. 스크립트 본문에 `${{ }}`로 보간하면 그 값이 **JS 코드로**
+      # 붙어, 값에 백틱·`${`가 섞이는 순간 문법이 깨지거나 임의 코드가 된다(GitHub 공식 권고).
+      - uses: actions/github-script@v7
+        env:
+          CHANNEL_URL: ${{ steps.channel.outputs.url }}
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number: context.issue.number,
+              body: `프리뷰(staging): ${process.env.CHANNEL_URL} — 7일 후 만료`,
+            })

@@ -13,15 +13,54 @@ function getAllowedOrigins() {
   if (prod) {
     prod.split(",").map(s => s.trim()).filter(Boolean).forEach(o => list.push(o));
   }
-  // Vercel preview 배포 (브랜치별 자동 도메인) — VERCEL_URL은 자동 주입됨
+  // Vercel preview 배포 (브랜치별 자동 도메인) — VERCEL_URL은 자동 주입됨.
+  // Firebase로 옮긴 뒤에도 남겨 둔다: 병행 기간엔 같은 코드가 Vercel에서도 돌기 때문이다.
+  // Firebase 쪽에는 이 변수가 없으므로 이 줄은 그냥 지나간다.
   if (process.env.VERCEL_URL) list.push(`https://${process.env.VERCEL_URL}`);
   return list;
+}
+
+// Firebase Hosting 프리뷰 채널 원점 허용 — **스테이징 전용**.
+//
+// 채널 주소는 배포마다 호스트가 달라(`<project>--<채널>-<해시>.web.app`) 목록으로 못 적는다.
+// 그래서 PREVIEW_ORIGIN_SUFFIX(콤마로 여러 개)로 연다. 열리는 조건이 두 겹이다:
+//   ① 값이 **설정돼 있어야** 한다 — prod에는 두지 않으므로 기본 상태는 완전 off.
+//   ② https 이고, 호스트가 그 값과 맞아야 한다.
+//
+// 값의 형태는 둘 다 받는다:
+//   · `*` 없는 값 → 도메인 접미사. **라벨 경계에서만** 맞는다: 호스트가 `.` + 접미사로 끝나야 한다.
+//     단순 `endsWith`면 접미사가 `bodyplan-staging.web.app`일 때
+//     `evilbodyplan-staging.web.app`이 통과한다 — 남이 등록한 도메인이 열리는 구멍이다.
+//     `.`을 요구하면 서브도메인만 맞고, 접미사와 **같은** 호스트도 자동으로 빠진다.
+//     후자는 의도한 것이다 — 고정 도메인은 프리뷰가 아니라 PRODUCTION_ORIGIN에 정확히 적는 자리다.
+//   · `*` 있는 값 → 호스트 패턴. `*`는 **점을 넘지 않는** 한 조각과만 맞는다.
+//     프리뷰 채널 호스트는 프로젝트 이름이 **앞**에 오므로(`bodyplan-staging--pr-12-ab34cd.web.app`)
+//     순수 접미사로는 프로젝트를 못 묶는다 — `.web.app`으로 열면 남의 Firebase 사이트까지 열린다.
+//     `bodyplan-staging--*.web.app`처럼 적으면 그 프로젝트의 채널만 허용된다(03 §2 C안의 표기).
+// 값은 정규식이 아니다 — `*` 외의 모든 문자는 이스케이프해 그대로 비교한다.
+function matchesPreviewSuffix(origin) {
+  const raw = process.env.PREVIEW_ORIGIN_SUFFIX;
+  if (!raw) return false;
+  let host;
+  try {
+    const u = new URL(origin);
+    if (u.protocol !== "https:") return false;
+    host = u.host;
+  } catch { return false; }
+  return raw.split(",").map(s => s.trim()).filter(Boolean).some((pat) => {
+    if (!pat.includes("*")) {
+      const sfx = pat.startsWith(".") ? pat : `.${pat}`;   // 라벨 경계 강제
+      return host.endsWith(sfx);
+    }
+    const re = new RegExp("^" + pat.split("*").map(p => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[^.]*") + "$");
+    return re.test(host);
+  });
 }
 
 export function checkOrigin(req, res) {
   const origin = req.headers.origin || "";
   const allowed = getAllowedOrigins();
-  if (!allowed.includes(origin)) {
+  if (!allowed.includes(origin) && !matchesPreviewSuffix(origin)) {
     res.status(403).json({ error: "Forbidden origin" });
     return false;
   }
@@ -43,11 +82,35 @@ export function safeEqual(a, b) {
   return timingSafeEqual(A, B);
 }
 
-// IP 추출 (Vercel은 x-forwarded-for 첫 항목이 실제 클라이언트)
-function getClientIp(req) {
-  const xff = req.headers["x-forwarded-for"];
+// IP 추출 — rate limit의 **버킷 키**다. 틀리면 조용히 망가지는 종류라 순서를 못 박아 둔다.
+//
+// Vercel: `x-forwarded-for`의 첫 항목이 실제 클라이언트였다(플랫폼이 이 헤더를 덮어쓴다).
+// Firebase Hosting: 앞단이 Fastly CDN이라 원 IP가 `fastly-client-ip`로 오고,
+//   `x-forwarded-for`에는 **CDN의 IP**가 실릴 수 있다. 그대로 두면 모든 사용자가 한 버킷에
+//   뭉쳐, 남이 쓴 횟수 때문에 내가 429를 맞는다(정상 사용자가 막히는 형태의 사고).
+//
+// ⚠️ `fastly-client-ip`를 **아무 데서나 먼저 보면 안 된다.** Vercel은 그 헤더를 덮어쓰지
+// 않으므로, 그대로 신뢰하면 공격자가 헤더 하나로 자기 버킷을 매 요청 새로 만들어
+// **rate limit을 통째로 우회**한다. 토큰 추측 시도에 횟수 제한을 걸어 둔 것이 감사 R-39의
+// 요지인데, 그 방어가 병행 기간의 Vercel 쪽에서만 사라지는 형태가 된다.
+// 그래서 플랫폼을 먼저 확인한다: `K_SERVICE`는 **Cloud Run이 주입**하는 값이라 사용자가
+// 넣을 수 없다. 그 값이 있을 때만 Fastly 헤더를 신뢰하고, 없으면(=Vercel·로컬) 옛 순서 그대로다.
+//
+// 남는 위험은 설계 문서가 이미 받아들인 것 하나뿐이다: Hosting을 건너뛰고 함수의 직접
+// URL(*.run.app)로 부르면 그때는 Fastly 헤더도 위조 가능하다(02 §1 #22, P2).
+// 즉 rate limit은 "실수·과사용 방어"이지 결정적 방벽이 아니다 — 진짜 방벽은 각 라우트의
+// 토큰/origin 검문이고, 검문보다 rate limit이 먼저라는 순서는 R-39에서 이미 고정했다.
+export function getClientIp(req) {
+  const headers = req.headers || {};
+  if (process.env.K_SERVICE) {
+    const fastly = headers["fastly-client-ip"];
+    if (typeof fastly === "string" && fastly.trim()) return fastly.trim();
+  }
+  const xff = headers["x-forwarded-for"];
   if (typeof xff === "string" && xff.length > 0) return xff.split(",")[0].trim();
-  return req.headers["x-real-ip"] || "unknown";
+  const real = headers["x-real-ip"];
+  if (typeof real === "string" && real.trim()) return real.trim();
+  return req.socket?.remoteAddress || "unknown";
 }
 
 // Upstash Redis REST API 기반 분당 rate limit

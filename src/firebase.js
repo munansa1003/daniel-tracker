@@ -3,9 +3,20 @@ import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 
+// authDomain만 빌드 변수로 교체 가능하게 둔다(DR-12).
+//
+// 왜: Google 로그인의 **redirect 폴백**은 authDomain이 앱 도메인과 다르면 서드파티 저장소를
+// 차단하는 브라우저(대표적으로 iOS 홈 화면 앱)에서 실패한다. Firebase Hosting 위에서는
+// `/__/auth/**`가 예약 경로로 자동 제공되므로, 앱과 같은 도메인을 authDomain으로 두면
+// 그 실패가 구조적으로 사라진다.
+//
+// 값이 없으면 기존 도메인 그대로다 — Vercel에는 이 변수를 두지 않으므로 옛 원점은 무변경.
+// 값을 넣을 때는 [콘솔] 두 곳이 함께 가야 한다(둘 중 하나만 하면 로그인이 깨진다):
+//   ① Firebase Authentication → Authorized domains 에 그 도메인
+//   ② GCP OAuth 클라이언트의 승인된 리디렉션 URI에 https://<도메인>/__/auth/handler
 const firebaseConfig = {
   apiKey: "AIzaSyDnY73MnZviHLP1W-hE7fsamOqL35lpyRc",
-  authDomain: "daniel-tracker-cb781.firebaseapp.com",
+  authDomain: import.meta.env.VITE_AUTH_DOMAIN || "daniel-tracker-cb781.firebaseapp.com",
   projectId: "daniel-tracker-cb781",
   storageBucket: "daniel-tracker-cb781.firebasestorage.app",
   messagingSenderId: "418220594110",

@@ -1,3 +1,23 @@
 node_modules
 dist
+
+# 로컬 비밀값 — 어느 것도 커밋하지 않는다.
+# 이 저장소는 공개다: uid·메일 주소·토큰이 한 번 올라가면 히스토리에서 지워도 남는다.
 .env
+.env.local
+.env.*.local
+
+# Firebase Functions가 읽는 값 파일들 (.env.example 상단의 규칙 참조)
+#   .env.<project>  프로젝트별 함수 env — CI가 배포 직전에 GitHub Variables로 만든다
+#   .secret.local   에뮬레이터용 시크릿
+# 프로젝트 ID를 하나씩 적지 않고 통째로 막는다 — 스테이징 ID가 확정되면 이름이 늘어나고,
+# 그때 여기 추가하는 것을 잊으면 uid·메일이 공개 저장소에 올라간다(되돌릴 수 없는 종류).
+.env.*
+!.env.example
+.secret.local
+
+# firebase-tools 산출물
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
