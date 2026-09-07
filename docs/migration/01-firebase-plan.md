@@ -84,6 +84,7 @@ CPU 1(v2는 메모리 ≤2GiB일 때 CPU 기본 1 — `firebase-functions` `lib/
 | `/export/diag` → `/api/export-view?diag=1` | 진단 | `{ "source": "/export/diag", "function": {…} }` | 라우터가 `req.query.diag = "1"` 주입, 또는 핸들러가 `req.path === "/export/diag"`도 인식 |
 | (없음 — Vercel은 `api/*.js`를 자동 노출) | | `{ "source": "/api/health-import", "function": {"functionId":"ingress",…} }` · `{ "source": "/api/body-import", … "ingress" }` · `{ "source": "/api/**", "function": {"functionId":"api",…} }` | 그룹 라우터가 경로로 분기 |
 | (Vercel SPA 기본) | SPA fallback | `{ "source": "**", "destination": "/index.html" }` — **마지막 줄** | |
+| (없음) | 함수 버전 고정 | 함수 rewrite에 `"pinTag": true` 추가 여부 — **DR-15** | 채널(프리뷰·live)이 배포 시점의 함수 리비전을 고정 호출(§3.2 pinTag 행) |
 | `crons` | 크론 | 삭제 → `onSchedule`(§4) | |
 | `regions: ["icn1"]` | 리전 | 함수 `region` 옵션 + rewrite `region` | |
 | `functions.*.maxDuration` | 타임아웃 | 함수 `timeoutSeconds` | |
@@ -106,6 +107,8 @@ rewrite `function` 블록의 스키마(`functionId`·`region`·`pinTag`)는 `fir
 | Hosting 경유 요청 타임아웃 | **60초 상한** — 함수 timeout을 더 길게 잡아도 Hosting이 504를 낸다 | [스니펫] `https://firebase.google.com/docs/hosting/functions` — 원문 재확인 필요 |
 | 함수가 받는 경로 | rewrite 원본 경로 전체(`/api/analyze-food`, `/export/view/<t>`)가 그대로 전달됨 | [스니펫] `https://github.com/firebase/firebase-functions/issues/858` + Vercel도 동일 동작이라 코드 변경 없음 |
 | 에뮬레이터 | Hosting 에뮬레이터도 rewrite를 함수 에뮬레이터로 프록시(`lib/hosting/functionsProxy.js:24-38` [코드]). 리전 기본 `us-central1` — rewrite에 `region`을 적으면 그 값 사용 | [코드]. 2nd gen 리전 이슈(#7580)는 [스니펫] — 실측 필요 |
+| **`pinTag`(DR-15)** | rewrite에 `"pinTag": true`를 주면 Hosting 릴리스가 그 시점의 함수 리비전(Cloud Run 트래픽 태그)에 묶인다 → **프리뷰 채널마다 다른 함수 버전**을 볼 수 있고, `firebase deploy --only hosting`에도 고정 함수가 함께 배포된다 [스니펫]. CLI 제약: 실험 플래그 `pintags`(기본 켜짐, `lib/experiments.js:103-113` [코드]) · **`minInstances`와 양립 불가**(`lib/deploy/hosting/convertConfig.js:136-139` [코드]) · 1세대 불가(`:119-121` [코드]) · Cloud Run 고정 트래픽 태그는 **리전당 2,000개** 한도이고 CLI는 한 서비스의 태그가 **500개**를 넘으면 자기가 만든 태그를 자동 정리(`experiments.js:108-111` · `lib/hosting/runTags.js:52` [코드]). 검토 지시에 언급된 "태그 1,000개 한도"는 공식 문서 원문으로 재확인 [미확인] | [코드]/[스니펫] |
+| **Hosting과의 동일 배치(colocation)** | 공식 문서는 Hosting과 최적 성능을 내는 함수 리전으로 `us-west1` · `us-central1` · `us-east1` · `europe-west1` · `asia-east1`를 제시한다 — **서울(`asia-northeast3`)은 이 목록에 없다**(목록은 검토 지시에서 제공, 스니펫에서는 "colocate your functions with Hosting by choosing one of the following regions" 문구까지 확인). Hosting 경유 지연은 "사용자→CDN 엣지" + "엣지→함수 리전"의 합이라 서울 사용자에게 서울 함수가 유리할지, 목록 리전(가장 가까운 `asia-east1` 타이완)이 유리할지는 실측 없이 단정할 수 없음 → **DR-2는 스테이징 실측(서울 vs 타이완 vs 도쿄, `import-inbox` p50/p95)으로 결정** | [스니펫] `https://firebase.google.com/docs/hosting/functions` / 검토 지시 |
 
 ### 3.3 Express 마운트 시 `req.url` 함정 (구현 세션 필독)
 
@@ -153,7 +156,7 @@ rewrite `function` 블록의 스키마(`functionId`·`region`·`pinTag`)는 `fir
 | `VAPID_PRIVATE_KEY` | Vercel env | **Secret Manager** | `cronReminders` | |
 | `VAPID_SUBJECT` | Vercel env | params | `.env.<project>` (`mailto:` 서비스 주소) | |
 | `CRON_SECRET` | Vercel env | **삭제** | §4 | |
-| `FIREBASE_WEB_API_KEY` | Vercel env(선택) | params — **이름 변경 필수** | `FIREBASE_` 접두사는 Functions env에서 **예약**되어 배포 거부(`lib/functions/env.js:22,128` [코드]: `RESERVED_PREFIXES = ["X_GOOGLE_","FIREBASE_","EXT_","KIT_"]`) → 예: `WEB_API_KEY`. 코드 3곳(`verify-auth.js:4`, `verify-uid.js:5`, `push-sync.js:18`)+`.env.example`+README 갱신(구현 세션) | 값은 공개 웹 키라 시크릿 불필요 |
+| `FIREBASE_WEB_API_KEY` | Vercel env(선택) | params — **새 이름 + 코드 폴백 유지** | `FIREBASE_` 접두사는 Functions env에서 **예약**되어 배포 거부(`lib/functions/env.js:22,128` [코드]: `RESERVED_PREFIXES = ["X_GOOGLE_","FIREBASE_","EXT_","KIT_"]`) → 새 이름(예: `WEB_API_KEY`)으로 읽되, **기존 하드코딩 폴백(공개 웹 키)은 그대로 둔다** — 미설정이어도 동작하고, Vercel 병행 기간엔 옛 이름도 함께 읽는다(`process.env.WEB_API_KEY || process.env.FIREBASE_WEB_API_KEY || "<공개 웹 키>"`). 코드 3곳(`verify-auth.js:4`, `verify-uid.js:5`, `push-sync.js:18`)+`.env.example`+README 갱신(구현 세션) | 값은 공개 웹 키라 시크릿 불필요 |
 | `PRODUCTION_ORIGIN` | Vercel env | params | `.env.<project>` — prod: `https://<커스텀도메인>`, staging: `https://<staging>.web.app` | 02 §1 |
 | `IMPORT_TOKEN` | Vercel env | **Secret Manager** | `ingress` | 단축어 헤더 값. 새 원점에서 **재발급 여부는 DR-9와 무관, 02 §1 HAE 항목** |
 | `IMPORT_UID` · `IMPORT_CUTOVER_DATE` · `IMPORT_BODY_CUTOVER_DATE` · `IMPORT_TZ_OFFSET` | Vercel env | params | `.env.<project>` | 값은 우편함 귀속·컷오버 — 비밀 아님 |
@@ -169,6 +172,18 @@ rewrite `function` 블록의 스키마(`functionId`·`region`·`pinTag`)는 `fir
 Secret Manager 무료 6 버전/월, 초과 버전당 $0.06/월 [스니펫] `https://cloud.google.com/secret-manager/pricing` → ≈ $0.24/월.
 `.env`·`.env.<project>`·`.secret.local`(에뮬레이터용) 파일은 `functions.source` 디렉터리에 둔다 [스니펫]
 `https://firebase.google.com/docs/functions/config-env`. **`.secret.local`은 반드시 `.gitignore`**.
+
+**묶음 안 — `defineJsonSecret`(DR-7의 "형태" 결정)**: `firebase-functions@7.3.2`는 JSON 한 덩어리를 시크릿 하나로 두고
+`.value()`가 파싱된 객체를 돌려주는 `defineJsonSecret(name)`을 제공한다(`lib/params/index.d.ts:54` · `lib/params/types.d.ts:224-236` [코드]).
+예: `BODYPLAN_SECRETS = { anthropicApiKey, vapidPrivateKey, importToken, kvToken }` → 프로젝트당 **활성 버전 1개**(prod+staging 2개)로
+무료 6개 안에 확실히 들어온다. 값 설정은 `firebase functions:secrets:set BODYPLAN_SECRETS --data-file secrets.json`(파일은 로컬에서 즉시 삭제).
+
+| 형태 | 장점 | 단점 |
+|---|---|---|
+| A. 개별 시크릿 4~5개 | 값 하나만 회전 가능 · 함수별 최소 바인딩(`ingress`는 IMPORT_TOKEN·KV만) · 콘솔에서 한 눈에 보임 | 활성 버전 8~10개 → 무료 6개 초과(≈$0.24/월, 사실상 무시 가능) |
+| B. JSON 묶음 1개 | 버전 수 최소 · `secrets:[…]` 한 줄 | 값 하나를 바꿔도 전체 재버전·전 함수 재배포 · 모든 함수가 모든 값을 봄(최소 권한 약화) · JSON 오타 시 함수 시작 실패 |
+
+추천: **A**(비용 차이 수십 센트 대비 격리·회전 이점). 시크릿 수가 10개를 넘는 시점에 B 재검토.
 
 ## 6. 런타임·패키지 구조
 
