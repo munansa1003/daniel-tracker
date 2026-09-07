@@ -4,7 +4,7 @@
 // 이 화면은 기존 스모크 테스트가 한 번도 열지 않던 곳이다(하단 네비 탭만 돈다).
 // 그런데 여기에 **파괴적 동작**이 들어왔으므로, 최소한 "열리고, 미리보기 건수가 맞고,
 // 확인을 거부하면 아무것도 지워지지 않는다"는 세 가지는 고정해 둔다.
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -82,7 +82,18 @@ async function openDataSettings() {
 }
 
 describe("자동 수신분 일괄 삭제 UI (R-19)", () => {
-  beforeEach(() => { document.body.innerHTML = ""; stored.clear(); vi.restoreAllMocks(); });
+  beforeEach(() => {
+    document.body.innerHTML = ""; stored.clear(); vi.restoreAllMocks();
+    // 시계 고정 — 일괄 삭제 패널의 기본 범위는 today()-13 ~ today()(App.jsx)라, 픽스처(2026-08-02~08-05)와
+    // 겹치려면 "오늘"이 2026-08-18 이전이어야 한다. 실제 달력이 지나자(2026-08-18~) 기본 범위가 비어
+    // 세 번째 케이스가 confirm 대신 alert 경로로 들어갔고, happy-dom에는 alert가 없어 unhandled
+    // rejection으로 게이트 전체가 빨간불이 됐다(2026-09-07 발견). 날짜를 픽스처 안으로 못 박는다.
+    vi.useFakeTimers({ toFake: ["Date"] });           // Date만 가짜 — setTimeout(act 대기)은 실제 타이머 유지
+    vi.setSystemTime(new Date("2026-08-10T12:00:00+09:00"));
+    // happy-dom에는 window.alert이 없다 — 어떤 경로로든 alert에 닿으면 TypeError가 아니라 호출 기록이 남게 한다
+    vi.stubGlobal("alert", vi.fn());
+  });
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
   it("데이터 화면이 열리고 일괄 삭제 항목이 보인다", async () => {
     const div = await openDataSettings();
@@ -113,6 +124,10 @@ describe("자동 수신분 일괄 삭제 UI (R-19)", () => {
     const btn = [...div.querySelectorAll("button")].find((b) => b.textContent.includes("자동 수신분 삭제"));
     expect(btn).toBeTruthy();
     await click(btn);
+    // confirm 경로를 실제로 탔는지 명시적으로 본다 — 기본 범위가 비어 alert("지울 것 없음")로 빠지면
+    // 저장 0건은 같아도 "취소를 존중했다"는 검증이 아니다(조용한 통과 방지).
+    expect(globalThis.alert).not.toHaveBeenCalled();
+    expect(globalThis.confirm).toHaveBeenCalledTimes(1);
     // 저장이 한 번도 일어나지 않았다
     expect(stored.size).toBe(0);
   });
