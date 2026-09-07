@@ -102,7 +102,7 @@ rewrite `function` 블록의 스키마(`functionId`·`region`·`pinTag`)는 `fir
 |---|---|---|
 | 응답 우선순위 | 예약 네임스페이스 `/__/*` → redirects → **정확히 일치하는 정적 파일** → rewrites → 404 | [스니펫] `https://firebase.google.com/docs/hosting/full-config` — 구현 세션에서 원문 재확인 |
 | 정적 파일 우선의 의미 | `dist/`에 `/api/*`·`/export/*` 파일이 없으므로 rewrite가 동작. 반대로 `dist/index.html`·`sw.js`·`manifest.webmanifest`·`push-sw.js`는 rewrite 없이 정적 제공 | 빌드 산출물 실측(§6.6) |
-| **겹치는 glob의 순서** | `/api/health-import`(ingress)와 `/api/**`(api)가 겹친다. Hosting이 "첫 번째 일치 규칙"을 쓰는지 원문 미확인 → **[미확인]**. 안전책: ① 구체 경로를 앞에 둔다 ② 배포 직후 프리뷰 채널에서 `curl -I`로 실측 ③ 실측이 어긋나면 `ingress`를 `api` 함수에 합친다(§7의 B안 폴백) | — |
+| **겹치는 glob의 순서** | `/api/health-import`(ingress)와 `/api/**`(api)가 겹친다. Hosting이 "첫 번째 일치 규칙"을 쓰는지 원문 미확인 → **[미확인]**. 안전책: ① 구체 경로를 앞에 둔다 ② 배포 직후 프리뷰 채널에서 `curl -I`로 실측 ③ 실측이 어긋나면 `ingress`를 `api` 함수에 합친다(§7의 B안 폴백)<br>**✅ 해소(구현 세션, 2026-09-07)**: Hosting 에뮬레이터 실측에서 `firebase.json`에 적힌 순서대로 **첫 번째 일치 규칙이 이겼다** — `/api/health-import`→`ingress`, `/api/analyze-food`→`api`. 폴백 ③은 필요 없다. 근거 로그는 `DECISIONS.md §1`. 컷오버 전 프리뷰 채널에서 `X-Function-Group` 헤더로 한 번 더 확인한다(02 A9) | [실측] 에뮬레이터 라우팅 로그 |
 | Hosting → 2nd gen 함수 리전 | 1세대는 `us-central1` 한정이었으나 2nd gen은 rewrite에 `region`을 지정하면 다른 리전 가능(`asia-northeast3` 포함). CLI 코드가 `functionRegion`을 그대로 API에 넘긴다(`convertConfig.js:110-111` [코드]) | [코드] + [스니펫] `https://firebase.google.com/docs/hosting/functions` ("If region is omitted… defaults to us-central1") |
 | Hosting 경유 요청 타임아웃 | **60초 상한** — 함수 timeout을 더 길게 잡아도 Hosting이 504를 낸다 | [스니펫] `https://firebase.google.com/docs/hosting/functions` — 원문 재확인 필요 |
 | 함수가 받는 경로 | rewrite 원본 경로 전체(`/api/analyze-food`, `/export/view/<t>`)가 그대로 전달됨 | [스니펫] `https://github.com/firebase/firebase-functions/issues/858` + Vercel도 동일 동작이라 코드 변경 없음 |
@@ -298,7 +298,7 @@ B는 그 방어선이 배포본에도 그대로 적용된다. C는 성능이 낫
 | 초과 시 단가 | Tier 1 vCPU $0.000024/s · GiB $0.0000025/s · $0.40/100만 요청 [스니펫]. **`asia-northeast3`는 Tier 2**로 더 비쌈(+35% 수준 [스니펫], 정확 단가 [미확인]) | 2배 트래픽이면 vCPU 74k 초과 × ≈$0.000032 ≈ **$2.4** | | | `https://docs.cloud.google.com/run/docs/locations` |
 | Hosting 저장 | 1.4MB × 보관 릴리스 수 | ≪ 1GB | 10GB | <1% | [스니펫] `https://firebase.google.com/docs/hosting/usage-quotas-pricing` |
 | Hosting 전송 | 신규 설치 1,000×1.3MB + 배포 8회×400 DAU×0.4MB | ≈ 2.6GB/월 ≈ 87MB/일 | 360MB/일 | 24% (전체 청크 갱신 배포일은 520MB → 초과분 $0.15/GB ≈ $0.02) | 같은 페이지 |
-| Firestore 읽기(**범위 밖 — 언급만**) | `getAllData`가 앱 열 때마다 `data` 컬렉션 전량(`store.js:405-426`): 400 DAU × 3 × 400문서 | 14.4M/월 | 50k/일(=1.5M/월) | **960%** → (14.4M−1.5M)×$0.06/10만 ≈ **$7.7/월** | [스니펫] `https://firebase.google.com/pricing`. 이 항목이 청구서의 대부분이며 별도 세션(`getAllData` 개선)의 근거 |
+| Firestore 읽기(**범위 밖 — 언급만**) | `getAllData`가 앱 열 때마다 `data` 컬렉션 전량(`store.js:405-426`): 400 DAU × 3 × 400문서 | 14.4M/월 | 50k/일(=1.5M/월) | **960%** → (14.4M−1.5M)×**$0.03/10만** ≈ **$3.9/월** | [스니펫] `https://firebase.google.com/pricing`. **단가 정정(구현 세션)**: 2026-04 이후 문서 읽기 단가는 10만 건당 $0.03이다(초안의 $0.06은 옛 값). 금액은 절반이 되지만 **결론은 그대로**다 — 무료 한도 소비율 960%가 변하지 않고, 이 항목이 여전히 청구서의 대부분이라 별도 세션(`getAllData` 개선)의 근거도 그대로다 |
 | Cloud Scheduler | 잡 1개 | $0 | 3잡/청구계정 | 33% | [스니펫] |
 | Secret Manager | 8~10 버전 | ≈ $0.24 | 6 버전 | 초과 | [스니펫] |
 | Cloud Build(배포) · Artifact Registry(이미지) | 배포당 빌드 4개 · 이미지 4×≈150MB | 소액 | [미확인] | — | `functions:artifacts:setpolicy`로 옛 이미지 정리(`lib/functions/artifacts.js` [코드]) |
