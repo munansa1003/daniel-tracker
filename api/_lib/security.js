@@ -21,13 +21,22 @@ function getAllowedOrigins() {
 }
 
 // Firebase Hosting 프리뷰 채널 원점 허용 — **스테이징 전용**.
+//
 // 채널 주소는 배포마다 호스트가 달라(`<project>--<채널>-<해시>.web.app`) 목록으로 못 적는다.
-// 그래서 접미사 일치로 연다. 열리는 조건이 두 겹이다:
-//   ① PREVIEW_ORIGIN_SUFFIX가 **설정돼 있어야** 한다 — prod에는 이 값을 두지 않으므로 완전 off.
-//   ② https 이고, 호스트가 접미사보다 길면서 그 접미사로 끝나야 한다.
-// ②의 "더 길어야 한다"가 중요하다: 접미사와 호스트가 같으면 그건 프리뷰가 아니라 고정 도메인이고,
-// 고정 도메인은 PRODUCTION_ORIGIN에 정확히 적는 자리다. 여기서 같은 것까지 받아 주면
-// 접미사 하나로 고정 도메인이 조용히 열려 이 함수의 의미가 흐려진다.
+// 그래서 PREVIEW_ORIGIN_SUFFIX(콤마로 여러 개)로 연다. 열리는 조건이 두 겹이다:
+//   ① 값이 **설정돼 있어야** 한다 — prod에는 두지 않으므로 기본 상태는 완전 off.
+//   ② https 이고, 호스트가 그 값과 맞아야 한다.
+//
+// 값의 형태는 둘 다 받는다:
+//   · `*` 없는 값 → 순수 접미사. 호스트가 그 접미사보다 **길면서** 그것으로 끝나야 한다.
+//     "더 길어야 한다"가 중요하다 — 같으면 그건 프리뷰가 아니라 고정 도메인이고, 고정 도메인은
+//     PRODUCTION_ORIGIN에 정확히 적는 자리다. 여기서 같은 것까지 받으면 값 하나로 고정 도메인이
+//     조용히 열려 이 함수의 의미가 흐려진다.
+//   · `*` 있는 값 → 호스트 패턴. `*`는 **점을 넘지 않는** 한 조각과만 맞는다.
+//     프리뷰 채널 호스트는 프로젝트 이름이 **앞**에 오므로(`bodyplan-staging--pr-12-ab34cd.web.app`)
+//     순수 접미사로는 프로젝트를 못 묶는다 — `.web.app`으로 열면 남의 Firebase 사이트까지 열린다.
+//     `bodyplan-staging--*.web.app`처럼 적으면 그 프로젝트의 채널만 허용된다(03 §2 C안의 표기).
+// 값은 정규식이 아니다 — `*` 외의 모든 문자는 이스케이프해 그대로 비교한다.
 function matchesPreviewSuffix(origin) {
   const raw = process.env.PREVIEW_ORIGIN_SUFFIX;
   if (!raw) return false;
@@ -37,8 +46,11 @@ function matchesPreviewSuffix(origin) {
     if (u.protocol !== "https:") return false;
     host = u.host;
   } catch { return false; }
-  return raw.split(",").map(s => s.trim()).filter(Boolean)
-    .some(sfx => host.length > sfx.length && host.endsWith(sfx));
+  return raw.split(",").map(s => s.trim()).filter(Boolean).some((pat) => {
+    if (!pat.includes("*")) return host.length > pat.length && host.endsWith(pat);
+    const re = new RegExp("^" + pat.split("*").map(p => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[^.]*") + "$");
+    return re.test(host);
+  });
 }
 
 export function checkOrigin(req, res) {
