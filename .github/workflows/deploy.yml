@@ -98,22 +98,31 @@ jobs:
 
       # 배포 후 스모크(02 런북 B3) — 넷 중 하나라도 어긋나면 즉시 드러난다.
       #
-      # `pipefail`이 필요하다: `curl -sf … | head -1`은 파이프의 **마지막** 명령(head)의 종료
-      # 코드를 쓰므로, 이것이 없으면 사이트가 죽어 curl이 실패해도 스모크가 통과한다.
+      # 파이프를 쓰지 않는다. `curl … | head -1`이나 `| grep -q`는 뒤쪽이 먼저 끝나 curl이
+      # SIGPIPE로 죽고, `pipefail`이 켜져 있으면 **성공한 검사가 실패로 뒤집힌다**.
+      # 대신 변수에 받아 두고 검사한다 — 종료 코드가 검사 대상 한 가지에서만 나온다.
       - name: Post-deploy smoke
         if: ${{ vars.PROD_HOSTNAME != '' }}
         shell: bash
         run: |
           set -euo pipefail
           U="https://${{ vars.PROD_HOSTNAME }}"
-          curl -sfI "$U/" | head -1
+
+          # 사이트가 살아 있다 (-f: 2xx가 아니면 curl이 실패)
+          curl -sfI -o /dev/null "$U/"
+
+          # 공유 뷰: 없는 토큰은 404 (경로형 라우팅이 살아 있다는 신호)
           test "$(curl -s -o /dev/null -w '%{http_code}' "$U/export/view/00000000000000000000000000000000")" = "404"
-          curl -sf "$U/export/diag" | grep -q '"route":"export-view"'
+
+          # 진단 JSON
+          diag="$(curl -sf "$U/export/diag")"
+          case "$diag" in *'"route":"export-view"'*) ;; *) echo "unexpected /export/diag: $diag"; exit 1 ;; esac
+
           # 수신 창구는 **어느 그룹이 답했는지**로 본다. 상태 코드를 401로 못 박으면,
           # 단축어 env 3종(IMPORT_TOKEN·UID·CUTOVER)을 아직 안 넣은 정상 상태에서 503이 나와
           # **성공한 배포가 빨간불**이 된다. 그 셋은 선택 기능이라 없을 수 있다.
           # 401(토큰 불일치)·503(기능 비활성) 둘 다 "함수가 살아 있고 ingress로 갔다"는 뜻이다.
-          code="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$U/api/health-import" -H 'X-Import-Token: wrong' -d '{}')"
+          hdr="$(curl -s -D - -o /dev/null -X POST "$U/api/health-import" -H 'X-Import-Token: wrong' -d '{}' -w '%{http_code}')"
+          case "$hdr" in *[Xx]-[Ff]unction-[Gg]roup:*ingress*) ;; *) echo "not routed to ingress"; echo "$hdr"; exit 1 ;; esac
+          code="${hdr##*$'\n'}"
           case "$code" in 401|503) ;; *) echo "unexpected /api/health-import status: $code"; exit 1 ;; esac
-          curl -s -D - -o /dev/null -X POST "$U/api/health-import" -H 'X-Import-Token: wrong' -d '{}' \
-            | grep -qi '^x-function-group: ingress'

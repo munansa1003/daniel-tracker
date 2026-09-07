@@ -113,17 +113,22 @@ jobs:
           url="$(node -e "const j=require('./channel.json');console.log(Object.values(j.result)[0].url)")"
           echo "url=$url" >> "$GITHUB_OUTPUT"
 
-      # 채널이 실제로 살아 있는지 — 런북 B3와 같은 3종.
+      # 채널이 실제로 살아 있는지 — 런북 B3와 같은 4종.
+      # 파이프를 쓰지 않는다: `| head -1`·`| grep -q`는 뒤쪽이 먼저 끝나 curl이 SIGPIPE로 죽고,
+      # `pipefail`이 켜져 있으면 **성공한 검사가 실패로 뒤집힌다**. 변수에 받아 두고 검사한다.
       - name: Smoke (curl)
+        shell: bash
         run: |
           set -euo pipefail
           U="${{ steps.channel.outputs.url }}"
-          curl -sfI "$U/" | head -1
+          curl -sfI -o /dev/null "$U/"
           test "$(curl -s -o /dev/null -w '%{http_code}' "$U/export/view/00000000000000000000000000000000")" = "404"
-          curl -sf "$U/export/diag" | grep -q '"route":"export-view"'
-          # 겹치는 rewrite glob의 우선순위를 눈이 아니라 헤더로 확인한다(01 §3.2)
-          curl -s -D - -o /dev/null -X POST "$U/api/health-import" \
-            -H 'X-Import-Token: wrong' -d '{}' | grep -qi '^x-function-group: ingress'
+          diag="$(curl -sf "$U/export/diag")"
+          case "$diag" in *'"route":"export-view"'*) ;; *) echo "unexpected /export/diag: $diag"; exit 1 ;; esac
+          # 겹치는 rewrite glob의 우선순위를 눈이 아니라 헤더로 확인한다(01 §3.2):
+          # /api/health-import 는 /api/**(api)가 아니라 ingress가 받아야 한다.
+          hdr="$(curl -s -D - -o /dev/null -X POST "$U/api/health-import" -H 'X-Import-Token: wrong' -d '{}')"
+          case "$hdr" in *[Xx]-[Ff]unction-[Gg]roup:*ingress*) ;; *) echo "not routed to ingress"; echo "$hdr"; exit 1 ;; esac
 
       # 채널 URL은 `env:`로 넘긴다. 스크립트 본문에 `${{ }}`로 보간하면 그 값이 **JS 코드로**
       # 붙어, 값에 백틱·`${`가 섞이는 순간 문법이 깨지거나 임의 코드가 된다(GitHub 공식 권고).
