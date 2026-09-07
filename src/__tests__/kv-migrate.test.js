@@ -624,6 +624,9 @@ describe("kv-migrate — 모르는 타입", () => {
     const r = await run([]);
     expect(r.code).toBe(2);
     expect(r.out).toContain("복사하지 못하는 타입");
+    // 종료 코드는 2인데 화면 마지막 줄이 "--apply 를 붙여 다시 실행하세요"면 사람은 그렇게 한다
+    expect(r.out).not.toContain("--apply 를 붙여 다시 실행하세요");
+    expect(r.err).toContain("그대로 --apply 하면");
   });
 });
 
@@ -755,6 +758,17 @@ describe("kv-migrate — 대조(--verify)", () => {
     const r = await run(["--verify"]);
     expect(r.code).toBe(2);
     expect(r.err).toContain("import:log:daniel: 값 불일치");
+  });
+
+  it("대상에 키가 더 있는 것은 실패가 아니고, 표에도 그렇게 적는다", async () => {
+    expect((await run(["--apply"])).code).toBe(0);
+    dst.seed("push:sub:다른사람", "string", JSON.stringify({ endpoint: "https://push.example/z" }));
+    const r = await run(["--verify"]);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("대조 통과");
+    // "불일치"라고 찍어 놓고 "대조 통과"로 끝나면 사람이 무엇을 믿어야 할지 알 수 없다
+    expect(r.out).toMatch(/push:sub:\* — 푸시 구독\s+1 → \s*2\s+대상에 1개 더 있음/);
+    expect(r.out).not.toMatch(/push:sub:\*.*불일치/);
   });
 
   it("표본 수를 줄이면 그만큼만 보고, 재실행해도 같은 키를 본다(D-8)", async () => {

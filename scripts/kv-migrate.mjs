@@ -570,8 +570,13 @@ async function dryRun(src, dst, opt) {
   } else {
     console.log("\n■ 대상 — DST_URL/DST_TOKEN 미설정(점검만 하므로 넘어갑니다)");
   }
+  if (inv.unsupported.length) {
+    console.error(`\n중단: 이 스크립트가 복사하지 못하는 타입이 ${inv.unsupported.length}개 있습니다.`);
+    console.error("그대로 --apply 하면 그 키들만 빠진 채 나머지가 옮겨집니다. 먼저 해당 키를 확인하세요.");
+    return 2;
+  }
   console.log(`\n복사 예정 키: ${inv.keys.length}개. 실제 복사는 --apply 를 붙여 다시 실행하세요.`);
-  return inv.unsupported.length ? 2 : 0;
+  return 0;
 }
 
 // ── 복사(--apply) ────────────────────────────────────────────────────────────
@@ -761,7 +766,10 @@ async function verifyCopy(src, dst, opt) {
     for (const g of allGroups) {
       const a = s.groups.get(g)?.count || 0;
       const b = d.groups.get(g)?.count || 0;
-      console.log(`    ${pad(g, w)}  ${String(a).padStart(6)} → ${String(b).padStart(6)}  ${a === b ? "일치" : "불일치"}`);
+      // 대상이 더 많은 것은 실패가 아니다(--allow-nonempty로 옮겨 붙인 경우) — 그런데도
+      // "불일치"라고 찍으면 아래의 "대조 통과"와 정면으로 어긋나 사람을 헷갈리게 한다.
+      const verdict = a === b ? "일치" : b > a ? `대상에 ${b - a}개 더 있음` : "불일치";
+      console.log(`    ${pad(g, w)}  ${String(a).padStart(6)} → ${String(b).padStart(6)}  ${verdict}`);
     }
   }
   for (const k of missing.slice(0, 10)) console.error(`  대상에 없음: ${k}`);
