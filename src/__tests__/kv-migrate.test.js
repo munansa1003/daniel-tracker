@@ -515,6 +515,26 @@ describe("kv-migrate — 비UTF-8 값", () => {
   });
 });
 
+describe("kv-migrate — 모르는 타입", () => {
+  // 지금 코드가 만들지 않는 타입(stream 등)이 나중에 생겼을 때, 조용히 빠뜨리는 것이 가장 나쁘다.
+  it("복사하지 못하는 타입은 건너뛰지 않고 실패로 세어 종료 코드 2로 끝난다", async () => {
+    src.seed("stream:sample", "stream", "x");
+    const r = await run(["--apply"]);
+    expect(r.code).toBe(2);
+    expect(r.out).toMatch(/미지원 타입 1개/);
+    expect(r.err).toContain("미지원: stream:sample (stream)");
+    expect(Object.keys(dst.snapshot())).not.toContain("stream:sample");
+    expect(Object.keys(dst.snapshot()).length).toBe(COPYABLE_KEYS);   // 나머지는 정상 복사
+  });
+
+  it("점검에서도 미리 경고하고 0으로 끝나지 않는다", async () => {
+    src.seed("stream:sample", "stream", "x");
+    const r = await run([]);
+    expect(r.code).toBe(2);
+    expect(r.out).toContain("복사하지 못하는 타입");
+  });
+});
+
 describe("kv-migrate — TTL", () => {
   it("TTL은 남은 시간으로 유지하고, 영구 키는 영구로 남긴다", async () => {
     const r = await run(["--apply"]);
