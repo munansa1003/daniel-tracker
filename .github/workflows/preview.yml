@@ -101,14 +101,14 @@ jobs:
       - name: Deploy functions (staging, best-effort)
         continue-on-error: true
         run: >
-          npx -y firebase-tools@15 deploy --only functions
+          npx -y firebase-tools@15.29.0 deploy --only functions
           --project "${{ vars.FIREBASE_PROJECT_STAGING }}" --force --non-interactive
 
       - name: Deploy preview channel (staging)
         id: channel
         run: |
           set -euo pipefail
-          npx -y firebase-tools@15 hosting:channel:deploy "pr-${{ github.event.pull_request.number }}" \
+          npx -y firebase-tools@15.29.0 hosting:channel:deploy "pr-${{ github.event.pull_request.number }}" \
             --project "${{ vars.FIREBASE_PROJECT_STAGING }}" --expires 7d --json > channel.json
           url="$(node -e "const j=require('./channel.json');console.log(Object.values(j.result)[0].url)")"
           echo "url=$url" >> "$GITHUB_OUTPUT"

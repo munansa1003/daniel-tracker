@@ -205,6 +205,16 @@ describe("exportView 그룹 — AI 공유 링크(P1)", () => {
     expect(r.status).toBe(404);
   });
 
+  it("뒤에 조각이 더 붙어도 **같은 404 페이지**다 — no-store·noindex가 빠지지 않는다", async () => {
+    // Hosting `**`와 express `:t`의 폭 차이로 이 모양이 라우터 catch-all(맨 JSON)로
+    // 떨어졌었다. 공유 뷰의 헤더 계약은 URL이 조금 망가져도 유지돼야 한다.
+    const r = await fetch(`${EXPORT}/export/view/${"0".repeat(32)}/preview`);
+    expect(r.status).toBe(404);
+    expect(r.headers.get("x-share-view")).toBeTruthy();
+    expect(r.headers.get("cache-control")).toBe("no-store");
+    expect(r.headers.get("x-robots-tag")).toContain("noindex");
+  });
+
   it("/export/diag는 200 JSON route=export-view (런북 B3 스모크)", async () => {
     const r = await fetch(`${EXPORT}/export/diag`);
     expect(r.status).toBe(200);

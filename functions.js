@@ -154,7 +154,13 @@ ingressApp.all("*", (req, res) => res.status(404).json({ error: "not-found" }));
 // ── 그룹 3: exportView — 공개 GET (AI 리더·주소창) ─────────────────────────
 // 세 경로 전부 같은 핸들러다. `vercel.json`이 하던 쿼리 치환만 여기서 재현한다.
 export const exportViewApp = group("exportView", EXPORT_VIEW_PARAMS);
-exportViewApp.all(["/export/view", "/export/view/:t", "/export/diag"], (req, res) => {
+// `/export/view/*`가 목록에 함께 있는 이유: Hosting의 `/export/view/**`는 **여러 세그먼트**를
+// 먹는데 express의 `:t`는 한 조각만 받는다. 그 차이만큼(`/export/view/<t>/뭔가`)이 라우터의
+// catch-all로 떨어져, 공유 뷰의 no-store·noindex 헤더가 없는 맨 JSON 404가 나갔다.
+// 이제 실물 핸들러가 받아 자기 규칙(`isValidToken`)으로 판단하고 늘 같은 404 페이지를 준다.
+// **`firebase.json` 쪽은 건드리지 않는다** — `/export/view/**`는 이 이전에서 가장 먼저
+// 지켜야 하는 경로라(AI 공유 링크), 실측 없이 폭을 좁히는 쪽이 훨씬 위험하다.
+exportViewApp.all(["/export/view", "/export/view/:t", "/export/view/*", "/export/diag"], (req, res) => {
   if (req.params && req.params.t !== undefined && req.query?.t === undefined) {
     injectQuery(req, { t: req.params.t });          // `/export/view/:t` → `?t=:t`
   }

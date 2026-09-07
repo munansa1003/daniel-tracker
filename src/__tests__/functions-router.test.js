@@ -195,7 +195,17 @@ describe("exportView 그룹 — vercel.json의 쿼리 치환을 라우터가 재
     expect(r.headers.get("x-function-group")).toBe("exportView");
   });
 
-  it("세 경로 밖은 404 — 핸들러를 부르지 않는다", async () => {
+  it("다중 세그먼트(/export/view/<t>/뭔가)도 **실물 핸들러**가 받는다", async () => {
+    // Hosting의 `/export/view/**`는 여러 세그먼트를 먹는데 express의 `:t`는 한 조각만 받는다.
+    // 그 차이만큼이 라우터 catch-all로 떨어지면 공유 뷰의 no-store·noindex 없는 맨 JSON 404가
+    // 나간다. 핸들러가 받으면 자기 규칙으로 판단해 늘 같은 404 페이지를 준다.
+    const r = await fetch(`${EXPORT}/export/view/${"a".repeat(32)}/preview`);
+    const body = await r.json();
+    expect(body.handler).toBe("export-view");
+    expect(body.url).toBe(`/export/view/${"a".repeat(32)}/preview`);   // req.url이 온전하다
+  });
+
+  it("/export 밖 경로는 여전히 404 — 핸들러를 부르지 않는다", async () => {
     const r = await fetch(`${EXPORT}/export/other`);
     expect(r.status).toBe(404);
     expect(calls).toEqual([]);

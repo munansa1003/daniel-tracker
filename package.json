@@ -12,7 +12,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest",
-    "test:emu": "npx -y firebase-tools@15 emulators:exec --project demo-bodyplan --only functions,hosting \"npx vitest run --config vitest.emu.config.js\"",
+    "test:emu": "npx -y firebase-tools@15.29.0 emulators:exec --project demo-bodyplan --only functions,hosting \"npx vitest run --config vitest.emu.config.js\"",
     "lint": "eslint src api"
   },
   "dependencies": {

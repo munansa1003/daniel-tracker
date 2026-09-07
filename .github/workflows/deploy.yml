@@ -93,7 +93,7 @@ jobs:
       # PREVIEW_ORIGIN_SUFFIX는 prod에 두지 않는다 — 스테이징 전용이며, 없으면 완전 off다.
       - name: Deploy hosting + functions (prod)
         run: >
-          npx -y firebase-tools@15 deploy --only hosting,functions
+          npx -y firebase-tools@15.29.0 deploy --only hosting,functions
           --project "${{ vars.FIREBASE_PROJECT_PROD }}" --force --non-interactive
 
       # 배포 후 스모크(02 런북 B3) — 넷 중 하나라도 어긋나면 즉시 드러난다.
