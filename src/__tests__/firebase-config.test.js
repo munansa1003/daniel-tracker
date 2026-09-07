@@ -101,14 +101,50 @@ describe("functions 블록", () => {
     expect(fns.runtime).toBe("nodejs22");
   });
 
-  it("ignore가 테스트·빌드 산출물·로컬 비밀을 배포본에서 뺀다", () => {
-    for (const p of ["node_modules", ".git", "dist", "docs", "src/__tests__", "public", ".secret.local", ".env.local"]) {
-      expect(fns.ignore, p).toContain(p);
+  // firebase-tools는 소스를 훑으며 **각 항목의 절대경로**를 ignore 패턴과 대조한다
+  // (`lib/fsAsync.js` readdirRecursive: `minimatch(absPath, glob, {matchBase:true, dot:true})`,
+  //  `lib/deploy/functions/prepareFunctionsUpload.js:77-80`). 그래서 패턴에 `/`가 들어가면
+  // **matchBase가 꺼져** 절대경로와 영영 맞지 않는다 — 예전의 `"src/__tests__"`가 그랬다.
+  // 목록에 이름이 있다는 것과 실제로 걸러진다는 것은 다르므로, 여기서는 **실제로 매칭해 본다.**
+  // firebase-tools의 매칭을 그대로 재현한다(minimatch를 끌어오지 않는다 — 그건 전이 의존성이라
+  // 트리가 바뀌면 이 테스트가 엉뚱한 이유로 깨진다). 위 테스트가 "패턴에 `/`가 없다"를 강제하므로
+  // 여기서 필요한 규칙은 딱 하나다: **matchBase** = 글롭을 경로의 **basename**과 대조한다.
+  const globToRe = (glob) => new RegExp(`^${glob.split("*").map((p) => p.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join("[^/]*")}$`);
+  // 그리고 매칭은 **경로를 훑으며 각 단계**에 적용된다: 어떤 디렉터리가 걸리면 그 아래로는
+  // 아예 안 들어간다(걸러낸 항목으로 재귀하지 않는다). 그래서 조상 중 하나라도 맞으면 제외다 —
+  // 한 경로만 단독으로 대조하면 `src/__tests__/emu` 같은 하위가 안 잡힌다.
+  const isIgnored = (relPath) =>
+    relPath.split("/").some((seg) => fns.ignore.some((glob) => globToRe(glob).test(seg)));
+
+  it("ignore 패턴에 `/`가 없다 — 있으면 matchBase가 꺼져 아무것도 안 걸린다", () => {
+    for (const p of fns.ignore) expect(p, `ignore 패턴 "${p}"`).not.toContain("/");
+  });
+
+  it("**실제로** 빠진다: 테스트·빌드 산출물·문서·로컬 비밀", () => {
+    for (const p of [
+      "node_modules", ".git", "dist", "docs", "bench", "fixtures", "public", "scripts", ".claude", ".github",
+      "src/__tests__", "src/__tests__/emu", "src/__tests__/fixtures",
+      ".env", ".env.daniel-tracker-cb781", ".env.bodyplan-staging", ".env.local", ".secret.local",
+    ]) {
+      expect(isIgnored(p), `${p} 가 배포본에 실린다`).toBe(true);
+    }
+  });
+
+  it("**실제로** 남는다: 함수가 런타임에 필요로 하는 파일", () => {
+    // functions.js → api/* → ../src/{analysisExport,reminders,utils,…}. 하나라도 빠지면 배포본이 죽는다.
+    for (const p of [
+      "functions.js", "package.json",
+      "api/import-inbox.js", "api/_lib/security.js", "api/_lib/params-bridge.js",
+      "src/utils.js", "src/reminders.js", "src/analysisExport.js", "src/bodyMetrics.js",
+      "src/bodyDraft.js", "src/healthEvents.js",
+    ]) {
+      expect(isIgnored(p), `${p} 가 배포본에서 빠진다`).toBe(false);
     }
   });
 
   it("src는 통째로 제외하지 않는다 — api/*가 ../src의 순수 모듈을 import한다", () => {
     expect(fns.ignore).not.toContain("src");
+    expect(isIgnored("src")).toBe(false);
   });
 });
 

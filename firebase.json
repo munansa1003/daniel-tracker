@@ -15,10 +15,10 @@
         "fixtures",
         "public",
         "scripts",
-        "src/__tests__",
+        "__tests__",
         "*.log",
-        ".env.local",
-        ".env.*.local",
+        ".env",
+        ".env.*",
         ".secret.local"
       ]
     }

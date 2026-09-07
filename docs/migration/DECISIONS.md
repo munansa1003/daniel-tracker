@@ -110,12 +110,30 @@ source: api, cronReminders, exportView, ingress`). 에뮬레이터는 `package.j
   넣어도 Firebase에서는 그 헤더가 오지 않아 무해하다.
 - **되돌리는 법**: 해당 3줄 삭제.
 
-### `[자동결정]` `functions.ignore`에 `.env.local`·`.env.*.local`·`.secret.local`을 넣는다
+### ⚠️ `functions.ignore`의 `"src/__tests__"`는 **아무것도 거르지 않았다** (리뷰 → 실측으로 발견)
 
-- **왜**: 루트가 함수 소스라(DR-3 B안) 로컬 비밀 파일이 배포 zip에 그대로 올라간다.
-  `ignore`는 업로드 목록에만 영향을 주고, 에뮬레이터는 디스크에서 직접 읽으므로 로컬 개발에는
-  영향이 없다(이 세션에서 `.env.local` 로딩이 정상 동작함을 확인).
-- **되돌리는 법**: `firebase.json`의 `functions[0].ignore`에서 세 줄 삭제.
+설계 문서의 `firebase.json` 초안과 이 세션의 첫 구현이 함께 갖고 있던 버그다.
+
+firebase-tools는 소스를 훑으며 **각 항목의 절대경로**를 ignore 패턴과 대조한다
+(`lib/fsAsync.js` `readdirRecursive` → `minimatch(absPath, glob, {matchBase:true, dot:true})`,
+`lib/deploy/functions/prepareFunctionsUpload.js:77-80`). `matchBase`는 **패턴에 `/`가 없을 때만**
+동작하므로, `"src/__tests__"`는 `/home/…/daniel-tracker/src/__tests__`와 **영영 맞지 않는다.**
+직접 재현해 확인했다 — `docs`·`dist` 같은 한 조각 패턴은 걸리고 `src/__tests__`만 그냥 통과했다.
+
+증상이 없다는 것이 이 버그의 문제다: 배포는 성공하고 테스트도 초록인데 배포본에 테스트가
+통째로 실린다. 게다가 이 세션의 첫 테스트는 **"목록에 그 문자열이 있는가"만** 봐서 절대 못 잡았다.
+
+- **고친 것**: `"src/__tests__"` → `"__tests__"`(한 조각이라 matchBase가 동작하고, 디렉터리가
+  걸리면 그 아래로 재귀하지 않으므로 하위까지 전부 빠진다).
+- **같이 고친 것**: `.env`·`.env.<projectId>`가 제외되지 않고 있었다 — **배포 때 실제로 존재하는
+  파일은 이쪽**이다(CI가 `Write functions env` step에서 만든다). 즉 "제외한 것은 배포 때 없는
+  파일, 배포 때 있는 파일은 제외 안 된 것"이었다. `.env`·`.env.*`로 바꿨다.
+  env 주입은 그대로다 — `loadUserEnvs`가 아카이브가 아니라 **배포 머신의 디스크에서 직접**
+  읽는 것을 소스로 확인했다(`lib/functions/env.js:245-260`).
+- **테스트**: 이제 firebase-tools의 매칭 규칙(패턴에 `/` 금지 + basename 대조 + 조상 디렉터리
+  가지치기)을 **재현해 실제로 걸러지는지** 본다. 변이 3종(패턴 되돌리기 · `.env` 제거 ·
+  `src` 통째 제외)이 전부 잡히는 것을 확인했다.
+- **되돌리는 법**: `firebase.json`의 `functions[0].ignore`에서 해당 줄 삭제(그러면 테스트가 실패한다).
 
 ### `[자동결정]` `params-bridge`의 1회 실행 플래그를 **그룹별**로 둔다
 
