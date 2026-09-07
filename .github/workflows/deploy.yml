@@ -1,0 +1,105 @@
+# .github/workflows/deploy.yml — main → 프로덕션 Hosting + Functions 배포.
+#
+# ⚠️ 가드가 먼저다: `vars.FIREBASE_PROJECT_PROD`가 비어 있으면 이 job은 통째로 **skip**된다.
+#    변수를 넣기 전에는 아무것도 배포되지 않고, 빨간불도 뜨지 않는다(회색 skip).
+#    변수 등록은 사람 작업이다 — docs/migration/DECISIONS.md §4.2.
+#
+# 규칙(firestore.rules)과 인덱스는 여기서 배포하지 않는다. `--only hosting,functions`가
+# 그 둘을 건드리지 않으며, 규칙 게시는 사람이 콘솔에서 한다(01 §10의 현행 관행).
+name: Deploy (production)
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "*.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write        # Workload Identity Federation (DR-13 A안 — 키 파일 없음)
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ vars.FIREBASE_PROJECT_PROD != '' }}
+    runs-on: ubuntu-latest
+    environment: production          # Environment 보호 규칙(승인자)을 걸 수 있는 자리
+    env:
+      # 빌드타임 주입 — 전부 번들에 그대로 실리는 공개 값이라 Secrets가 아니라 Variables다.
+      VITE_RECAPTCHA_SITE_KEY: ${{ vars.VITE_RECAPTCHA_SITE_KEY }}
+      VITE_VAPID_PUBLIC_KEY: ${{ vars.VITE_VAPID_PUBLIC_KEY }}
+      VITE_OWNER_EMAIL: ${{ vars.VITE_OWNER_EMAIL }}
+      VITE_AUTH_DOMAIN: ${{ vars.VITE_AUTH_DOMAIN }}
+      VITE_NEW_ORIGIN: ${{ vars.VITE_NEW_ORIGIN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      # 배포 직전에 게이트를 한 번 더 — main이 초록이었다는 사실과 "지금 이 커밋이 초록"은 다르다.
+      - run: npx eslint src api --max-warnings=0
+      - run: npx vitest run
+
+      - run: npm run build
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SA_EMAIL }}
+          create_credentials_file: true
+          export_environment_variables: true   # GOOGLE_APPLICATION_CREDENTIALS → firebase-tools가 읽는다
+
+      # 함수 env 파일(.env.<projectId>)을 배포 직전에 만든다.
+      # 저장소에는 커밋하지 않는다 — 공개 저장소라 uid·메일 주소가 히스토리에 남으면 되돌릴 수 없다.
+      # **값이 빈 변수는 줄 자체를 쓰지 않는다**: 빈 값을 쓰면 functions.js의 param default를
+      # 빈 문자열로 덮어써서, 예컨대 PRODUCTION_ORIGIN이 통째로 사라진다(= 앱 API 전부 403).
+      - name: Write functions env
+        env:
+          PROJECT: ${{ vars.FIREBASE_PROJECT_PROD }}
+          PRODUCTION_ORIGIN: ${{ vars.PRODUCTION_ORIGIN }}
+          KV_REST_API_URL: ${{ vars.KV_REST_API_URL }}
+          IMPORT_UID: ${{ vars.IMPORT_UID }}
+          IMPORT_CUTOVER_DATE: ${{ vars.IMPORT_CUTOVER_DATE }}
+          IMPORT_BODY_CUTOVER_DATE: ${{ vars.IMPORT_BODY_CUTOVER_DATE }}
+          IMPORT_TZ_OFFSET: ${{ vars.IMPORT_TZ_OFFSET }}
+          VAPID_SUBJECT: ${{ vars.VAPID_SUBJECT }}
+          VITE_VAPID_PUBLIC_KEY: ${{ vars.VITE_VAPID_PUBLIC_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          f=".env.$PROJECT"
+          : > "$f"
+          for k in PRODUCTION_ORIGIN KV_REST_API_URL IMPORT_UID IMPORT_CUTOVER_DATE \
+                   IMPORT_BODY_CUTOVER_DATE IMPORT_TZ_OFFSET VAPID_SUBJECT VITE_VAPID_PUBLIC_KEY; do
+            v="${!k-}"
+            if [ -n "$v" ]; then printf '%s=%s\n' "$k" "$v" >> "$f"; fi
+          done
+          # 로그에는 키 이름만 남긴다(값 금지)
+          echo "wrote $f with keys: $(cut -d= -f1 "$f" | tr '\n' ' ')"
+
+      # PREVIEW_ORIGIN_SUFFIX는 prod에 두지 않는다 — 스테이징 전용이며, 없으면 완전 off다.
+      - name: Deploy hosting + functions (prod)
+        run: >
+          npx -y firebase-tools@15 deploy --only hosting,functions
+          --project "${{ vars.FIREBASE_PROJECT_PROD }}" --force --non-interactive
+
+      # 배포 후 스모크(02 런북 B3) — 셋 중 하나라도 어긋나면 즉시 드러난다.
+      - name: Post-deploy smoke
+        if: ${{ vars.PROD_HOSTNAME != '' }}
+        run: |
+          set -eu
+          U="https://${{ vars.PROD_HOSTNAME }}"
+          curl -sfI "$U/" | head -1
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$U/export/view/00000000000000000000000000000000")" = "404"
+          curl -sf "$U/export/diag" | grep -q '"route":"export-view"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$U/api/health-import" -H 'X-Import-Token: wrong' -d '{}')" = "401"

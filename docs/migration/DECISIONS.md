@@ -155,13 +155,22 @@ Vercel과 같게 동작한다.
 
 | 종류 | 이름 |
 |---|---|
-| Secret | `GCP_WIF_PROVIDER` · `GCP_DEPLOY_SA_EMAIL` |
-| Variable | `FIREBASE_PROJECT_PROD` · `FIREBASE_PROJECT_STAGING` · `PROD_HOSTNAME` |
+| Secret(저장소) | `GCP_WIF_PROVIDER` · `GCP_DEPLOY_SA_EMAIL` |
+| Variable(저장소) | `FIREBASE_PROJECT_PROD` · `FIREBASE_PROJECT_STAGING` · `PROD_HOSTNAME` |
 | Variable(빌드) | `VITE_RECAPTCHA_SITE_KEY` · `VITE_VAPID_PUBLIC_KEY` · `VITE_OWNER_EMAIL` · `VITE_AUTH_DOMAIN` · `VITE_NEW_ORIGIN` |
-| Variable(함수 env) | `PRODUCTION_ORIGIN` · `KV_REST_API_URL` · `IMPORT_UID` · `IMPORT_CUTOVER_DATE` · `IMPORT_BODY_CUTOVER_DATE` · `VAPID_SUBJECT` · `PREVIEW_ORIGIN_SUFFIX`(staging만) |
+| Variable(함수 env) | `PRODUCTION_ORIGIN` · `KV_REST_API_URL` · `IMPORT_UID` · `IMPORT_CUTOVER_DATE` · `IMPORT_BODY_CUTOVER_DATE` · `IMPORT_TZ_OFFSET` · `VAPID_SUBJECT` · `PREVIEW_ORIGIN_SUFFIX`(staging만) |
+
+`[자동결정]` **prod와 staging이 같은 변수 이름을 쓴다** — 값은 GitHub **Environment**
+(`production` / `staging`)에 각각 둔다. Environment 변수가 저장소 변수를 덮으므로 워크플로는
+한 벌이면 되고, 이름이 갈리면(`STAGING_…`) 새 변수를 추가할 때마다 두 곳을 고쳐야 해서
+한쪽을 빠뜨리기 쉽다. 되돌리는 법: 두 워크플로의 `env:` 블록에서 `vars.X`를 `vars.STAGING_X`로.
+
+> ⚠️ **`KV_REST_API_URL`·`IMPORT_UID`는 `staging` Environment에 반드시 스테이징 값을 넣는다.**
+> 비워 두면 저장소 변수(= prod 값)로 떨어져 프리뷰가 **실데이터 사서함·푸시 구독**을 두드린다.
 
 **`FIREBASE_PROJECT_PROD`·`FIREBASE_PROJECT_STAGING`이 비어 있으면 배포 job은 통째로 skip된다**
 (빨간불이 아니라 회색). 즉 이 PR을 머지해도 변수를 넣기 전까지는 아무것도 배포되지 않는다.
+반면 `ci.yml`의 `emulator-smoke` job은 자격증명이 필요 없어 **지금 바로 돈다**.
 
 ### 4.3 컷오버 당일 (02 Phase B) — 순서 엄수
 
