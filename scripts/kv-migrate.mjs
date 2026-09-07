@@ -89,7 +89,8 @@ class UsageError extends Error {}
 
 // 값을 받지 않는 플래그. `--allow-nonempty=no`처럼 값을 붙이면 값이 무시되고 플래그만 켜져서
 // **안전장치를 끄려다 켜는** 정반대 결과가 된다 — 그래서 아예 거부한다.
-const BOOL_FLAGS = new Set(["--apply", "--verify", "--allow-nonempty", "--allow-empty", "--help", "-h"]);
+const BOOL_FLAGS = new Set(["--apply", "--verify", "--allow-nonempty", "--allow-empty",
+  "--overwrite-collections", "--help", "-h"]);
 
 // ── 인자 ─────────────────────────────────────────────────────────────────────
 function usage() {
@@ -104,6 +105,7 @@ function usage() {
     "  --verify                건수와 표본 값을 대조한다",
     "  --allow-nonempty        대상 DB가 비어 있지 않아도 --apply를 허용(재실행 시 필요)",
     "  --allow-empty           원본에서 옮길 키가 0개여도 성공으로 끝낸다(기본은 중단)",
+    "  --overwrite-collections 대상 컬렉션에 원본에 없는 항목이 있어도 덮어쓴다(그 항목은 사라진다)",
     "  --sample=N              대조 표본 키 수 (기본 100)",
     "  --match=GLOB            원본에서 훑을 키 패턴 (기본 *)",
     "  --exclude=A:,B:         제외할 접두사 목록 — 기본값을 덮어쓴다",
@@ -124,7 +126,7 @@ function intArg(name, value, min) {
 function parseArgs(argv) {
   const opt = {
     apply: false, verify: false, allowNonempty: false,
-    allowEmpty: false,
+    allowEmpty: false, overwriteCollections: false,
     sample: 100, match: "*", exclude: [...DEFAULT_EXCLUDE],
     ttlTolSec: 300, scanCount: SCAN_COUNT,
   };
@@ -140,6 +142,7 @@ function parseArgs(argv) {
       case "--verify": opt.verify = true; break;
       case "--allow-nonempty": opt.allowNonempty = true; break;
       case "--allow-empty": opt.allowEmpty = true; break;
+      case "--overwrite-collections": opt.overwriteCollections = true; break;
       case "--sample": opt.sample = intArg(name, value, 1); break;
       case "--ttl-tolerance": opt.ttlTolSec = intArg(name, value, 0); break;
       case "--scan-count": opt.scanCount = intArg(name, value, 1); break;
@@ -408,6 +411,25 @@ function chunk(arr, size) {
   const out = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
   return out;
+}
+
+// 대상에만 있는 필드·원소의 수. 컬렉션은 DEL 후 재생성하므로, 대상에만 있는 항목은
+// 덮어쓰는 순간 **에러 없이 사라진다**. 컷오버 이후 새 DB에 쌓인 수신분이 바로 그 자리다.
+// (문자열은 DEL을 쓰지 않고 통째로 교체하므로 이 검사의 대상이 아니다)
+function dstOnlyCount(type, srcVal, dstVal) {
+  if (dstVal === null || dstVal === undefined) return 0;
+  if (type === "hash" || type === "zset") {
+    let n = 0;
+    for (const f of dstVal.keys()) if (!srcVal.has(f)) n++;
+    return n;
+  }
+  if (type === "set" || type === "list") {
+    const have = new Set(srcVal);
+    let n = 0;
+    for (const v of dstVal) if (!have.has(v)) n++;
+    return n;
+  }
+  return 0;
 }
 
 // 대상에 그대로 복원하는 명령들. 컬렉션은 DEL 후 재생성한다 —
@@ -681,6 +703,17 @@ async function applyCopy(src, dst, opt) {
           && canon(m.type, dstVals.get(k)) === canon(m.type, value)
           && ttlMatches(m.pttl, dm.pttl, opt.ttlTolSec);
         if (same) { stat.skipped++; continue; }
+        // 대상 컬렉션에 원본에 없는 항목이 있으면 덮어쓰지 않는다 — 그 항목은 DEL과 함께
+        // 조용히 사라진다. 컷오버(⑤) 이후에 이 스크립트를 다시 돌리면 실제로 벌어지는 일이라,
+        // 안내 문구가 아니라 코드로 막는다(04 §4). 정말 덮어야 하면 --overwrite-collections.
+        if (m.type !== "string" && !opt.overwriteCollections) {
+          const extra = dstOnlyCount(m.type, value, dstVals.get(k));
+          if (extra > 0) {
+            stat.failed.push(`${k}: 대상에만 있는 항목 ${extra}개 — 덮어쓰면 사라집니다`
+              + "(컷오버 이후라면 04 §4대로 손으로 처리하세요. 정말 덮어야 하면 --overwrite-collections)");
+            continue;
+          }
+        }
         plan.push({ key: k, cmds: writeCommands(k, m.type, value, m.pttl) });
       }
 
@@ -720,6 +753,7 @@ async function applyCopy(src, dst, opt) {
   }
   if (stat.failed.length || stat.unsupported.length) {
     console.error("일부 키를 옮기지 못했습니다. 원인을 고친 뒤 --apply --allow-nonempty 로 다시 실행하세요(멱등).");
+    console.error("단 ⑤ 재배포(env 교체) **이후**라면 재복사하지 마세요 — 04 §4의 키 종류별 처리를 따릅니다.");
     return 2;
   }
   console.log("복사 완료. 이어서 --verify 로 대조하세요.");
@@ -813,7 +847,10 @@ async function verifyCopy(src, dst, opt) {
   for (const m of mismatches.slice(0, 20)) console.error(`  ${m}`);
 
   if (missing.length || mismatches.length) {
-    console.error("\n대조 실패 — 위 항목을 확인하고 --apply --allow-nonempty 로 다시 복사하세요.");
+    console.error("\n대조 실패 — 위 항목을 확인하세요.");
+    console.error("⑤ 재배포 **전**이라면 --apply --allow-nonempty 로 다시 복사하면 됩니다(멱등).");
+    console.error("⑤ **이후**라면 재복사하지 마세요 — 새 DB의 최신 값을 옛 값으로 되돌립니다. 04 §4를 따릅니다.");
+    console.error("(병행 기간에는 share:hits INCR·push:state 갱신·수신 로그 때문에 이 대조가 정상적으로 실패합니다)");
     return 2;
   }
   console.log("대조 통과 — 건수와 표본 값이 모두 일치합니다.");

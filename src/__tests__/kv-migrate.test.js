@@ -575,6 +575,41 @@ describe("kv-migrate — 조용한 무작업 성공을 막는다", () => {
     expect(r.out).not.toContain("대조 통과");
   });
 
+  it("컷오버 이후 재복사가 새 DB의 수신분을 지우지 못하게 막는다", async () => {
+    expect((await run(["--apply"])).code).toBe(0);
+    // 컷오버 이후: 단축어가 새 DB의 사서함에만 항목을 하나 더 넣었다고 가정
+    const inbox = dst.data.get("import:inbox:daniel");
+    inbox.value.set("hae-2026-09-07-new", JSON.stringify({ kind: "exercise", kcal: 500 }));
+
+    const r = await run(["--apply", "--allow-nonempty"]);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("import:inbox:daniel: 대상에만 있는 항목 1개");
+    expect(r.err).toContain("--overwrite-collections");
+    // 그 항목은 그대로 살아 있다 — DEL 후 재생성이 아예 실행되지 않았다
+    expect(dst.snapshot()["import:inbox:daniel"].value["hae-2026-09-07-new"]).toContain("500");
+    // 대조 실패 안내가 파괴적 명령을 무조건 권하지 않는다
+    const v = await run(["--verify"]);
+    expect(v.code).toBe(2);
+    expect(v.err).toContain("⑤ **이후**라면 재복사하지 마세요");
+  });
+
+  it("--overwrite-collections 를 붙이면 그때는 덮어쓴다(명시적 선택)", async () => {
+    expect((await run(["--apply"])).code).toBe(0);
+    dst.data.get("import:inbox:daniel").value.set("hae-2026-09-07-new", "{}");
+    const r = await run(["--apply", "--allow-nonempty", "--overwrite-collections"]);
+    expect(r.code).toBe(0);
+    expect(Object.keys(dst.snapshot()["import:inbox:daniel"].value)).not.toContain("hae-2026-09-07-new");
+  });
+
+  it("리스트도 같은 보호를 받는다(대상에만 있는 수신 로그 항목)", async () => {
+    expect((await run(["--apply"])).code).toBe(0);
+    dst.data.get("import:log:daniel").value.unshift("컷오버-이후-수신");
+    const r = await run(["--apply", "--allow-nonempty"]);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("import:log:daniel: 대상에만 있는 항목 1개");
+    expect(dst.snapshot()["import:log:daniel"].value[0]).toBe("컷오버-이후-수신");
+  });
+
   it("--allow-nonempty 로 덮어쓸 때 대상에만 있는 키를 경고한다", async () => {
     expect((await run(["--apply"])).code).toBe(0);
     dst.seed("import:inbox:다른사람", "hash", { x: "1" });   // 컷오버 이후 새 DB에 쌓인 값을 가정
