@@ -1,6 +1,10 @@
 # .github/workflows/preview.yml — PR → 스테이징 프로젝트의 프리뷰 채널 배포.
 #
 # ⚠️ 가드가 먼저다: `vars.FIREBASE_PROJECT_STAGING`이 비어 있으면 이 job은 통째로 **skip**된다.
+#    이 변수는 반드시 **저장소(Repository) 변수**여야 한다 — job 레벨 `if`는 Environment가
+#    해석되기 전에 평가되므로, Environment 변수로만 두면 언제나 빈 값으로 읽혀 이 job이
+#    **영구히 회색 skip**된다(에러가 아니라 침묵이라 알아채기 어렵다).
+#    아래 `env:` 블록의 변수들은 job 안에서 읽으므로 Environment에 둬도 정상 동작한다.
 #    스테이징 프로젝트를 만들기 전까지 PR에 빨간불이 뜨지 않는다(회색 skip).
 #    게이트와 에뮬레이터 스모크는 ci.yml이 자격증명 없이 이미 돌고 있으므로,
 #    이 워크플로가 skip돼도 PR의 검증 자체는 비지 않는다.

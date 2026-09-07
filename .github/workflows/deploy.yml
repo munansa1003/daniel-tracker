@@ -1,6 +1,9 @@
 # .github/workflows/deploy.yml — main → 프로덕션 Hosting + Functions 배포.
 #
 # ⚠️ 가드가 먼저다: `vars.FIREBASE_PROJECT_PROD`가 비어 있으면 이 job은 통째로 **skip**된다.
+#    이 변수는 반드시 **저장소(Repository) 변수**여야 한다 — job 레벨 `if`는 Environment가
+#    해석되기 전에 평가되므로, Environment 변수로만 두면 언제나 빈 값으로 읽혀 이 job이
+#    **영구히 회색 skip**된다(에러가 아니라 침묵이라 알아채기 어렵다).
 #    변수를 넣기 전에는 아무것도 배포되지 않고, 빨간불도 뜨지 않는다(회색 skip).
 #    변수 등록은 사람 작업이다 — docs/migration/DECISIONS.md §4.2.
 #
@@ -93,13 +96,24 @@ jobs:
           npx -y firebase-tools@15 deploy --only hosting,functions
           --project "${{ vars.FIREBASE_PROJECT_PROD }}" --force --non-interactive
 
-      # 배포 후 스모크(02 런북 B3) — 셋 중 하나라도 어긋나면 즉시 드러난다.
+      # 배포 후 스모크(02 런북 B3) — 넷 중 하나라도 어긋나면 즉시 드러난다.
+      #
+      # `pipefail`이 필요하다: `curl -sf … | head -1`은 파이프의 **마지막** 명령(head)의 종료
+      # 코드를 쓰므로, 이것이 없으면 사이트가 죽어 curl이 실패해도 스모크가 통과한다.
       - name: Post-deploy smoke
         if: ${{ vars.PROD_HOSTNAME != '' }}
+        shell: bash
         run: |
-          set -eu
+          set -euo pipefail
           U="https://${{ vars.PROD_HOSTNAME }}"
           curl -sfI "$U/" | head -1
           test "$(curl -s -o /dev/null -w '%{http_code}' "$U/export/view/00000000000000000000000000000000")" = "404"
           curl -sf "$U/export/diag" | grep -q '"route":"export-view"'
-          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$U/api/health-import" -H 'X-Import-Token: wrong' -d '{}')" = "401"
+          # 수신 창구는 **어느 그룹이 답했는지**로 본다. 상태 코드를 401로 못 박으면,
+          # 단축어 env 3종(IMPORT_TOKEN·UID·CUTOVER)을 아직 안 넣은 정상 상태에서 503이 나와
+          # **성공한 배포가 빨간불**이 된다. 그 셋은 선택 기능이라 없을 수 있다.
+          # 401(토큰 불일치)·503(기능 비활성) 둘 다 "함수가 살아 있고 ingress로 갔다"는 뜻이다.
+          code="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$U/api/health-import" -H 'X-Import-Token: wrong' -d '{}')"
+          case "$code" in 401|503) ;; *) echo "unexpected /api/health-import status: $code"; exit 1 ;; esac
+          curl -s -D - -o /dev/null -X POST "$U/api/health-import" -H 'X-Import-Token: wrong' -d '{}' \
+            | grep -qi '^x-function-group: ingress'
