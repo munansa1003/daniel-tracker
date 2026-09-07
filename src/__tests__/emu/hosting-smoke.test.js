@@ -23,10 +23,13 @@ beforeAll(async () => {
 });
 
 describe("정적 서빙 · SPA fallback", () => {
-  it("/ 는 200 HTML", async () => {
+  it("/ 는 200 HTML이고 **no-cache** — 앱 셸이 캐시되면 배포가 늦게 잡힌다", async () => {
+    // 사용자가 실제로 여는 주소는 `/`다. 헤더 규칙에 `/index.html`만 적으면 이 요청에는
+    // 안 붙고 Hosting 기본 캐시(1시간)로 떨어진다 — 눈에 안 띄는 지연이라 여기서 못 박는다.
     const r = await get("/");
     expect(r.status).toBe(200);
     expect(r.headers.get("content-type")).toContain("text/html");
+    expect(r.headers.get("cache-control")).toContain("no-cache");
   });
 
   it("없는 경로는 index.html로 — SPA fallback(마지막 rewrite)", async () => {

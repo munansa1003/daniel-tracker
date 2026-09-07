@@ -126,6 +126,58 @@ source: api, cronReminders, exportView, ingress`). `firebase-admin`은 **의도�
 
 ---
 
+### `[자동결정]` 푸시 재구독 배너는 **새 원점에서만** 뜬다
+
+- **왜**: 계획서 WP-5의 조건(`pushConfigured()` + 구독 없음 + 서버 reminders 켜짐)만으로는
+  **현재 운영 중인 Vercel 앱에도 배너가 뜬다.** 컷오버 때 원점 배너를 띄우려면 옛 원점에도
+  `VITE_NEW_ORIGIN`을 넣어야 하는데, 그 순간 푸시 배너까지 조건을 만족한다 — 알림이 멀쩡히
+  오고 있는 사람에게 "알림을 다시 켜세요"라고 말하게 되고, "변수가 없으면 무변경"이라는
+  병행 호환 불변식도 깨진다. 그래서 조건에 **"지금이 옛 원점이 아니다"**를 더했다.
+  결과적으로 두 배너는 원점이 서로를 배제해 **동시에 뜨지 않는다**(같은 화면에서
+  "여기서 나가세요"와 "여기서 켜세요"를 함께 말하지 않는다).
+- **되돌리는 법**: `src/migrationBanners.js`의 `shouldShowPushBanner`에서 앞의 두 줄
+  (`newOrigin`·`isOldOrigin`) 삭제.
+
+### `[자동결정]` `fastly-client-ip`는 **Cloud Run에서만** 신뢰한다
+
+- **왜**: 계획서 WP-2는 "`fastly-client-ip` 우선"이라고만 적었는데, 그대로 두면
+  **Vercel에서 rate limit이 통째로 뚫린다.** Vercel은 그 헤더를 덮어쓰지 않으므로 공격자가
+  헤더 하나로 매 요청 새 버킷을 만들 수 있고, 그러면 토큰 추측에 횟수 제한을 걸어 둔
+  감사 R-39의 방어가 병행 기간의 Vercel 쪽에서만 사라진다. `K_SERVICE`(Cloud Run이 주입,
+  사용자가 넣을 수 없음)가 있을 때만 Fastly 헤더를 본다.
+- **되돌리는 법**: `api/_lib/security.js` `getClientIp`의 `if (process.env.K_SERVICE)` 제거.
+
+### `[자동결정]` `hosting.headers`에 `/`를 명시하고 중괄호 확장을 쓰지 않는다
+
+- **왜**: ① 사용자가 실제로 여는 주소는 `/`(그리고 `/?tab=…`)다. `/index.html`만 적으면
+  그 규칙은 요청 경로가 `/index.html`일 때만 붙고 `/`는 Hosting 기본 캐시(1시간)로 떨어져
+  **배포가 최대 1시간 늦게 잡힌다.** ② `/{a,b,c}` 중괄호 확장은 에뮬레이터에서는 동작했지만
+  Hosting 공식 문서가 보장하는 glob 부분집합이 아니다 — 규칙이 조용히 안 붙으면 SW가 캐시돼
+  같은 증상이 난다. 항목을 하나씩 풀어 적었다(테스트가 중괄호 재도입을 막는다).
+- **되돌리는 법**: `firebase.json` `hosting.headers`를 한 줄 glob으로 되돌린다.
+
+### `[자동결정]` `/export/diag/`(후행 슬래시)도 진단으로 인식한다
+
+- **왜**: express는 후행 슬래시 경로도 같은 라우트로 보내는데 `req.path`가 달라
+  `diag=1` 주입만 빠진다. 그러면 진단을 열려던 사람에게 "링크를 찾을 수 없음" 404 공유
+  페이지가 나간다 — 원인을 찾기 가장 어려운 형태다.
+- **되돌리는 법**: `functions.js`의 `req.path.replace(/\/+$/, "")`를 `req.path`로.
+
+### ℹ️ `firebase-admin`은 **막을 수 없고 막을 필요도 없다** — 대신 import를 막는다
+
+`firebase-functions@7`은 `firebase-admin`을 **선택 아닌 peer**로 선언한다
+(`peerDependenciesMeta`에 optional 표시가 없다) → `npm ci`가 자동 설치하므로 `node_modules`와
+lockfile에 존재한다. 설치 자체는 피할 수 없다.
+
+그런데 01 §1 원칙 2("서버는 Firestore 자격증명을 갖지 않는다")가 실제로 요구하는 것은
+"설치되지 않았다"가 아니라 **"아무도 import 하지 않는다"**이다. 배포된 함수에는 런타임
+서비스 계정의 ADC가 붙어 있어, 누가 한 줄 `import "firebase-admin"`을 넣는 순간 서버가
+Firestore를 직접 쓸 수 있게 되고 "day 문서를 쓰는 주체는 앱 하나"라는 구조가 조용히 무너진다.
+
+그래서 `firebase-config.test.js`가 **소스 전체를 스캔해** `firebase-admin` 문자열이
+`api/`·`src/`(테스트 제외)·`functions.js`·`scripts/` 어디에도 없음을 단언한다.
+직접 의존성 금지 단언은 그대로 두되, 진짜 방벽은 이 스캔이다.
+
 ## 3. `BLOCKED` — 이 샌드박스에서 끝내지 못한 것
 
 ### ⚠️ Hosting 에뮬레이터 경유 스모크는 이 세션에서 실행하지 못했다 (코드 문제 아님)

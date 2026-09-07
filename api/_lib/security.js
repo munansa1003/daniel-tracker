@@ -80,21 +80,28 @@ export function safeEqual(a, b) {
 
 // IP 추출 — rate limit의 **버킷 키**다. 틀리면 조용히 망가지는 종류라 순서를 못 박아 둔다.
 //
-// Vercel: `x-forwarded-for`의 첫 항목이 실제 클라이언트였다.
+// Vercel: `x-forwarded-for`의 첫 항목이 실제 클라이언트였다(플랫폼이 이 헤더를 덮어쓴다).
 // Firebase Hosting: 앞단이 Fastly CDN이라 원 IP가 `fastly-client-ip`로 오고,
 //   `x-forwarded-for`에는 **CDN의 IP**가 실릴 수 있다. 그대로 두면 모든 사용자가 한 버킷에
 //   뭉쳐, 남이 쓴 횟수 때문에 내가 429를 맞는다(정상 사용자가 막히는 형태의 사고).
-// 그래서 `fastly-client-ip`를 먼저 본다. 없으면 예전 순서 그대로다 — 한 코드가 두 플랫폼에서
-// 각자 맞게 동작한다(병행 기간의 요구).
 //
-// ⚠️ 이 헤더들은 전부 위조 가능하다. 함수의 직접 URL(*.run.app)로 우회 호출하면 공격자가
-// 원하는 값을 넣어 버킷을 흩을 수 있다. 즉 rate limit은 "실수·과사용 방어"이지 결정적 방벽이
-// 아니다 — 진짜 방벽은 각 라우트의 토큰/origin 검문이고, 그 순서(검문보다 rate limit이 먼저)는
-// 감사 R-39에서 이미 고정했다.
+// ⚠️ `fastly-client-ip`를 **아무 데서나 먼저 보면 안 된다.** Vercel은 그 헤더를 덮어쓰지
+// 않으므로, 그대로 신뢰하면 공격자가 헤더 하나로 자기 버킷을 매 요청 새로 만들어
+// **rate limit을 통째로 우회**한다. 토큰 추측 시도에 횟수 제한을 걸어 둔 것이 감사 R-39의
+// 요지인데, 그 방어가 병행 기간의 Vercel 쪽에서만 사라지는 형태가 된다.
+// 그래서 플랫폼을 먼저 확인한다: `K_SERVICE`는 **Cloud Run이 주입**하는 값이라 사용자가
+// 넣을 수 없다. 그 값이 있을 때만 Fastly 헤더를 신뢰하고, 없으면(=Vercel·로컬) 옛 순서 그대로다.
+//
+// 남는 위험은 설계 문서가 이미 받아들인 것 하나뿐이다: Hosting을 건너뛰고 함수의 직접
+// URL(*.run.app)로 부르면 그때는 Fastly 헤더도 위조 가능하다(02 §1 #22, P2).
+// 즉 rate limit은 "실수·과사용 방어"이지 결정적 방벽이 아니다 — 진짜 방벽은 각 라우트의
+// 토큰/origin 검문이고, 검문보다 rate limit이 먼저라는 순서는 R-39에서 이미 고정했다.
 export function getClientIp(req) {
   const headers = req.headers || {};
-  const fastly = headers["fastly-client-ip"];
-  if (typeof fastly === "string" && fastly.trim()) return fastly.trim();
+  if (process.env.K_SERVICE) {
+    const fastly = headers["fastly-client-ip"];
+    if (typeof fastly === "string" && fastly.trim()) return fastly.trim();
+  }
   const xff = headers["x-forwarded-for"];
   if (typeof xff === "string" && xff.length > 0) return xff.split(",")[0].trim();
   const real = headers["x-real-ip"];

@@ -14,14 +14,34 @@ afterEach(() => { vi.unstubAllEnvs(); resetParamsBridge(); });
 const req = (headers, socket) => ({ headers, socket });
 
 describe("getClientIp — rate limit 버킷 키의 우선순위", () => {
-  it("Firebase Hosting: fastly-client-ip가 최우선", () => {
+  // K_SERVICE는 Cloud Run이 주입하는 값이라 사용자가 넣을 수 없다 = "지금 Firebase다"의 증거.
+  const onCloudRun = () => vi.stubEnv("K_SERVICE", "api");
+  const onVercel = () => { vi.stubEnv("K_SERVICE", ""); vi.stubEnv("VERCEL_URL", "x.vercel.app"); };
+
+  it("Firebase(Cloud Run): fastly-client-ip가 최우선", () => {
     // Hosting 앞단이 Fastly라 XFF에는 CDN IP가 실린다. 그대로 쓰면 전 사용자가 한 버킷으로
     // 뭉쳐 남이 쓴 횟수 때문에 내가 429를 맞는다 — 이 순서가 그걸 막는다.
+    onCloudRun();
     expect(getClientIp(req({ "fastly-client-ip": "203.0.113.7", "x-forwarded-for": "198.51.100.1, 10.0.0.1" })))
       .toBe("203.0.113.7");
   });
 
-  it("Vercel: fastly 헤더가 없으면 x-forwarded-for 첫 항목 (옛 동작 그대로)", () => {
+  it("**Vercel에서는 fastly-client-ip를 무시한다** — 신뢰하면 rate limit이 통째로 뚫린다", () => {
+    // Vercel은 이 헤더를 덮어쓰지 않는다. 그대로 믿으면 공격자가 헤더 하나로 매 요청 새 버킷을
+    // 만들어 횟수 제한을 우회한다 — 토큰 추측에 제한을 건 감사 R-39의 방어가 사라진다.
+    onVercel();
+    expect(getClientIp(req({ "fastly-client-ip": "203.0.113.7", "x-forwarded-for": "198.51.100.1, 10.0.0.1" })))
+      .toBe("198.51.100.1");
+  });
+
+  it("플랫폼 표식이 없는 곳(로컬·테스트)에서도 fastly 헤더를 믿지 않는다", () => {
+    vi.stubEnv("K_SERVICE", "");
+    expect(getClientIp(req({ "fastly-client-ip": "203.0.113.7", "x-forwarded-for": "198.51.100.1" })))
+      .toBe("198.51.100.1");
+  });
+
+  it("Vercel: x-forwarded-for 첫 항목 (옛 동작 그대로)", () => {
+    onVercel();
     expect(getClientIp(req({ "x-forwarded-for": "198.51.100.1, 10.0.0.1" }))).toBe("198.51.100.1");
   });
 
@@ -35,6 +55,7 @@ describe("getClientIp — rate limit 버킷 키의 우선순위", () => {
   });
 
   it("빈 문자열·공백뿐인 헤더는 값이 아니다 — 다음 후보로 넘어간다", () => {
+    onCloudRun();
     expect(getClientIp(req({ "fastly-client-ip": "   ", "x-forwarded-for": "198.51.100.1" }))).toBe("198.51.100.1");
     expect(getClientIp(req({ "fastly-client-ip": "", "x-real-ip": "192.0.2.5" }))).toBe("192.0.2.5");
   });

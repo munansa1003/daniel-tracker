@@ -149,7 +149,10 @@ exportViewApp.all(["/export/view", "/export/view/:t", "/export/diag"], (req, res
   if (req.params && req.params.t !== undefined && req.query?.t === undefined) {
     injectQuery(req, { t: req.params.t });          // `/export/view/:t` → `?t=:t`
   }
-  if (req.path === "/export/diag" && req.query?.diag === undefined) {
+  // 후행 슬래시를 떼고 본다 — express는 `/export/diag/`도 이 라우트로 보내는데, 그때
+  // `req.path`가 `/export/diag/`라 그냥 비교하면 diag 주입이 빠진다. 그러면 진단을 열려던
+  // 사람에게 "링크를 찾을 수 없음" 404 공유 페이지가 나간다(원인을 찾기 가장 어려운 종류).
+  if (req.path.replace(/\/+$/, "") === "/export/diag" && req.query?.diag === undefined) {
     injectQuery(req, { diag: "1" });                // `/export/diag` → `?diag=1`
   }
   return exportViewHandler(req, res);

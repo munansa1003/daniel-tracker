@@ -26,8 +26,11 @@ export function MigrationBanners({
   reminders,
   onEnablePush,
 }) {
+  // 두 배너는 원점이 갈라 준다: 원점 배너는 **옛 주소에서만**, 푸시 배너는 **새 주소에서만**.
+  // 그래서 둘이 동시에 뜨는 일은 없다(같은 화면에서 "여기서 나가세요"와 "여기서 켜세요"를
+  // 함께 말하면 안 된다).
   const showOrigin = shouldShowOriginBanner({ newOrigin, hostname, dismissedOn, todayStr });
-  const showPush = shouldShowPushBanner({ pushReady, hasSubscription, reminders });
+  const showPush = shouldShowPushBanner({ newOrigin, hostname, pushReady, hasSubscription, reminders });
   if (!showOrigin && !showPush) return null;
 
   return (

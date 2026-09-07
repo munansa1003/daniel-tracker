@@ -20,9 +20,15 @@ export const ORIGIN_BANNER_DISMISS_KEY = "dt_originBannerDismissed";
  * ③ 오늘 이미 닫았으면 보이지 않는다(하루 1회). 영구히 숨기지 않는 이유: 이 안내를 못 보면
  *    옛 앱에 남게 되고, 병행 기간이 끝나면 알림·AI·자동 유입이 조용히 죽는다.
  */
+// 지금 보고 있는 주소가 **옛 원점**인가. 접미사가 아니라 라벨 경계로 본다 —
+// `notvercel.app`·`vercel.app.evil.com` 같은 호스트에 속지 않기 위해서다.
+export function isOldOrigin(hostname) {
+  return typeof hostname === "string" && /(^|\.)vercel\.app$/i.test(hostname);
+}
+
 export function shouldShowOriginBanner({ newOrigin, hostname, dismissedOn, todayStr } = {}) {
   if (!newOrigin) return false;
-  if (typeof hostname !== "string" || !/(^|\.)vercel\.app$/i.test(hostname)) return false;
+  if (!isOldOrigin(hostname)) return false;
   if (dismissedOn && dismissedOn === todayStr) return false;
   return true;
 }
@@ -36,9 +42,14 @@ export function shouldShowOriginBanner({ newOrigin, hostname, dismissedOn, today
  * 안 일어난다. 그래서 "이전에 알림을 쓰던 사람"에게만, 새 원점에서 한 번 밀어 준다.
  *
  * 조건:
- *   ① 이 브라우저에서 백그라운드 푸시가 가능(`pushConfigured()`)
- *   ② 이 원점에 **현재 구독이 없다** (있으면 이미 켠 것이다)
- *   ③ 이전에 리마인더를 설정한 적이 있다 — `goals.reminders`가 저장된 객체이고 하나라도 켜져
+ *   ① **이전이 진행 중이고(`newOrigin` 설정) 지금이 새 원점이다.** 이 두 겹이 없으면
+ *      배너가 **현재 운영 중인 Vercel 앱에도 뜬다** — 거기서는 "알림을 다시 켜세요"가
+ *      틀린 말일 뿐 아니라(구독은 멀쩡하다), 병행 호환 불변식("변수가 없으면 무변경")을
+ *      깨는 실제 동작 변화다. 옛 원점에도 `VITE_NEW_ORIGIN`을 넣게 되므로(원점 배너용)
+ *      변수 하나만으로는 부족하고 "새 원점에 있다"까지 봐야 한다.
+ *   ② 이 브라우저에서 백그라운드 푸시가 가능(`pushConfigured()`)
+ *   ③ 이 원점에 **현재 구독이 없다** (있으면 이미 켠 것이다)
+ *   ④ 이전에 리마인더를 설정한 적이 있다 — `goals.reminders`가 저장된 객체이고 하나라도 켜져
  *      있는 상태. 이 값은 Firestore에 있어 원점을 넘어 따라오고, 앱이 서버 `push:state`로
  *      올리는 것과 같은 값이다(`push-sync.js`). 한 번도 알림을 만진 적 없는 사람에게는
  *      뜨지 않는다.
@@ -46,7 +57,9 @@ export function shouldShowOriginBanner({ newOrigin, hostname, dismissedOn, today
  * `hasSubscription`이 `null`(아직 확인 중)이면 보이지 않는다 — 확인 전에 띄웠다가 이미
  * 구독된 사람에게 깜빡이는 편보다 한 박자 늦는 편이 낫다.
  */
-export function shouldShowPushBanner({ pushReady, hasSubscription, reminders } = {}) {
+export function shouldShowPushBanner({ newOrigin, hostname, pushReady, hasSubscription, reminders } = {}) {
+  if (!newOrigin) return false;
+  if (isOldOrigin(hostname)) return false;
   if (!pushReady) return false;
   if (hasSubscription !== false) return false;
   if (!reminders || typeof reminders !== "object") return false;

@@ -152,6 +152,13 @@ describe("exportView 그룹 — vercel.json의 쿼리 치환을 라우터가 재
     expect(body.query.diag).toBe("1");
   });
 
+  it("후행 슬래시(/export/diag/)도 진단으로 인식한다", async () => {
+    // express는 이 경로도 같은 라우트로 보낸다. 경로 비교가 엄격하면 diag 주입만 빠져서
+    // 진단을 열려던 사람에게 "링크를 찾을 수 없음" 404가 나간다 — 원인 찾기 가장 어려운 형태.
+    const r = await fetch(`${EXPORT}/export/diag/`);
+    expect((await r.json()).query.diag).toBe("1");
+  });
+
   it("응답에 X-Function-Group: exportView", async () => {
     const r = await fetch(`${EXPORT}/export/diag`);
     expect(r.headers.get("x-function-group")).toBe("exportView");

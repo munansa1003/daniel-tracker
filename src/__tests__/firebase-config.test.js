@@ -8,7 +8,7 @@
 //   · `functions.ignore`에 `src/__tests__`·`dist`가 빠지면 배포본이 불필요하게 커진다.
 //   · `pinTag`(DR-15)와 `minInstances`는 양립 불가 — 둘 다 켜면 배포가 거부된다.
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
@@ -129,7 +129,12 @@ describe("package.json — 함수 패키지로서의 계약", () => {
     expect(pkg.devDependencies["firebase-tools"]).toBeUndefined();
   });
 
-  it("firebase-admin은 넣지 않는다 — 서버가 Firestore 자격증명을 갖지 않는 태세(원칙 2)", () => {
+  it("firebase-admin을 **직접** 의존성에 넣지 않는다 (원칙 2)", () => {
+    // 주의: firebase-functions@7은 firebase-admin을 **선택 아닌 peer**로 선언한다
+    // (peerDependenciesMeta에 optional 표시가 없다) → npm이 자동 설치하므로 node_modules와
+    // lockfile에는 존재한다. 그것까지 막을 수는 없고, 막을 필요도 없다:
+    // 태세를 지키는 것은 "설치되지 않았다"가 아니라 **"아무도 import 하지 않는다"**이다.
+    // 그 진짜 조건은 아래 테스트가 본다.
     expect(pkg.dependencies["firebase-admin"]).toBeUndefined();
     expect(pkg.devDependencies["firebase-admin"]).toBeUndefined();
   });
@@ -145,12 +150,29 @@ describe("hosting · .firebaserc", () => {
     expect(firebaseJson.hosting.public).toBe("dist");
   });
 
-  it("sw/manifest/index는 no-cache — 배포가 즉시 잡혀야 한다", () => {
-    const noCache = firebaseJson.hosting.headers.find(h => h.headers.some(x => x.value === "no-cache"));
-    expect(noCache.source).toContain("sw.js");
-    expect(noCache.source).toContain("index.html");
+  it("앱 셸과 SW는 no-cache — **`/`가 반드시 포함**된다", () => {
+    // 사용자가 실제로 여는 주소는 `/`(그리고 `/?tab=...`)다. `/index.html`만 적으면
+    // 그 규칙은 요청 경로가 `/index.html`일 때만 붙고, `/`는 Hosting 기본 캐시(1시간)로
+    // 떨어져 **배포가 최대 1시간 늦게 잡힌다** — 눈에 안 띄는 종류의 지연이다.
+    const noCache = firebaseJson.hosting.headers
+      .filter(h => h.headers.some(x => x.key === "Cache-Control" && x.value === "no-cache"))
+      .map(h => h.source);
+    for (const src of ["/", "/index.html", "/sw.js", "/push-sw.js", "/manifest.webmanifest"]) {
+      expect(noCache, src).toContain(src);
+    }
+  });
+
+  it("해시 붙은 assets만 장기 캐시", () => {
     const immutable = firebaseJson.hosting.headers.find(h => h.source === "/assets/**");
     expect(immutable.headers[0].value).toContain("immutable");
+  });
+
+  it("header source에 중괄호 확장을 쓰지 않는다 — Hosting 문서가 보장하는 glob이 아니다", () => {
+    // `/{a,b,c}` 형태는 에뮬레이터에서는 동작했지만 공식 문서의 glob 부분집합에 없다.
+    // 규칙 하나가 조용히 안 붙으면 SW가 캐시돼 배포가 안 잡히는 형태로 나타난다.
+    for (const h of firebaseJson.hosting.headers) {
+      expect(h.source, h.source).not.toMatch(/[{}]/);
+    }
   });
 
   it("프로젝트 별칭 3종 — default·prod는 기존 프로젝트, staging은 별도", () => {
@@ -194,5 +216,34 @@ describe("함수 그룹별 자원 — 01 §2 매핑표", () => {
       expect(keys, name).not.toContain("INBODY_LOGIN_PW");
       expect(keys, name).not.toContain("SHARE_TEST_TOKEN");
     }
+  });
+});
+
+describe("보안 태세 — 서버는 Firestore 자격증명을 갖지 않는다 (01 §1 원칙 2)", () => {
+  // `firebase-admin`은 firebase-functions@7의 **선택 아닌 peer**라 node_modules에는 설치된다.
+  // 설치를 막을 수는 없다. 그러나 배포된 함수에는 런타임 서비스 계정의 ADC가 붙어 있으므로,
+  // 누가 한 줄 `import "firebase-admin"`을 넣는 순간 서버가 Firestore를 직접 쓸 수 있게 된다 —
+  // 그러면 "day 문서를 쓰는 주체는 앱 하나"라는 이 저장소의 구조가 조용히 무너진다.
+  // 그래서 **의존성 목록이 아니라 소스 전체**를 본다. 이것이 태세를 실제로 지키는 단언이다.
+  const roots = ["api", "src", "functions.js", "scripts"];
+
+  const walk = (rel) => {
+    const abs = resolve(ROOT, rel);
+    let st;
+    try { st = statSync(abs); } catch { return []; }
+    if (st.isFile()) return /\.(js|jsx|mjs)$/.test(abs) ? [abs] : [];
+    // 테스트는 배포되지 않으므로 대상이 아니다 — 그리고 이 파일 자체가 그 문자열을 담고 있다.
+    return readdirSync(abs).flatMap((e) => (e === "node_modules" || e === "__tests__" ? [] : walk(`${rel}/${e}`)));
+  };
+  const files = roots.flatMap(walk);
+
+  it("스캔 대상이 실제로 잡힌다 (자기검증)", () => {
+    expect(files.length).toBeGreaterThan(30);
+    expect(files.some((f) => f.endsWith("functions.js"))).toBe(true);
+  });
+
+  it("어떤 소스도 firebase-admin을 import·require 하지 않는다", () => {
+    const offenders = files.filter((f) => /["']firebase-admin(\/[^"']*)?["']/.test(readFileSync(f, "utf8")));
+    expect(offenders.map((f) => f.replace(ROOT + "/", ""))).toEqual([]);
   });
 });
