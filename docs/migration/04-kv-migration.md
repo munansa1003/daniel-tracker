@@ -4,7 +4,9 @@
 > 이 문서와 함께 들어온 것은 `scripts/kv-migrate.mjs`와 그 테스트(`src/__tests__/kv-migrate.test.js`) 둘뿐이다.
 > 근거: **DR-14**(03 §8) — 현 KV는 Vercel Marketplace 통합(`upstash-kv-chestnut-umbrella`)이라
 > **Vercel 프로젝트/통합을 지우면 DB까지 사라질 수 있다** [스니펫]. 그래서 Firebase 컷오버 **전**,
-> 02 런북 **A단계**에서 직접 Upstash 계정의 새 DB로 먼저 옮긴다.
+> 02 런북 **Phase A의 맨 앞**에서 직접 Upstash 계정의 새 DB로 먼저 옮긴다 — A2(staging용 Upstash DB
+> 추가)와 A3(Secret Manager에 `KV_REST_API_TOKEN` 등록)보다 **앞이어야 한다**. 뒤로 밀면 staging DB를
+> 또 Marketplace에 만들게 되고, 시크릿에는 옛 토큰이 굳어 4개 함수를 다시 배포해야 한다.
 > 출처 등급 표기는 01 §0을 따른다: `[코드]` 저장소에서 확인 · `[스니펫]` 외부 문서 요약 · `[사람]` 사람이 콘솔에서 할 일 · `[미확인]`.
 
 ---
@@ -32,8 +34,8 @@
 
 | 키 | 타입 | TTL | 쓰는 곳 | 유실되면 |
 |---|---|---|---|---|
-| `import:seen:<uid>:<importKey>` | string | **영구** | `health-import.js:131` (`SET … NX`) | **운동 이중 계상** — 도장이 없으면 같은 기록을 다시 받아들인다 |
-| `import:body-seen:<uid>:<key>` | string | **영구** | `body-inbox-store.js:17` (`SET … NX`) | **체성분 이중 계상** |
+| `import:seen:<uid>:<importKey>` | string | **영구** | `health-import.js:131` (`SET … NX`) | 같은 기록을 **다시 받아들인다**(아래 주석 — 정상 경로에서는 이중 계상까지 가지 않는다) |
+| `import:body-seen:<uid>:<key>` | string | **영구** | `body-inbox-store.js:17` (`SET … NX`) | 같은 측정을 다시 받아들인다(확정 잠금·묘비가 2차 방어) |
 | `import:inbox:<uid>` | hash | 영구 | `health-import.js:130` | 아직 앱이 받아가지 않은 **운동 수신분 소실**(도장만 남으면 영영 못 받는다 — §4) |
 | `import:body-inbox:<uid>` | hash | 영구 | `body-inbox-store.js:16` | 아직 받아가지 않은 **체성분 수신분 소실** |
 | `import:log:<uid>` | list(20) | 영구 | `health-import.js:142` (`LPUSH`+`LTRIM 0 19`) | 설정 화면의 수신 로그만 비어 보임(데이터 손실 아님) |
@@ -47,6 +49,13 @@
 | `share:<token>` | string | **최대 7일**(`SET … EX`) | `share-store.js:34·55` | **공유 링크 즉사**(revoke 도장도 함께 사라짐) |
 | `share:hits:<token>` | string | 7일 | `share-store.js:69` (`INCR`) | 조회수만 0으로 |
 | `rl:<라우트>:<ip>` | string | 60초(`security.js:78`) | `security.js:67` (`INCR`+`EXPIRE`) | 없음 — **그래서 기본 제외한다** |
+
+> **도장 유실 = 이중 계상, 이라고 03의 DR-14는 적었지만 실제로는 한 겹 더 있다.**
+> 도장을 잃으면 단축어가 보낸 같은 기록이 사서함에 **다시 들어온다**. 그 다음을 앱이 막는다:
+> `mergeImports`가 그 날짜에 같은 `importKey`가 이미 있으면 반영하지 않고 ack만 하고 버린다
+> (`src/importMerge.js:67` [코드]). 그래서 **정상 경로에서는 이중 계상까지 가지 않는다**.
+> 다만 그 2차 방어선은 **날짜 문서에 `importKey`가 남아 있을 때만** 동작한다(백업 복원·수동 편집으로
+> 지워졌다면 뚫린다). 도장을 반드시 옮겨야 하는 이유는 여전하지만, 피해 크기는 이 정도로 적는 게 정확하다.
 
 스크립트는 `string`·`hash`·`set`·`list`·`zset` 다섯 타입을 모두 복원한다.
 현재 코드가 만드는 것은 앞의 넷뿐이지만, 앞으로 늘어날 자리를 미리 막아 둔 것이다.
@@ -79,6 +88,12 @@
 3. **REST 자격증명 복사** — 콘솔의 `UPSTASH_REDIS_REST_URL`·`UPSTASH_REDIS_REST_TOKEN`.
 4. **옛 DB의 자격증명 확보** — Vercel 프로젝트 → Settings → Environment Variables의
    `KV_REST_API_URL`·`KV_REST_API_TOKEN`(통합이 자동 주입한 값).
+
+> **읽기 전용 토큰을 쓰지 않는다.** Upstash 콘솔은 토큰을 "Standard"와 "Read Only" 둘로 준다.
+> 안전해 보인다고 원본에 Read Only 토큰을 쓰면 **`SCAN`이 거부된다**("Some powerful read commands
+> (e.g. SCAN, KEYS) are also restricted with read only token" [스니펫]). 양쪽 다 Standard 토큰을 쓰고,
+> 원본을 건드리지 않는 보장은 **스크립트의 명령 화이트리스트**에 맡긴다(§8 D-9 — 테스트로 고정).
+> 실제로 이 실수를 하면 `HTTP 400`과 함께 서버가 준 문구가 그대로 찍히므로 원인을 바로 알 수 있다.
 
 ### 실행 장소
 
@@ -175,10 +190,17 @@ node scripts/kv-migrate.mjs --verify
 |---|---|---|
 | 자동 수신 카드 | 단축어로 운동 1건 전송 → 앱 열기 | 홈의 수신 카드에 뜨고, **한 번만** 반영된다(이중 계상 없음) |
 | 공유 링크 | 이관 **전에 만들어 둔** 링크를 연다 | 그대로 열린다(TTL이 남아 있는 동안) |
-| 푸시 | 설정에서 알림 상태 확인 → 필요하면 테스트 발송 | 구독이 살아 있고 발송된다 |
+| 푸시 | **새 DB에 `push:sub:<uid>`가 있고 `push:uids`에 그 uid가 들어 있는지 직접 본다** — `node scripts/kv-migrate.mjs --match='push:*'`(점검만) 또는 Upstash 콘솔 | 둘 다 있다 |
 
 특히 **첫 번째가 핵심**이다. 도장(`import:seen`)이 제대로 넘어왔다면 **이관 전에 이미 받은 기록을
-다시 보내도 중복으로 들어가지 않는다** — 그걸 직접 시험해 보는 게 가장 확실한 검증이다.
+다시 보내도 사서함에 다시 뜨지 않는다** — 그걸 직접 시험해 보는 게 가장 확실한 검증이다.
+
+> **푸시는 "앱에서 정상으로 보이는 것"으로 판정하면 안 된다.** 브라우저에는 구독이 그대로 남아
+> 있으므로 앱은 멀쩡해 보이는데 **서버 쪽 구독만 없을 수 있다**. 그 상태는 스스로 낫지 않는다:
+> 구독을 서버로 올리는 경로는 `enablePush`(사용자 제스처) 하나뿐이고, 주기적으로 도는
+> `syncPushState`는 상태만 보내고 구독은 보내지 않는다(`src/push.js:54-64` [코드]).
+> DR-9의 "알림 다시 켜기" 배너도 `!getSubscription()` 조건이라 **뜨지 않는다**.
+> 그래서 반드시 **DB를 직접 확인**하고, 없으면 설정에서 알림을 **껐다가 다시 켠다**.
 
 ### ⑦ Firebase 시크릿은 처음부터 새 값 [사람]
 
@@ -209,12 +231,15 @@ Firebase 함수에 `KV_REST_API_TOKEN`을 등록할 때(01 §5, DR-7 A+a) **새 
    ④에서 본 수와 **같으면 드리프트 없음** — 끝이다.
    달라졌다면 그 사이에 쓰기가 있었다는 뜻이므로, **키 종류별로** 처리한다:
 
+   드리프트에는 **두 방향**이 있다. 창 안의 **쓰기**는 옛 DB에 남아 새 DB에 없고(유실),
+   창 안의 **삭제·소비**(사서함 ack, 공유 링크 revoke)는 새 DB에 반영되지 않아 **되살아난다**.
+
    | 드리프트한 키 | 처리 |
    |---|---|
    | `import:seen:*` · `import:body-seen:*` (도장) | 값이 불변이라 덮어써도 안전하다: `node scripts/kv-migrate.mjs --apply --allow-nonempty --match='import:seen:*'` (체성분은 `--match='import:body-seen:*'`) |
-   | `import:inbox:*` · `import:body-inbox:*` (사서함) | **자동 복사 금지.** 옛 DB의 해당 해시를 눈으로 보고(콘솔), 빠진 항목이 있으면 **단축어로 다시 보낸다**. 도장이 이미 넘어갔다면 먼저 그 도장 키를 새 DB에서 지운 뒤 다시 보내야 들어간다 |
-   | `push:*` | **자동 복사 금지.** ⑥에서 알림이 정상이면 그대로 둔다. 끊겼으면 앱에서 알림을 껐다 켠다(DR-9) |
-   | `share:*` | **자동 복사 금지.** 링크가 안 열리면 새로 만든다(최대 7일짜리라 곧 만료된다) |
+   | `import:inbox:*` · `import:body-inbox:*` (사서함) | **자동 복사 금지.** 옛 DB의 해당 해시를 눈으로 보고(콘솔), 빠진 항목이 있으면 **단축어로 다시 보낸다**. 도장이 이미 넘어갔다면 먼저 그 도장 키를 새 DB에서 지운 뒤 다시 보내야 들어간다. (반대로 창 안에서 ack된 항목이 새 DB에 되살아나 있어도 무해하다 — 앱이 `importKey`로 걸러 ack만 하고 버린다, `importMerge.js:67`) |
+   | `push:*` | **자동 복사 금지 · 가장 조용한 사고.** 창 안에서 알림을 새로 켰다면 새 DB에 구독이 없고, 그러면 **밤 8시 알림이 영영 오지 않는데 오류도 배너도 없다**(위 ⑥의 경고). 반드시 DB에서 `push:sub:<uid>`·`push:uids`를 눈으로 확인하고, 없으면 앱에서 알림을 껐다 켠다(DR-9) |
+   | `share:*` (되살아나는 쪽) | **자동 복사 금지.** 창 안에서 **revoke한 링크가 새 DB에서는 살아 있을 수 있다** — 폐기한 링크가 다시 열린다는 뜻이다. 창 안에 revoke한 적이 있으면 새 DB에서 그 링크를 **다시 폐기**한다(앱의 공유 관리에서 revoke 한 번). 링크가 안 열리는 반대 경우는 새로 만들면 된다(최대 7일짜리라 곧 만료된다) |
    | `import:log:*` · `import:body-log:*` · `rl:*` · 인바디 스로틀 키 | 무시해도 된다(표시용·일시적) |
 
 > 왜 사서함을 자동으로 안 옮기는가: 사서함은 해시고, 스크립트는 컬렉션을 `DEL` 후 재생성한다(§7 D-3).
@@ -290,9 +315,9 @@ Firebase 함수에 `KV_REST_API_TOKEN`을 등록할 때(01 §5, DR-7 A+a) **새 
 | 항목 | 결과 |
 |---|---|
 | §1 키 목록 = `grep -rn "kv(" api/` 의 모든 키 | 17종 전부 대응 ✓ (`import:*` 11 · `push:*` 3 · `share:*` 2 · `rl:*` 1 — 타입은 쓰는 명령에서 도출) |
-| 스크립트 계약 테스트 | `src/__tests__/kv-migrate.test.js` **28건 통과** — 가짜 Upstash REST 서버 위에서 스크립트를 자식 프로세스로 실제 실행 |
-| 고정한 6가지 | dry-run · apply · verify · TTL · 제외 · 멱등 ✓ (+ 복사 순서·비UTF-8 차단·안전장치·읽기 전용·토큰 마스킹·SCAN 페이징/중복·401·사용법 오류) |
-| 품질 게이트 | `npx eslint src api --max-warnings=0` 통과 ✓ · `npx vitest run` **545건 통과**(기존 517 + 신규 28) ✓ |
+| 스크립트 계약 테스트 | `src/__tests__/kv-migrate.test.js` **29건 통과** — 가짜 Upstash REST 서버 위에서 스크립트를 자식 프로세스로 실제 실행 |
+| 고정한 6가지 | dry-run · apply · verify · TTL · 제외 · 멱등 ✓ (+ 복사 순서·비UTF-8 차단·안전장치·읽기 전용·토큰 마스킹·SCAN 페이징/중복·401·서버 오류 문구 노출·사용법 오류) |
+| 품질 게이트 | `npx eslint src api --max-warnings=0` 통과 ✓ · `npx vitest run` **546건 통과**(기존 517 + 신규 29) ✓ |
 | 원본 무변경 | 테스트가 원본 서버가 받은 명령을 전부 기록해 **쓰기 명령 0건**임을 단언 ✓ |
 | 토큰 노출 | 테스트가 stdout+stderr 전체에 토큰 문자열이 없음을 단언 ✓ |
 | Upstash REST 계약 | SCAN 커서는 **문자열**이고 종료 신호는 `"0"`(COUNT는 힌트라 빈 페이지가 정상) · `/pipeline`은 실패한 커맨드가 있어도 **나머지를 계속 실행**하고 원소별 `{error}`를 준다 · `HGETALL`은 평탄 배열 · `ZRANGE WITHSCORES`의 점수는 문자열 · `TYPE` 미존재는 `"none"` · `PTTL`은 `-1`(영구)/`-2`(없음) — 공식 문서와 `@upstash/redis` 구현으로 대조 [스니펫] |

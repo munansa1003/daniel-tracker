@@ -27,7 +27,7 @@ const DST_TOKEN = "dst-token-bbbbbbbbbbbbbbbbbbbb";
 function createFake(token) {
   const data = new Map();          // key -> { type, value, expireAt(ms|null) }
   const seen = [];                 // 이 서버가 받은 모든 명령(읽기 전용 검증용)
-  const flags = { scanDuplicates: false, vanishAfterScan: null, byteLen: new Map() };
+  const flags = { scanDuplicates: false, vanishAfterScan: null, byteLen: new Map(), refuseScan: null };
 
   const now = () => Date.now();
   const alive = (key) => {
@@ -52,6 +52,7 @@ function createFake(token) {
     const a = argv.slice(1).map(String);
     switch (cmd) {
       case "SCAN": {
+        if (flags.refuseScan) throw flags.refuseScan;   // 읽기 전용 토큰이 SCAN을 거부하는 상황
         const cursor = Number(a[0]) || 0;
         let match = "*";
         let count = 10;
@@ -245,7 +246,7 @@ function createFake(token) {
   return {
     server, data, seen, flags,
     url: () => `http://127.0.0.1:${server.address().port}`,
-    reset() { data.clear(); seen.length = 0; flags.scanDuplicates = false; flags.vanishAfterScan = null; flags.byteLen.clear(); },
+    reset() { data.clear(); seen.length = 0; flags.scanDuplicates = false; flags.vanishAfterScan = null; flags.byteLen.clear(); flags.refuseScan = null; },
     // 씨앗 심기 — TTL은 남은 밀리초로 준다(null = 영구)
     seed(key, type, value, ttlMs = null) {
       const stored = type === "hash" ? new Map(Object.entries(value))
@@ -446,6 +447,14 @@ describe("kv-migrate — 복사(--apply)", () => {
     expect(r.all).not.toContain(SRC_TOKEN);
     expect(r.all).not.toContain(DST_TOKEN);
     expect(r.all).toContain("127.0.0.1");   // 호스트는 보여 준다(어느 DB인지 사람이 확인)
+  });
+
+  it("서버가 준 오류 문구를 그대로 보여 준다(읽기 전용 토큰은 SCAN을 거부한다)", async () => {
+    src.flags.refuseScan = "ERR this command is not allowed with a read-only token";
+    const r = await run(["--apply"]);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("read-only token");   // "HTTP 400"만 던지면 원인을 알 수 없다
+    expect(r.all).not.toContain(SRC_TOKEN);
   });
 
   it("토큰이 틀리면 조용히 0건 복사가 아니라 실패한다", async () => {

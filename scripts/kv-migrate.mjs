@@ -3,8 +3,10 @@
 // 배경: DR-14(docs/migration/03-ci-deploy-design.md §8). 현 KV는 Vercel Marketplace 통합
 // (`upstash-kv-chestnut-umbrella`)이라 Vercel 프로젝트를 지우면 통합이 함께 지워지고 DB까지
 // 사라질 수 있다. 그래서 Firebase 컷오버 **전에**(02 런북 A단계) 직접 계정의 새 DB로 먼저 옮긴다.
-// 유실 시 피해: `import:seen:*`(영구 도장) 유실 → 운동·체성분 **이중 계상**,
-// `push:sub:*` 유실 → 리마인더 **중단**, `share:*` 유실 → 공유 링크 **즉사**.
+// 유실 시 피해: `push:sub:*`·`push:uids` → 리마인더 **중단**(사용자가 알아채기 어렵다 — 앱은
+// 멀쩡해 보인다), `share:*` → 공유 링크 **즉사**, `import:inbox:*` → 아직 못 받아간 수신분 소실,
+// `import:seen:*`(영구 도장) → 같은 기록 재수신(앱 2차 방어선이 있어 정상 경로에서 이중 계상까지는
+// 가지 않는다 — `src/importMerge.js:67`). 자세한 것은 docs/migration/04-kv-migration.md §1.
 //
 // 이 스크립트가 지키는 것:
 //   · 원본에는 어떤 쓰기 명령도 보내지 않는다(주석이 아니라 명령 화이트리스트로 강제).
@@ -186,8 +188,18 @@ async function httpJson(conn, path, body) {
       continue;                                    // 일시적 오류만 재시도
     }
     if (!res.ok) {
-      // 401/403 등은 재시도해도 소용없다. 응답 본문에 자격증명이 섞일 여지를 막으려 상태 코드만 알린다.
-      throw new Error(`${connLabel(conn)} HTTP ${res.status} — URL과 토큰을 확인하세요`);
+      // 401/403/400은 재시도해도 소용없다. 서버가 준 오류 문구를 함께 보여 준다 —
+      // 특히 400은 자격증명이 아니라 명령 자체의 문제일 때가 많다(Upstash의 **읽기 전용 토큰**은
+      // SCAN을 거부한다: "Some powerful read commands (e.g. SCAN, KEYS) are also restricted").
+      // 혹시라도 문구에 토큰이 섞여 있으면 가리고 내보낸다.
+      let detail = "";
+      try {
+        const body = await res.json();
+        if (body && typeof body.error === "string") detail = body.error;
+      } catch { /* 본문이 JSON이 아니면 상태 코드만 알린다 */ }
+      if (detail && conn.token) detail = detail.split(conn.token).join("****");
+      const hint = res.status === 401 || res.status === 403 ? " — URL과 토큰을 확인하세요" : "";
+      throw new Error(`${connLabel(conn)} HTTP ${res.status}${detail ? ` ${detail}` : ""}${hint}`);
     }
     try { return await res.json(); }
     catch (e) { lastErr = new Error(`${connLabel(conn)} 응답 파싱 실패: ${e.message}`); }
