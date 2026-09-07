@@ -32,6 +32,8 @@ import { WeekdayRadar } from "./components/WeekdayRadar.jsx";
 import { DateCopySheet, recentCopyDays, copyDupCount } from "./components/DateCopySheet.jsx";
 import { AdaptiveTdeeCard } from "./components/AdaptiveTdeeCard.jsx";
 import { ReminderSettings } from "./components/ReminderSettings.jsx";
+import { MigrationBanners } from "./components/MigrationBanners.jsx";
+import { readDismissedOn, writeDismissedOn } from "./migrationBanners.js";
 import { HealthEvents } from "./components/HealthEvents.jsx";
 import { AddFoodForm } from "./components/AddFoodForm.jsx";
 import { AddExForm } from "./components/AddExForm.jsx";
@@ -816,6 +818,27 @@ function MainApp({ user, profile, onProfileRestore, onLogout }) {
   }, [allDays, bodyLog, bodyDrafts, lastBackup, targetsByMode, dayTargets, appAdjust, tdeeHistory]);
   const doEnablePush = () => enablePush({ state: pushState, reminders: goals.reminders });
   const doDisablePush = () => disablePush();
+
+  // ── 원점 이전 안내(02 §1 #1·#4) ──
+  // 이 원점에 푸시 구독이 있는지 한 번 확인한다. null = 아직 모름(배너는 뜨지 않는다).
+  // 구독은 서비스워커 등록 단위 = **원점 단위**라, 새 주소는 구독 없는 상태로 시작한다.
+  const [hasPushSub, setHasPushSub] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    if (!pushReady) { setHasPushSub(null); return undefined; }
+    (async () => {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        if (alive) setHasPushSub(!!sub);
+      } catch { if (alive) setHasPushSub(null); }  // 확인 실패는 "모름" — 섣불리 배너를 띄우지 않는다
+    })();
+    return () => { alive = false; };
+  }, [pushReady]);
+  // 배너를 켠 뒤 사용자가 알림을 켜면 즉시 사라져야 한다(재확인 없이).
+  const enablePushFromBanner = async () => { const ok = await doEnablePush(); if (ok) setHasPushSub(true); return ok; };
+  const [originDismissedOn, setOriginDismissedOn] = useState(() => readDismissedOn());
+  const dismissOriginBanner = () => { writeDismissedOn(today()); setOriginDismissedOn(today()); };
   // 구독돼 있으면 상태·토글 변화 시 KV 갱신(구독 없으면 no-op).
   useEffect(() => { syncPushState({ state: pushState, reminders: goals.reminders }); }, [pushState, goals.reminders]);
 
@@ -1285,6 +1308,19 @@ function MainApp({ user, profile, onProfileRestore, onLogout }) {
       <div style={{ padding: landscape ? "14px 24px 40px" : "16px 20px 80px" }}>
         {/* HOME — 가로모드: 배너(전폭) 아래 [요약 | 식단·운동 기록] 2컬럼 */}
         {tab === "home" && (<div style={landscape ? { maxWidth: 960, margin: "0 auto" } : undefined}>
+          {/* 원점 이전 안내 — 빌드 변수(VITE_NEW_ORIGIN)가 없으면 아무것도 렌더하지 않는다.
+              Vercel 빌드에는 그 변수를 두지 않으므로 현재 운영 중인 앱은 무변경이다. */}
+          <MigrationBanners
+            newOrigin={import.meta.env.VITE_NEW_ORIGIN}
+            hostname={typeof window !== "undefined" ? window.location.hostname : ""}
+            dismissedOn={originDismissedOn}
+            todayStr={today()}
+            onDismissOrigin={dismissOriginBanner}
+            pushReady={pushReady}
+            hasSubscription={hasPushSub}
+            reminders={goals.reminders}
+            onEnablePush={enablePushFromBanner}
+          />
           {/* 리마인더 배너 — 앱 열 때 상태 기반 (기록/체중). 백업은 아래 전용 배너로 처리 */}
           {pendingRmd.filter(r => r.key === "record").map(() => (
             <div key="rmd-record" onClick={() => setTab("diet")} style={{ background: "rgba(212,175,55,0.1)", border: "1px solid rgba(212,175,55,0.25)", borderRadius: 16, padding: 12, marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>

@@ -4,6 +4,8 @@
 // 그래서 "Firebase에 맞춘 변경"은 전부 **옛 동작을 지우지 않는 형태**여야 한다.
 // 여기서 고정하는 것이 그 조건이다.
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { getClientIp } from "../../api/_lib/security.js";
 import { bridgeParams, resetParamsBridge } from "../../api/_lib/params-bridge.js";
 
@@ -184,5 +186,28 @@ describe("export-view 진단 필드 — 필드 이름은 유지, 출처만 플�
     expect(body.commit).toBe("unknown");
     expect(body.branch).toBe("unknown");
     expect(body.route).toBe("export-view");
+  });
+});
+
+describe("authDomain (DR-12) — 값은 교체 가능하되 기본값은 프로젝트와 묶여 있어야 한다", () => {
+  // src/firebase.js를 import하면 initializeApp이 실제로 돌아 App Check까지 건드린다.
+  // 여기서 확인하려는 것은 "설정이 어떻게 쓰여 있는가" 한 가지뿐이라 소스를 읽는다
+  // (owner-email.test.js와 같은 방식 — 정규식이 헛돌지 않는지 먼저 자기검증한다).
+  const src = readFileSync(fileURLToPath(new URL("../firebase.js", import.meta.url)), "utf8");
+
+  it("정규식이 실제로 두 값을 뽑는다(자기검증)", () => {
+    expect(/authDomain:\s*import\.meta\.env\.VITE_AUTH_DOMAIN \|\| "([^"]+)"/.exec(src)).toBeTruthy();
+    expect(/projectId:\s*"([^"]+)"/.exec(src)).toBeTruthy();
+  });
+
+  it("빌드 변수로 교체 가능하다 — Vercel엔 변수가 없어 옛 원점은 현행 유지", () => {
+    expect(src).toContain("import.meta.env.VITE_AUTH_DOMAIN ||");
+  });
+
+  it("기본값이 이 프로젝트의 firebaseapp.com 도메인과 일치한다", () => {
+    // 기본값이 다른 프로젝트를 가리키면 로그인이 통째로 실패한다 — 그런데 코드는 멀쩡해 보인다.
+    const fallback = /authDomain:\s*import\.meta\.env\.VITE_AUTH_DOMAIN \|\| "([^"]+)"/.exec(src)[1];
+    const projectId = /projectId:\s*"([^"]+)"/.exec(src)[1];
+    expect(fallback).toBe(`${projectId}.firebaseapp.com`);
   });
 });
