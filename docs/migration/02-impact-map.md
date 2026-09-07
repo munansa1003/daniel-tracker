@@ -7,7 +7,7 @@
 ## 0. 이전이 아닌 것
 
 - **Firestore 데이터 이전은 없다.** 프로덕션은 같은 Firebase 프로젝트(`daniel-tracker-cb781`)를 그대로 쓴다. `users/{uid}/data/*`·`members`·`invites`·규칙 전부 그대로.
-- **Upstash KV도 그대로.** `import:*`·`push:*`·`share:*`·`rl:*` 키는 원점을 모른다(uid·토큰 키). 단 Vercel Marketplace 통합 여부는 **DR-7 보조 항목**(통합 삭제 = DB 삭제 위험 [스니펫]).
+- **Upstash KV도 그대로.** `import:*`·`push:*`·`share:*`·`rl:*` 키는 원점을 모른다(uid·토큰 키). 단 Vercel Marketplace 통합 여부는 **DR-14**(통합 삭제 = DB 삭제 위험 [스니펫]).
 - Anthropic·identitytoolkit 호출은 서버→외부라 원점 무관.
 
 ## 1. 원점 전환 소비처 전수 표
@@ -42,6 +42,8 @@
 | 23 | **크론 이중 발송** | `vercel.json crons` · Scheduler 잡 | 병행 기간에 둘 다 살아 있으면 밤 8시 푸시 2회 | 같은 알림 2번 | 런북: Scheduler 잡 생성 **전에** Vercel 크론 제거(또는 `vercel.json` crons 삭제 배포). 되돌릴 땐 반대로 | 중 | P2 |
 | 24 | **`FIREBASE_WEB_API_KEY` 예약 접두사** | `api/_lib/verify-auth.js:4` · `verify-uid.js:5` · `api/push-sync.js:18` | Functions env에서 `FIREBASE_` 접두사 거부(`firebase-tools` `lib/functions/env.js:22,128` [코드]) → 배포 실패 | 배포 단계에서 즉시 드러남 | 이름 변경(01 §5). 코드 폴백값(공개 웹 키)이 있어 미설정도 동작 | 전 | P2 |
 | 25 | **Hosting 60s 상한** | `api/import-inbox.js:51`(12s 예산) · `vercel.json` maxDuration 60(크론) | 크론은 Hosting 비경유라 무관. 앱 경로는 전부 30s 이내 | 없음 | timeout 설정 01 §2 | — | P3 |
+| 26 | 로그인 화면의 인앱 브라우저 탈출 링크 | `src/components/LoginScreen.jsx:21-28,77` `window.location.href/host/pathname` | 현재 주소를 그대로 카카오톡 외부 브라우저·Chrome intent로 넘김 — 원점 무관(런타임 값) | 없음 | 없음 | — | P3 |
+| 27 | 오프라인 폴백 페이지 | `public/offline.html:38` `window.location.reload()` | 상대 경로·리로드뿐 | 없음 | 없음 | — | P3 |
 
 ## 2. 컷오버 런북 초안
 
@@ -83,7 +85,7 @@
 | C1 | 매일: Cloud Logging 오류 0 · 예산 알림 없음 · 수신 로그 정상 | | |
 | C2 | T+7: 옛 원점 공유 링크 전부 만료(표 #12) | KV `share:*` | |
 | C3 | [사람] 지인(멤버)에게 새 주소 안내 · 옛 앱 삭제 요청 | | |
-| C4 | T+14: Vercel **환경변수 백업 후** 프로젝트 삭제 전 **Upstash 소유권 확인**(DR-7 보조 — Marketplace 통합이면 먼저 Upstash 직접 계정으로 이전/재생성, `KV_REST_API_*` 교체 재배포) | Upstash 콘솔에서 DB가 독립 존재 | 그 다음에야 Vercel 삭제 |
+| C4 | T+14: Vercel **환경변수 백업 후** 프로젝트 삭제 전 **Upstash 소유권 확인**(DR-14 — Marketplace 통합이면 먼저 Upstash 직접 계정으로 이전/재생성, `KV_REST_API_*` 교체 재배포) | Upstash 콘솔에서 DB가 독립 존재 | 그 다음에야 Vercel 삭제 |
 | C5 | 문서 URL 일괄 갱신(표 #17) · `.env.example`의 Vercel 안내 제거 | | |
 
 ### 되돌리기(롤백) 요약

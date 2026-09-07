@@ -159,10 +159,11 @@ rewrite `function` 블록의 스키마(`functionId`·`region`·`pinTag`)는 `fir
 | `IMPORT_UID` · `IMPORT_CUTOVER_DATE` · `IMPORT_BODY_CUTOVER_DATE` · `IMPORT_TZ_OFFSET` | Vercel env | params | `.env.<project>` | 값은 우편함 귀속·컷오버 — 비밀 아님 |
 | `INBODY_LOGIN_ID` · `INBODY_LOGIN_PW` · `INBODY_COUNTRY` | Vercel env(Sensitive) | **보류 — 봉인** | DR-6: 시크릿을 만들지 않는다(값 부재 = 기능 off, `import-inbox.js:94`). 필요 시 운영자가 콘솔에서만 생성 | 계정 자격증명 자체(사고 반경 큼) |
 | `SHARE_TEST_TOKEN` | Vercel env(선택) | Secret Manager(선택) 또는 미설정 | `exportView` | 미설정이면 진단 샘플 경로만 비활성 |
-| `KV_REST_API_URL` | Vercel(Upstash 통합 자동 주입) | params | `.env.<project>` | 호스트만. **소유권 확인 필요(DR-7 보조)** |
-| `KV_REST_API_TOKEN` | Vercel | **Secret Manager** | 4개 함수 전부 | `UPSTASH_REDIS_REST_*` 이름으로 옮겨도 코드가 둘 다 읽음(`kv.js:7-13`) |
+| `KV_REST_API_URL` (또는 `UPSTASH_REDIS_REST_URL`) | Vercel(Upstash 통합 자동 주입) | params | `.env.<project>` | 호스트만. **소유권 확인 필요(DR-14)** |
+| `KV_REST_API_TOKEN` (또는 `UPSTASH_REDIS_REST_TOKEN`) | Vercel | **Secret Manager** | 4개 함수 전부 | 코드가 두 이름을 다 읽음(`kv.js:7-13`, `security.js:57-58`) — 둘 중 **한 쌍만** 설정 |
 | `VERCEL_URL` · `VERCEL_ENV` · `VERCEL_GIT_COMMIT_SHA` · `VERCEL_GIT_COMMIT_REF` | 자동 주입 | **삭제** | `security.js:17`(프리뷰 origin 허용) · `export-view.js:50-52`(진단) → Cloud Run의 `K_SERVICE`/`K_REVISION` [미확인 — 기억 기반, 확인 필요]로 대체하거나 필드 제거 | |
 | `NODE_ENV` | 자동 주입 | 무대응 | `security.js:60`의 경고 로그 분기에만 쓰임. Functions 런타임이 `production`을 넣는지 [미확인] — 어느 쪽이든 기능 영향 없음 | |
+| `import.meta.env.DEV` · `import.meta.env.PROD` | Vite 내장(빌드 모드) | 무대응 | `src/firebase.js:22,35` — `vite build`가 `PROD=true`로 굽는다. CI 빌드도 동일 | |
 
 **시크릿 개수**: prod 4~5개(ANTHROPIC · VAPID_PRIVATE · IMPORT_TOKEN · KV_TOKEN · [SHARE_TEST]) + staging 동수 = 8~10 활성 버전.
 Secret Manager 무료 6 버전/월, 초과 버전당 $0.06/월 [스니펫] `https://cloud.google.com/secret-manager/pricing` → ≈ $0.24/월.
@@ -323,7 +324,7 @@ B는 그 방어선이 배포본에도 그대로 적용된다. C는 성능이 낫
 | 되돌리기 조건 | 컷오버 후 24h 내: Google 로그인 실패(승인 도메인/authDomain), HAE 단축어 401/5xx 지속, 공유 링크 404(경로형), 밤 8시 푸시 미수신, `import-inbox` 504 |
 | 되돌리는 절차 | ① 단축어 URL을 vercel.app으로 복귀 [사람] ② 앱 안내 문구 ③ Scheduler 잡 일시정지(중복 푸시 방지 — Vercel 크론이 살아 있으므로) ④ Firebase 함수는 두어도 무해 |
 | 병행 중 이중 크론 | **Vercel 크론과 Scheduler가 동시에 살아 있으면 푸시가 2번 간다** → 컷오버 순서에서 Vercel 크론 제거(`vercel.json` crons 삭제 배포 또는 Vercel 프로젝트 크론 비활성)가 선행. 02 런북 |
-| 종료 | 병행 기간 끝: Vercel 프로젝트 삭제 **전에** Upstash가 Vercel Marketplace 통합인지 확인(DR-7 보조) — 통합 제거가 DB 삭제로 이어질 수 있음 [스니펫, 원문 미확인] |
+| 종료 | 병행 기간 끝: Vercel 프로젝트 삭제 **전에** Upstash가 Vercel Marketplace 통합인지 확인(DR-14) — 통합 제거가 DB 삭제로 이어질 수 있음 [스니펫, 원문 미확인] |
 
 ## 13. 대안 한 장 — Cloudflare Pages + Workers를 택하지 않는 이유
 
