@@ -87,6 +87,10 @@ const copyRank = (key) => (COPY_LAST.some((re) => re.test(key)) ? 1 : 0);
 
 class UsageError extends Error {}
 
+// 값을 받지 않는 플래그. `--allow-nonempty=no`처럼 값을 붙이면 값이 무시되고 플래그만 켜져서
+// **안전장치를 끄려다 켜는** 정반대 결과가 된다 — 그래서 아예 거부한다.
+const BOOL_FLAGS = new Set(["--apply", "--verify", "--allow-nonempty", "--allow-empty", "--help", "-h"]);
+
 // ── 인자 ─────────────────────────────────────────────────────────────────────
 function usage() {
   return [
@@ -99,15 +103,19 @@ function usage() {
     "  --apply                 실제로 복사한다(기본은 점검만)",
     "  --verify                건수와 표본 값을 대조한다",
     "  --allow-nonempty        대상 DB가 비어 있지 않아도 --apply를 허용(재실행 시 필요)",
+    "  --allow-empty           원본에서 옮길 키가 0개여도 성공으로 끝낸다(기본은 중단)",
     "  --sample=N              대조 표본 키 수 (기본 100)",
     "  --match=GLOB            원본에서 훑을 키 패턴 (기본 *)",
-    "  --exclude=A:,B:         제외할 접두사 목록 — 기본값을 덮어쓴다 (기본 rl:)",
+    "  --exclude=A:,B:         제외할 접두사 목록 — 기본값을 덮어쓴다",
+    `                          (기본 ${DEFAULT_EXCLUDE.join(" ")})`,
     "  --ttl-tolerance=SEC     TTL 차이 허용치 (기본 300초)",
     "  --scan-count=N          SCAN COUNT 힌트 (기본 200)",
   ].join("\n");
 }
 
 function intArg(name, value, min) {
+  // Number("")는 0이다 — 빈 값이 min=0을 통과해 조용히 허용오차를 0으로 만드는 길을 막는다.
+  if (value.trim() === "") throw new UsageError(`${name}에는 ${min} 이상의 정수가 필요합니다`);
   const n = Number(value);
   if (!Number.isInteger(n) || n < min) throw new UsageError(`${name}에는 ${min} 이상의 정수가 필요합니다`);
   return n;
@@ -116,6 +124,7 @@ function intArg(name, value, min) {
 function parseArgs(argv) {
   const opt = {
     apply: false, verify: false, allowNonempty: false,
+    allowEmpty: false,
     sample: 100, match: "*", exclude: [...DEFAULT_EXCLUDE],
     ttlTolSec: 300, scanCount: SCAN_COUNT,
   };
@@ -123,19 +132,28 @@ function parseArgs(argv) {
     const eq = a.indexOf("=");
     const name = eq === -1 ? a : a.slice(0, eq);
     const value = eq === -1 ? "" : a.slice(eq + 1);
+    if (eq !== -1 && BOOL_FLAGS.has(name)) {
+      throw new UsageError(`${name}에는 값을 붙일 수 없습니다(붙이면 값이 무시되고 플래그만 켜집니다)`);
+    }
     switch (name) {
       case "--apply": opt.apply = true; break;
       case "--verify": opt.verify = true; break;
       case "--allow-nonempty": opt.allowNonempty = true; break;
+      case "--allow-empty": opt.allowEmpty = true; break;
       case "--sample": opt.sample = intArg(name, value, 1); break;
       case "--ttl-tolerance": opt.ttlTolSec = intArg(name, value, 0); break;
       case "--scan-count": opt.scanCount = intArg(name, value, 1); break;
       case "--match":
         if (!value) throw new UsageError(`${name}에 값이 없습니다`);
         opt.match = value; break;
-      case "--exclude":
-        opt.exclude = value.split(",").map((s) => s.trim()).filter(Boolean);
+      case "--exclude": {
+        // 빈 값(`--exclude=` 또는 `--exclude`)은 제외 목록을 통째로 비운다 —
+        // 그러면 rl:*과 60초 락까지 새 DB로 따라간다. 실수와 구분할 수 없으므로 거부한다.
+        const list = value.split(",").map((x) => x.trim()).filter(Boolean);
+        if (list.length === 0) throw new UsageError("--exclude 에는 접두사를 하나 이상 적어야 합니다(예: --exclude=rl:,import:body-cloud-lock:)");
+        opt.exclude = list;
         break;
+      }
       case "--help": case "-h": throw new UsageError("");
       default: throw new UsageError(`모르는 옵션: ${a}`);
     }
@@ -573,76 +591,128 @@ async function applyCopy(src, dst, opt) {
   }
   const { keys, excluded } = await scanKeys(src, opt);
   console.log(`${connLabel(src)} → ${connLabel(dst)}`);
-  console.log(`대상 키 ${keys.length}개 (제외 ${excluded}개, 접두사 ${opt.exclude.join(" ") || "없음"})`);
+  console.log(`대상 키 ${keys.length}개 (제외 ${excluded}개, 접두사 ${opt.exclude.join(" ")})`);
 
-  const stat = { copied: 0, skipped: 0, vanished: 0, unsupported: [], failed: [] };
+  // 옮길 것이 0개인데 "복사 완료"로 끝나면, 주소·토큰·--match 오타가 성공으로 보인다.
+  if (keys.length === 0 && !opt.allowEmpty) {
+    console.error("중단: 원본에서 옮길 키가 0개입니다 — SRC_URL·--match·--exclude 를 확인하세요.");
+    console.error("정말 비어 있는 것이 맞다면 --allow-empty 를 붙이세요.");
+    return 2;
+  }
+
+  // 대상이 비어 있지 않은데 덮어쓰려 한다 — 컷오버 이후의 재실행이면 새 DB의 최신 값을 옛 값으로
+  // 되돌릴 수 있다. 대상에만 있는 키를 세어 먼저 알린다(04 §4).
+  if (dbsize > 0) {
+    const { keys: dstKeys } = await scanKeys(dst, opt);
+    const srcSet = new Set(keys);
+    const dstOnly = dstKeys.filter((k) => !srcSet.has(k));
+    if (dstOnly.length) {
+      console.warn(`⚠ 대상에만 있는 키 ${dstOnly.length}개 (예: ${dstOnly.slice(0, 3).join(", ")})`);
+      console.warn("  컷오버 이후라면 이 재실행이 새 DB의 최신 값을 덮어쓸 수 있습니다 — 04 §4를 먼저 읽으세요.");
+    }
+  }
+
+  const stat = { copied: 0, skipped: 0, vanished: 0, unsupported: [], failed: [], deferred: [] };
   let done = 0;
 
-  for (const batch of chunk(keys, KEY_BATCH)) {
-    const srcMeta = await readMeta(src, batch);
-    const live = [];
-    for (const [k, m] of srcMeta) {
-      if (m.type === "none" || m.pttl === -2) { stat.vanished++; continue; }
-      if (!READ_CMD[m.type]) { stat.unsupported.push(`${k} (${m.type})`); continue; }
-      live.push([k, m]);
-    }
-    if (live.length === 0) { done += batch.length; continue; }
-
-    const srcVals = await readValues(src, live);
-
-    // 비UTF-8 값 감시 — Upstash REST는 잘못된 UTF-8 바이트를 U+FFFD(�)로 **조용히** 바꿔 돌려준다
-    // (공식 문서: "If the response contains an invalid utf-8 character, it will be replaced with a �").
-    // 그대로 옮기면 에러 하나 없이 값만 상한다. 원본의 STRLEN(바이트 수)과 받아온 문자열의 바이트 수를
-    // 맞춰 보고, 어긋나면 **복사하지 않고** 실패로 보고한다. 조용히 상하느니 시끄럽게 멈춘다.
-    // (이 앱은 JSON 문자열만 저장하므로 정상 상황에서는 걸릴 일이 없다 — 04 §7 D-13)
-    const strKeys = live.filter(([, m]) => m.type === "string").map(([k]) => k);
-    const lens = await pipe(src, strKeys.map((k) => ["STRLEN", k]));
-    const lossy = new Set();
-    strKeys.forEach((k, i) => {
-      const expect = Number(resultOf(src, lens[i], `STRLEN ${k}`) ?? -1);
-      const got = srcVals.get(k);
-      if (typeof got !== "string" || expect < 0) return;
-      const actual = Buffer.byteLength(got, "utf8");
-      if (actual !== expect) {
-        lossy.add(k);
-        stat.failed.push(`${k}: 비UTF-8 값(원본 ${expect}바이트 → 읽은 값 ${actual}바이트) — REST로는 원형 그대로 옮길 수 없습니다`);
+  const copyKeys = async (list) => {
+    for (const batch of chunk(list, KEY_BATCH)) {
+      const srcMeta = await readMeta(src, batch);
+      const live = [];
+      for (const [k, m] of srcMeta) {
+        if (m.type === "none" || m.pttl === -2) { stat.vanished++; continue; }
+        if (!READ_CMD[m.type]) { stat.unsupported.push(`${k} (${m.type})`); continue; }
+        live.push([k, m]);
       }
-    });
+      done += batch.length;
+      if (live.length === 0) continue;
 
-    const dstMeta = await readMeta(dst, live.map(([k]) => k));
-    // 대상에 같은 타입으로 이미 있는 키만 값을 읽어 비교한다(멱등).
-    const dstSame = live.filter(([k, m]) => dstMeta.get(k)?.type === m.type);
-    const dstVals = await readValues(dst, dstSame.map(([k, m]) => [k, m]));
+      const srcVals = await readValues(src, live);
 
-    const plan = [];
-    for (const [k, m] of live) {
-      if (lossy.has(k)) continue;                // 위에서 이미 실패로 셌다
-      const value = srcVals.get(k);
-      if (isEmptyValue(m.type, value)) { stat.vanished++; continue; }
-      const dm = dstMeta.get(k);
-      const same = dm && dm.type === m.type
-        && canon(m.type, dstVals.get(k)) === canon(m.type, value)
-        && ttlMatches(m.pttl, dm.pttl, opt.ttlTolSec);
-      if (same) { stat.skipped++; continue; }
-      plan.push({ key: k, cmds: writeCommands(k, m.type, value, m.pttl) });
-    }
-
-    if (plan.length) {
-      const res = await pipeGroups(dst, plan.map((p) => p.cmds));
-      res.forEach((groupRes, i) => {
-        const bad = (groupRes || []).find((el) => el && el.error);
-        if (bad) stat.failed.push(`${plan[i].key}: ${bad.error}`);
-        else stat.copied++;
+      // 비UTF-8 값 감시 — Upstash REST는 잘못된 UTF-8 바이트를 U+FFFD(�)로 **조용히** 바꿔 돌려준다
+      // (공식 문서: "If the response contains an invalid utf-8 character, it will be replaced with a �").
+      // 그대로 옮기면 에러 하나 없이 값만 상한다. 원본의 STRLEN(바이트 수)과 받아온 문자열의
+      // 바이트 수를 맞춰 본다. 조용히 상하느니 시끄럽게 멈춘다.
+      // (이 앱은 JSON 문자열만 저장하므로 정상 상황에서는 걸릴 일이 없다 — 04 §8 D-13)
+      const strKeys = live.filter(([, m]) => m.type === "string").map(([k]) => k);
+      const lens = await pipe(src, strKeys.map((k) => ["STRLEN", k]));
+      const skip = new Set();                    // 이번 배치에서 쓰지 않고 넘길 키
+      const suspect = [];
+      strKeys.forEach((k, i) => {
+        const expect = Number(resultOf(src, lens[i], `STRLEN ${k}`) ?? -1);
+        const got = srcVals.get(k);
+        if (typeof got !== "string" || expect < 0) return;
+        if (Buffer.byteLength(got, "utf8") !== expect) suspect.push(k);
       });
+      // GET과 STRLEN은 서로 다른 왕복이다 — 그 사이에 값이 바뀌거나 키가 사라져도 어긋난다.
+      // 한 번 어긋났다고 단정하지 않고, 의심 키만 GET+STRLEN을 **한 파이프라인**으로 다시 읽어
+      // 두 번 연속 어긋날 때만 비UTF-8로 판정한다(정상 값을 거부하는 오진을 막는다).
+      if (suspect.length) {
+        const re = await pipe(src, suspect.flatMap((k) => [["GET", k], ["STRLEN", k]]));
+        suspect.forEach((k, i) => {
+          const v = resultOf(src, re[2 * i], `GET ${k}`);
+          const n = Number(resultOf(src, re[2 * i + 1], `STRLEN ${k}`) ?? -1);
+          if (v === null || v === undefined) { skip.add(k); stat.vanished++; return; }
+          const str = String(v);
+          const actual = Buffer.byteLength(str, "utf8");
+          if (actual === n) { srcVals.set(k, str); return; }   // 경합이었다 — 다시 읽은 값으로 진행
+          skip.add(k);
+          stat.failed.push(`${k}: 비UTF-8 값(원본 ${n}바이트 → 읽은 값 ${actual}바이트) — REST로는 원형 그대로 옮길 수 없습니다`);
+        });
+      }
+
+      const dstMeta = await readMeta(dst, live.map(([k]) => k));
+      // 대상에 같은 타입으로 이미 있는 키만 값을 읽어 비교한다(멱등).
+      const dstSame = live.filter(([k, m]) => dstMeta.get(k)?.type === m.type);
+      const dstVals = await readValues(dst, dstSame.map(([k, m]) => [k, m]));
+
+      const plan = [];
+      for (const [k, m] of live) {
+        if (skip.has(k)) continue;               // 위에서 이미 실패·사라짐으로 셌다
+        const value = srcVals.get(k);
+        if (isEmptyValue(m.type, value)) { stat.vanished++; continue; }
+        const dm = dstMeta.get(k);
+        const same = dm && dm.type === m.type
+          && canon(m.type, dstVals.get(k)) === canon(m.type, value)
+          && ttlMatches(m.pttl, dm.pttl, opt.ttlTolSec);
+        if (same) { stat.skipped++; continue; }
+        plan.push({ key: k, cmds: writeCommands(k, m.type, value, m.pttl) });
+      }
+
+      if (plan.length) {
+        const res = await pipeGroups(dst, plan.map((p) => p.cmds));
+        res.forEach((groupRes, i) => {
+          const bad = (groupRes || []).find((el) => el && el.error);
+          if (bad) stat.failed.push(`${plan[i].key}: ${bad.error}`);
+          else stat.copied++;
+        });
+      }
+      if (keys.length > KEY_BATCH) console.log(`  ... ${Math.min(done, keys.length)}/${keys.length}`);
     }
-    done += batch.length;
-    if (keys.length > KEY_BATCH) console.log(`  ... ${Math.min(done, keys.length)}/${keys.length}`);
+  };
+
+  // 순서가 곧 안전이다(§1 "복사 순서는 안전 순서다"). 사서함·구독을 **다 옮긴 뒤에** 도장·목록을
+  // 보낸다. 앞이 하나라도 실패하면 뒤는 **아예 보내지 않는다** — 그러지 않으면 "사서함 없이 도장만"
+  // (그 수신분을 영영 못 받는다) 또는 "구독 없이 push:uids만"(첫 크론이 uid를 영구 삭제) 상태가
+  // 만들어진다. 순서만으로는 못 막는다: 실패한 키를 건너뛰고 뒤엣것을 쓰면 같은 결과가 되기 때문이다.
+  const rank0 = keys.filter((k) => copyRank(k) === 0);
+  const rank1 = keys.filter((k) => copyRank(k) === 1);
+  await copyKeys(rank0);
+  if (stat.failed.length || stat.unsupported.length) {
+    stat.deferred = rank1;
+    done += rank1.length;
+  } else {
+    await copyKeys(rank1);
   }
 
   console.log(`\n복사 ${stat.copied}개 · 건너뜀(이미 같음) ${stat.skipped}개 · 사라짐 ${stat.vanished}개`
     + ` · 실패 ${stat.failed.length}개 · 미지원 타입 ${stat.unsupported.length}개`);
   for (const f of stat.failed.slice(0, 10)) console.error(`  실패: ${f}`);
   for (const u of stat.unsupported.slice(0, 10)) console.error(`  미지원: ${u}`);
+  if (stat.deferred.length) {
+    console.error(`  보류 ${stat.deferred.length}개: 앞 단계가 실패해 도장·구독자 목록은 보내지 않았습니다`);
+    console.error("  (도장만 먼저 넘어가면 그 수신분을 영영 못 받습니다 — 04 §1 '복사 순서는 안전 순서다')");
+  }
   if (stat.failed.length || stat.unsupported.length) {
     console.error("일부 키를 옮기지 못했습니다. 원인을 고친 뒤 --apply --allow-nonempty 로 다시 실행하세요(멱등).");
     return 2;
@@ -667,11 +737,22 @@ async function verifyCopy(src, dst, opt) {
   const d = await collectInventory(dst, opt, false);
   const dstSet = new Set(d.keys);
   const srcSet = new Set(s.keys);
-  const missing = s.keys.filter((k) => !dstSet.has(k));
+  // 원본을 먼저 훑으므로, SCAN과 TYPE 사이에 만료된 키는 타입이 "none"으로 온다.
+  // 그런 키를 "대상에 없음"으로 세면 정상 이관인데 대조가 실패한다(복사 쪽은 "사라짐"으로 센다).
+  const missing = s.keys.filter((k) => !dstSet.has(k) && (s.types.get(k)?.type ?? "none") !== "none");
+  const vanished = s.keys.filter((k) => !dstSet.has(k) && (s.types.get(k)?.type ?? "none") === "none");
   const extra = d.keys.filter((k) => !srcSet.has(k));
 
   console.log(`\n건수: 원본 ${s.keys.length}개 · 대상 ${d.keys.length}개`
-    + ` · 대상에 없음 ${missing.length}개 · 원본에 없음 ${extra.length}개`);
+    + ` · 대상에 없음 ${missing.length}개 · 원본에 없음 ${extra.length}개`
+    + (vanished.length ? ` · 훑은 뒤 만료 ${vanished.length}개` : ""));
+
+  // 아무것도 대조하지 않고 "통과"로 끝나면, 주소·--match 오타가 성공으로 보인다.
+  if (s.keys.length === 0 && !opt.allowEmpty) {
+    console.error("중단: 원본에서 대조할 키가 0개입니다 — SRC_URL·--match·--exclude 를 확인하세요.");
+    console.error("정말 비어 있는 것이 맞다면 --allow-empty 를 붙이세요.");
+    return 2;
+  }
 
   const allGroups = [...new Set([...s.groups.keys(), ...d.groups.keys()])].sort();
   if (allGroups.length) {

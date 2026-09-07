@@ -28,7 +28,7 @@ function createFake(token) {
   const data = new Map();          // key -> { type, value, expireAt(ms|null) }
   const seen = [];                 // 이 서버가 받은 모든 명령(읽기 전용 검증용)
   const requests = [];             // HTTP 요청 단위로 묶은 명령(한 키가 한 요청에 담기는지 검증용)
-  const flags = { scanDuplicates: false, vanishAfterScan: null, byteLen: new Map(), refuseScan: null };
+  const flags = { scanDuplicates: false, vanishAfterScan: null, byteLen: new Map(), refuseScan: null, failWrite: new Map() };
 
   const now = () => Date.now();
   const alive = (key) => {
@@ -48,9 +48,12 @@ function createFake(token) {
     return new RegExp(`^${re}$`).test(s);
   };
 
+  const WRITES = new Set(["SET", "HSET", "SADD", "RPUSH", "ZADD", "DEL", "PEXPIRE", "PERSIST"]);
+
   function exec(argv) {
     const cmd = String(argv[0]).toUpperCase();
     const a = argv.slice(1).map(String);
+    if (WRITES.has(cmd) && flags.failWrite.has(a[0])) throw flags.failWrite.get(a[0]);
     switch (cmd) {
       case "SCAN": {
         if (flags.refuseScan) throw flags.refuseScan;   // 읽기 전용 토큰이 SCAN을 거부하는 상황
@@ -248,7 +251,7 @@ function createFake(token) {
   return {
     server, data, seen, requests, flags,
     url: () => `http://127.0.0.1:${server.address().port}`,
-    reset() { data.clear(); seen.length = 0; requests.length = 0; flags.scanDuplicates = false; flags.vanishAfterScan = null; flags.byteLen.clear(); flags.refuseScan = null; },
+    reset() { data.clear(); seen.length = 0; requests.length = 0; flags.scanDuplicates = false; flags.vanishAfterScan = null; flags.byteLen.clear(); flags.refuseScan = null; flags.failWrite.clear(); },
     // 씨앗 심기 — TTL은 남은 밀리초로 준다(null = 영구)
     seed(key, type, value, ttlMs = null) {
       const stored = type === "hash" ? new Map(Object.entries(value))
@@ -372,9 +375,14 @@ describe("kv-migrate — 점검(dry-run)", () => {
     expect(r.out).toMatch(/키 13개 \(제외 접두사 rl: import:body-cloud-lock: → 3개 제외\)/);
     expect(r.out).toContain("import:seen:* — 운동 중복 도장(영구)");
     expect(r.out).toContain("share:hits:* — 공유 링크 조회수");   // share:* 보다 먼저 매치돼야 한다
-    expect(r.out).toMatch(/TTL 분포:.*영구 \d+/);
+    expect(r.out).toMatch(/TTL 분포:.*영구 10/);          // 13개 중 TTL 있는 3개를 뺀 수
     expect(r.out).toMatch(/7일 이하 2/);
-    expect(r.out).toMatch(/용량\(근사\): 문자열 값 합계 .* · 컬렉션 원소 \d+개/);
+    expect(r.out).toMatch(/1시간 이하 1/);
+    // 계량기가 죽어 0으로 수렴해도 통과하지 않도록 숫자를 실제로 본다
+    const cap = /용량\(근사\): 문자열 값 합계 ([\d.]+)(B|KB|MB) · 컬렉션 원소 (\d+)개/.exec(r.out);
+    expect(cap).not.toBeNull();
+    expect(Number(cap[1])).toBeGreaterThan(100);
+    expect(Number(cap[3])).toBe(12);                      // 2+1+3+2+2+2 (해시2·리스트2·집합·정렬집합)
     expect(r.out).toContain("비어 있습니다");
     // 원본·대상 어디에도 쓰기가 없어야 한다
     expect(src.writes()).toEqual([]);
@@ -521,6 +529,63 @@ describe("kv-migrate — 재시도 안전성", () => {
   });
 });
 
+describe("kv-migrate — 앞이 실패하면 뒤를 보내지 않는다", () => {
+  // 순서만으로는 못 막는다: 사서함 쓰기가 실패했는데 도장을 계속 쓰면 "도장만 있고 사서함 없음"이
+  // 되어 그 수신분을 영영 못 받는다. 실패가 하나라도 있으면 COPY_LAST는 통째로 보류해야 한다.
+  it("사서함 쓰기가 실패하면 도장·push:uids 는 아예 쓰지 않는다", async () => {
+    dst.flags.failWrite.set("import:inbox:daniel", "ERR simulated write failure");
+    const r = await run(["--apply"]);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("import:inbox:daniel: ERR simulated write failure");
+    expect(r.err).toContain("보류 3개");
+
+    const keys = Object.keys(dst.snapshot());
+    expect(keys).not.toContain("import:seen:daniel:hae-2026-08-01-run");
+    expect(keys).not.toContain("import:body-seen:daniel:inbody-2026-08-02");
+    expect(keys).not.toContain("push:uids");
+    expect(keys).toContain("push:sub:daniel");            // 구독은 먼저 갔다
+  });
+
+  it("구독 쓰기가 실패해도 push:uids 는 남지 않는다(크론이 uid를 지우는 상태를 만들지 않는다)", async () => {
+    dst.flags.failWrite.set("push:sub:daniel", "ERR simulated write failure");
+    const r = await run(["--apply"]);
+    expect(r.code).toBe(2);
+    expect(Object.keys(dst.snapshot())).not.toContain("push:uids");
+  });
+});
+
+describe("kv-migrate — 조용한 무작업 성공을 막는다", () => {
+  it("옮길 키가 0개면 '복사 완료'가 아니라 중단한다", async () => {
+    const r = await run(["--apply", "--match=없는접두사:*"]);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("옮길 키가 0개");
+    expect(r.err).toContain("--allow-empty");
+    expect(r.out).not.toContain("복사 완료");
+  });
+
+  it("--allow-empty 를 붙이면 0개도 성공으로 끝난다", async () => {
+    const r = await run(["--apply", "--match=없는접두사:*", "--allow-empty"]);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("복사 완료");
+  });
+
+  it("대조도 0개면 '대조 통과'를 찍지 않는다", async () => {
+    const r = await run(["--verify", "--match=없는접두사:*"]);
+    expect(r.code).toBe(2);
+    expect(r.out).not.toContain("대조 통과");
+  });
+
+  it("--allow-nonempty 로 덮어쓸 때 대상에만 있는 키를 경고한다", async () => {
+    expect((await run(["--apply"])).code).toBe(0);
+    dst.seed("import:inbox:다른사람", "hash", { x: "1" });   // 컷오버 이후 새 DB에 쌓인 값을 가정
+    const r = await run(["--apply", "--allow-nonempty"]);
+    expect(r.code).toBe(0);
+    expect(r.err).toContain("대상에만 있는 키 1개");
+    expect(r.err).toContain("04 §4");
+    expect(Object.keys(dst.snapshot())).toContain("import:inbox:다른사람");   // 지우지는 않는다
+  });
+});
+
 describe("kv-migrate — 비UTF-8 값", () => {
   // Upstash REST는 유효하지 않은 UTF-8 바이트를 U+FFFD(?)로 **조용히** 바꿔서 돌려준다.
   // 그대로 옮기면 에러 없이 값만 상한다 — 이관에서 가장 무서운 실패 방식이라 반드시 멈춰야 한다.
@@ -544,8 +609,14 @@ describe("kv-migrate — 모르는 타입", () => {
     expect(r.code).toBe(2);
     expect(r.out).toMatch(/미지원 타입 1개/);
     expect(r.err).toContain("미지원: stream:sample (stream)");
-    expect(Object.keys(dst.snapshot())).not.toContain("stream:sample");
-    expect(Object.keys(dst.snapshot()).length).toBe(COPYABLE_KEYS);   // 나머지는 정상 복사
+    const keys = Object.keys(dst.snapshot());
+    expect(keys).not.toContain("stream:sample");
+    // 선행 단계가 실패했으므로 도장·구독자 목록(COPY_LAST)은 보내지 않는다
+    expect(r.err).toContain("보류 3개");
+    expect(keys).not.toContain("import:seen:daniel:hae-2026-08-01-run");
+    expect(keys).not.toContain("push:uids");
+    expect(keys).toContain("import:inbox:daniel");        // 사서함은 옮겼다
+    expect(keys.length).toBe(COPYABLE_KEYS - 3);
   });
 
   it("점검에서도 미리 경고하고 0으로 끝나지 않는다", async () => {
@@ -686,11 +757,22 @@ describe("kv-migrate — 대조(--verify)", () => {
     expect(r.err).toContain("import:log:daniel: 값 불일치");
   });
 
-  it("표본 수를 줄이면 그만큼만 본다", async () => {
+  it("표본 수를 줄이면 그만큼만 보고, 재실행해도 같은 키를 본다(D-8)", async () => {
     expect((await run(["--apply"])).code).toBe(0);
-    const r = await run(["--verify", "--sample=3"]);
-    expect(r.code).toBe(0);
-    expect(r.out).toMatch(/표본 3개 값 대조/);
+    const clean = await run(["--verify", "--sample=3"]);
+    expect(clean.code).toBe(0);
+    expect(clean.out).toMatch(/표본 3개 값 대조/);
+
+    // 모든 문자열 값을 변조해 두면, 표본에 뽑힌 키만 불일치로 찍힌다.
+    for (const e of dst.data.values()) if (e.type === "string") e.value += "-변조";
+    const mismatched = (out) => [...out.matchAll(/^ {2}(\S+): 값 불일치$/gm)].map((m) => m[1]).sort();
+
+    const a = await run(["--verify", "--sample=3"]);
+    const b = await run(["--verify", "--sample=3"]);
+    expect(a.code).toBe(2);
+    expect(mismatched(a.err).length).toBeGreaterThan(0);
+    // 무작위 표본이면 여기서 갈린다 — "다시 돌렸더니 통과"가 생기는 자리다
+    expect(mismatched(b.err)).toEqual(mismatched(a.err));
   });
 });
 
@@ -712,5 +794,36 @@ describe("kv-migrate — 사용법 오류", () => {
     const r = await run(["--force"]);
     expect(r.code).toBe(1);
     expect(r.err).toContain("모르는 옵션: --force");
+  });
+});
+
+describe("kv-migrate — 부분 이관(--match)", () => {
+  it("① --match 로 그 접두사만 복사한다(드리프트 복구 경로)", async () => {
+    const r = await run(["--apply", "--allow-nonempty", "--match=import:seen:*"]);
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/복사 1개/);
+    expect(Object.keys(dst.snapshot())).toEqual(["import:seen:daniel:hae-2026-08-01-run"]);
+  });
+
+  it("② 빈 페이지가 섞여도 건수가 맞고 SCAN을 여러 번 부른다", async () => {
+    const r = await run(["--match=push:*", "--scan-count=1"]);
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/키 3개/);
+    const scans = src.seen.filter((c) => c[0] === "SCAN");
+    expect(scans.length).toBeGreaterThan(10);
+  });
+
+  it("③ --verify 도 같은 범위로만 대조한다", async () => {
+    expect((await run(["--apply"])).code).toBe(0);
+    const r = await run(["--verify", "--match=push:*"]);
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/건수: 원본 3개 · 대상 3개/);
+    expect(r.out).toMatch(/표본 3개 값 대조: 불일치 0개/);
+  });
+
+  it("④ --match 와 기본 --exclude 는 함께 걸린다", async () => {
+    const r = await run(["--match=import:body-cloud-*"]);
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/키 0개 \(제외 접두사 .* → 1개 제외\)/);
   });
 });
