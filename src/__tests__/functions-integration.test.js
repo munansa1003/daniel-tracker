@@ -101,6 +101,33 @@ describe("api 그룹 — checkOrigin이 라우터 뒤에서 그대로 선다", (
     });
     expect(r.status).toBe(403);
   });
+
+  it("`*` 없는 접미사는 **라벨 경계**에서만 맞는다 — 붙여 쓴 남의 도메인은 막힌다", async () => {
+    // 단순 endsWith였다면 `evilbodyplan-staging.web.app`이 통과했다.
+    vi.stubEnv("PREVIEW_ORIGIN_SUFFIX", "bodyplan-staging.web.app");
+    const sub = await fetch(`${API}/api/analyze-food`, {
+      method: "OPTIONS", headers: { Origin: "https://ch.bodyplan-staging.web.app" },
+    });
+    const glued = await fetch(`${API}/api/analyze-food`, {
+      method: "OPTIONS", headers: { Origin: "https://evilbodyplan-staging.web.app" },
+    });
+    const exact = await fetch(`${API}/api/analyze-food`, {
+      method: "OPTIONS", headers: { Origin: "https://bodyplan-staging.web.app" },
+    });
+    vi.stubEnv("PREVIEW_ORIGIN_SUFFIX", "");
+    expect(sub.status).toBe(200);      // 서브도메인 = 프리뷰 채널
+    expect(glued.status).toBe(403);    // 라벨 경계 없음 = 남의 도메인
+    expect(exact.status).toBe(403);    // 고정 도메인은 PRODUCTION_ORIGIN에 적는 자리
+  });
+
+  it("http:// origin은 접미사가 맞아도 막힌다", async () => {
+    vi.stubEnv("PREVIEW_ORIGIN_SUFFIX", "bodyplan-staging.web.app");
+    const r = await fetch(`${API}/api/analyze-food`, {
+      method: "OPTIONS", headers: { Origin: "http://ch.bodyplan-staging.web.app" },
+    });
+    vi.stubEnv("PREVIEW_ORIGIN_SUFFIX", "");
+    expect(r.status).toBe(403);
+  });
 });
 
 describe("ingress 그룹 — 단축어 검문(런북 B3 스모크)", () => {

@@ -28,10 +28,11 @@ function getAllowedOrigins() {
 //   ② https 이고, 호스트가 그 값과 맞아야 한다.
 //
 // 값의 형태는 둘 다 받는다:
-//   · `*` 없는 값 → 순수 접미사. 호스트가 그 접미사보다 **길면서** 그것으로 끝나야 한다.
-//     "더 길어야 한다"가 중요하다 — 같으면 그건 프리뷰가 아니라 고정 도메인이고, 고정 도메인은
-//     PRODUCTION_ORIGIN에 정확히 적는 자리다. 여기서 같은 것까지 받으면 값 하나로 고정 도메인이
-//     조용히 열려 이 함수의 의미가 흐려진다.
+//   · `*` 없는 값 → 도메인 접미사. **라벨 경계에서만** 맞는다: 호스트가 `.` + 접미사로 끝나야 한다.
+//     단순 `endsWith`면 접미사가 `bodyplan-staging.web.app`일 때
+//     `evilbodyplan-staging.web.app`이 통과한다 — 남이 등록한 도메인이 열리는 구멍이다.
+//     `.`을 요구하면 서브도메인만 맞고, 접미사와 **같은** 호스트도 자동으로 빠진다.
+//     후자는 의도한 것이다 — 고정 도메인은 프리뷰가 아니라 PRODUCTION_ORIGIN에 정확히 적는 자리다.
 //   · `*` 있는 값 → 호스트 패턴. `*`는 **점을 넘지 않는** 한 조각과만 맞는다.
 //     프리뷰 채널 호스트는 프로젝트 이름이 **앞**에 오므로(`bodyplan-staging--pr-12-ab34cd.web.app`)
 //     순수 접미사로는 프로젝트를 못 묶는다 — `.web.app`으로 열면 남의 Firebase 사이트까지 열린다.
@@ -47,7 +48,10 @@ function matchesPreviewSuffix(origin) {
     host = u.host;
   } catch { return false; }
   return raw.split(",").map(s => s.trim()).filter(Boolean).some((pat) => {
-    if (!pat.includes("*")) return host.length > pat.length && host.endsWith(pat);
+    if (!pat.includes("*")) {
+      const sfx = pat.startsWith(".") ? pat : `.${pat}`;   // 라벨 경계 강제
+      return host.endsWith(sfx);
+    }
     const re = new RegExp("^" + pat.split("*").map(p => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[^.]*") + "$");
     return re.test(host);
   });

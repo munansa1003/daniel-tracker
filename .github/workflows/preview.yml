@@ -121,11 +121,15 @@ jobs:
           curl -s -D - -o /dev/null -X POST "$U/api/health-import" \
             -H 'X-Import-Token: wrong' -d '{}' | grep -qi '^x-function-group: ingress'
 
+      # 채널 URL은 `env:`로 넘긴다. 스크립트 본문에 `${{ }}`로 보간하면 그 값이 **JS 코드로**
+      # 붙어, 값에 백틱·`${`가 섞이는 순간 문법이 깨지거나 임의 코드가 된다(GitHub 공식 권고).
       - uses: actions/github-script@v7
+        env:
+          CHANNEL_URL: ${{ steps.channel.outputs.url }}
         with:
           script: |
-            github.rest.issues.createComment({
+            await github.rest.issues.createComment({
               ...context.repo,
               issue_number: context.issue.number,
-              body: `프리뷰(staging): ${{ steps.channel.outputs.url }} — 7일 후 만료`,
+              body: `프리뷰(staging): ${process.env.CHANNEL_URL} — 7일 후 만료`,
             })

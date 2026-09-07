@@ -66,9 +66,10 @@ i  functions: Your functions could not be parsed due to an issue with your node_
 ```
 
 **경고일 뿐이다** — 함수 4개는 정상 로드·실행됐다(같은 로그의 `Loaded functions definitions from
-source: api, cronReminders, exportView, ingress`). `firebase-admin`은 **의도적으로 넣지 않는다**:
-서버가 Firestore 자격증명을 갖지 않는 것이 이 저장소의 보안 태세다(01 §1 원칙 2).
-이 경고를 없애려고 의존성을 추가하지 말 것. `firebase-config.test.js`가 추가를 막는다.
+source: api, cronReminders, exportView, ingress`). 에뮬레이터는 `package.json`의 **직접**
+의존성 목록만 보고 이 경고를 낸다(패키지 자체는 firebase-functions의 peer로 이미 설치돼 있다).
+이 경고를 없애려고 `firebase-admin`을 직접 의존성에 추가하지 말 것 — 자세한 이유와 실제 방벽은
+§2 맨 아래 "`firebase-admin`은 막을 수 없고 막을 필요도 없다" 항목에 있다.
 
 ### ✅ Cloud Run 환경변수로 진단 필드가 채워진다
 
@@ -263,8 +264,12 @@ Firestore를 직접 쓸 수 있게 되고 "day 문서를 쓰는 주체는 앱 �
 한 벌이면 되고, 이름이 갈리면(`STAGING_…`) 새 변수를 추가할 때마다 두 곳을 고쳐야 해서
 한쪽을 빠뜨리기 쉽다. 되돌리는 법: 두 워크플로의 `env:` 블록에서 `vars.X`를 `vars.STAGING_X`로.
 
-> ⚠️ **`KV_REST_API_URL`·`IMPORT_UID`는 `staging` Environment에 반드시 스테이징 값을 넣는다.**
-> 비워 두면 저장소 변수(= prod 값)로 떨어져 프리뷰가 **실데이터 사서함·푸시 구독**을 두드린다.
+> ⚠️ **`staging` Environment에 아래 셋을 반드시 스테이징 값으로 넣는다.** 비워 두면 저장소
+> 변수(= prod 값)로 떨어진다:
+> - `KV_REST_API_URL` — 프리뷰가 **실데이터 사서함·푸시 구독**을 두드린다
+> - `IMPORT_UID` — 수신분이 실제 사용자에게 귀속된다
+> - `PRODUCTION_ORIGIN` — 스테이징 함수가 **프로덕션 원점을 신뢰**하게 된다
+>   (프로덕션 페이지에서 스테이징 API를 부를 수 있게 되는 형태)
 
 **`FIREBASE_PROJECT_PROD`·`FIREBASE_PROJECT_STAGING`이 비어 있으면 배포 job은 통째로 skip된다**
 (빨간불이 아니라 회색). 즉 이 PR을 머지해도 변수를 넣기 전까지는 아무것도 배포되지 않는다.
