@@ -236,7 +236,7 @@ jobs:
 | 원점 소비처 grep 근거 | 02 §1 각 행에 파일:라인 — `grep -rln "vercel.app\|VERCEL_URL\|location.origin\|window.location\|pushManager\|start_url\|authDomain" src api public vite.config.js index.html docs README.md` 결과 15개 파일 전부 표에 포함 ✓ (`LoginScreen.jsx`·`offline.html`은 원점 무관으로 #26·#27에 기록) |
 | 외부 사실 출처 | 한도·요금·역할명·rewrite 리전·authDomain 요건 전부 [코드]/[스니펫]/[미확인] 등급 + URL ✓. **원문 페이지 열람은 네트워크 정책으로 불가** — [스니펫] 항목은 구현 세션에서 재확인 |
 | `npx eslint src api --max-warnings=0` | 통과(exit 0) ✓ |
-| `npx vitest run` | **517/517 통과, exit 1** — `bulk-delete-ui.test.jsx` 실행 중 `alert is not a function` unhandled rejection 1건(`src/App.jsx:643`, happy-dom에 `alert` 없음). 3회 재현(결정적). GitHub CI(Node 20) main 최근 5회 녹색 → **이 환경(Node 22)의 기존 상태**이며 문서 변경과 무관. `src/` 변경 금지라 수정하지 않음 → 구현 세션 첫 작업으로 권고 |
+| `npx vitest run` | **517/517 통과, exit 1** — `bulk-delete-ui.test.jsx` "확인 창에서 취소하면…" 실행 중 `alert is not a function` unhandled rejection 1건(`src/App.jsx:643`). **원인은 날짜 의존(main의 잠재 결함)**: 이 테스트는 일괄 삭제 패널의 기본 범위 `today()-13 ~ today()`(`src/App.jsx:2180`)가 픽스처 날짜(2026-08-01~08-10)와 겹친다고 가정한다. 2026-08-24 이후엔 범위가 비어 `counts=0` → `alert()` 경로 → happy-dom에 `alert`가 없어 TypeError. 검증: 전역 `Date`를 2026-08-10으로 고정하면 exit 0, 08-24로 고정하면 exit 1(Node 20·22 동일). CI(main)는 2026-08-10 이후 실행이 없어 녹색으로 보일 뿐 **지금 재실행하면 실패한다**. `src/` 변경 금지라 수정하지 않음 → 구현 세션 첫 작업(테스트가 날짜를 명시하도록 수정, 예: 입력 후 클릭 또는 `vi.setSystemTime`) |
 | `vite build` | 통과. `dist/` 1.4MB, precache 17개 ✓ |
 | 시크릿 값 부재 | 세 문서에서 API 키·토큰·PEM 형태 문자열 검색 0건 ✓ (Firebase 웹 API 키 문자열도 문서에 싣지 않음. 이름만 기재) |
 | 금지 사항 | `src/` `api/` `firestore.rules` `vite.config.js` `vercel.json` `package.json` `.github/` 무변경 · `.github/workflows/` 파일 미생성 · firebase CLI 미설치·미실행 ✓ (`git status`로 확인) |
