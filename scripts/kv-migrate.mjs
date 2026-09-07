@@ -24,12 +24,21 @@
 //
 // 실행 절차 전체(사람이 할 일 포함)는 docs/migration/04-kv-migration.md 참조.
 
+import { Buffer } from "node:buffer";
+
 // ── 상수 ─────────────────────────────────────────────────────────────────────
-const DEFAULT_EXCLUDE = ["rl:"];      // rate limit 카운터 — 60초 TTL, 옮길 가치가 없다
-const SCAN_COUNT = 200;               // SCAN 한 번에 훑는 양(힌트)
+// 옮기지 않을 접두사 — 둘 다 60초 안에 스스로 사라지는 값이다.
+// `import:body-cloud-lock:`은 인바디 동시실행 뮤텍스(`CLOUD_LOCK_TTL_SEC=60`, import-inbox.js:47).
+// 이걸 옮기면 새 DB에서 최대 1분간 인바디 pull이 잠긴 채로 시작한다.
+const DEFAULT_EXCLUDE = ["rl:", "import:body-cloud-lock:"];
+const SCAN_COUNT = 200;               // SCAN 한 번에 훑는 양(힌트 — 페이지 크기가 아니다)
 const KEY_BATCH = 64;                 // 한 번에 처리할 키 수
-const PIPE_MAX_CMDS = 100;            // 파이프라인 한 요청의 최대 커맨드 수
-const PIPE_MAX_BYTES = 900000;        // 한 요청 본문 상한(보수적 — 공유 링크 본문 600KB 대비)
+// Upstash 문서상 한 요청의 커맨드 수 상한은 없다. 공식 클라이언트(@upstash/redis)가
+// 클라이언트 쪽에서 1000개마다 끊으므로 그보다 보수적으로 잡는다.
+const PIPE_MAX_CMDS = 500;
+// 요청 본문 상한은 Free/PAYG 10MB. 절반 아래로 잡고 **바이트**로 센다
+// (한글은 문자 수와 바이트 수가 3배까지 벌어져 .length로 세면 상한을 넘길 수 있다).
+const PIPE_MAX_BYTES = 4000000;
 const ELEM_CHUNK = 200;               // HSET/SADD/RPUSH/ZADD 한 커맨드에 넣을 원소 수
 const HTTP_TIMEOUT_MS = 30000;
 const HTTP_RETRIES = 3;               // 네트워크 오류·429·5xx만 재시도
@@ -63,6 +72,16 @@ const KEY_GROUPS = [
   ["rl:", "rate limit 카운터"],
 ];
 const EXACT_GROUPS = new Map([["push:uids", "푸시 구독자 목록(set)"]]);
+
+// 복사 순서는 **안전 순서**다. 중간에 끊겨도 "복구 가능한 쪽"으로 남게 키를 줄 세운다.
+//   · 사서함(hash)을 먼저, 중복 도장(`import:seen`)을 나중에 —
+//     도장만 넘어가고 사서함이 빠지면 그 수신분은 **영영 못 받는다**(도장이 재수신을 막는다).
+//     반대로 사서함만 넘어가고 도장이 빠지면 최악이 "중복 한 번"이고, 그건 되돌릴 수 있다.
+//     (앱도 같은 이유로 쓸 때 HSET → SET NX 순서다: health-import.js:130-131)
+//   · `push:sub:*`를 먼저, `push:uids`(대상 목록)를 나중에 —
+//     목록에 uid가 있는데 구독이 없으면 크론이 그 uid를 **영구 삭제**한다(cron-reminders.js:76).
+const COPY_LAST = [/^import:seen:/, /^import:body-seen:/, /^push:uids$/];
+const copyRank = (key) => (COPY_LAST.some((re) => re.test(key)) ? 1 : 0);
 
 class UsageError extends Error {}
 
@@ -202,7 +221,7 @@ async function pipe(conn, commands) {
     batch = []; bytes = 2;
   };
   for (const cmd of commands) {
-    const size = JSON.stringify(cmd).length + 1;
+    const size = Buffer.byteLength(JSON.stringify(cmd), "utf8") + 1;
     if (batch.length && (batch.length >= PIPE_MAX_CMDS || bytes + size > PIPE_MAX_BYTES)) await flush();
     batch.push(cmd); bytes += size;
   }
@@ -242,7 +261,8 @@ async function scanKeys(conn, opt) {
     }
     if (++iter > SCAN_MAX_ITER) throw new Error("SCAN이 끝나지 않습니다(커서 이상)");
   } while (cursor !== "0");
-  return { keys: [...keys].sort(), excluded };
+  const ordered = [...keys].sort((a, b) => copyRank(a) - copyRank(b) || (a < b ? -1 : a > b ? 1 : 0));
+  return { keys: ordered, excluded };
 }
 
 // ── 값 읽기·쓰기 ─────────────────────────────────────────────────────────────
@@ -306,6 +326,15 @@ function canon(type, value) {
     case "zset": return `z:${JSON.stringify([...value.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)))}`;
     default: return `?:${JSON.stringify(value)}`;
   }
+}
+
+// 컬렉션이 비어 있다 = 그 키는 이미 사라졌다(Redis는 빈 컬렉션을 보관하지 않는다).
+// TYPE과 값 읽기 사이에 만료·삭제된 키가 여기로 온다. 빈 문자열("")은 정상 값이므로 제외.
+function isEmptyValue(type, value) {
+  if (value === null || value === undefined) return true;
+  if (type === "string") return false;
+  if (type === "hash" || type === "zset") return value.size === 0;
+  return value.length === 0;
 }
 
 function chunk(arr, size) {
@@ -511,6 +540,26 @@ async function applyCopy(src, dst, opt) {
     if (live.length === 0) { done += batch.length; continue; }
 
     const srcVals = await readValues(src, live);
+
+    // 비UTF-8 값 감시 — Upstash REST는 잘못된 UTF-8 바이트를 U+FFFD(�)로 **조용히** 바꿔 돌려준다
+    // (공식 문서: "If the response contains an invalid utf-8 character, it will be replaced with a �").
+    // 그대로 옮기면 에러 하나 없이 값만 상한다. 원본의 STRLEN(바이트 수)과 받아온 문자열의 바이트 수를
+    // 맞춰 보고, 어긋나면 **복사하지 않고** 실패로 보고한다. 조용히 상하느니 시끄럽게 멈춘다.
+    // (이 앱은 JSON 문자열만 저장하므로 정상 상황에서는 걸릴 일이 없다 — 04 §7 D-13)
+    const strKeys = live.filter(([, m]) => m.type === "string").map(([k]) => k);
+    const lens = await pipe(src, strKeys.map((k) => ["STRLEN", k]));
+    const lossy = new Set();
+    strKeys.forEach((k, i) => {
+      const expect = Number(resultOf(src, lens[i], `STRLEN ${k}`) ?? -1);
+      const got = srcVals.get(k);
+      if (typeof got !== "string" || expect < 0) return;
+      const actual = Buffer.byteLength(got, "utf8");
+      if (actual !== expect) {
+        lossy.add(k);
+        stat.failed.push(`${k}: 비UTF-8 값(원본 ${expect}바이트 → 읽은 값 ${actual}바이트) — REST로는 원형 그대로 옮길 수 없습니다`);
+      }
+    });
+
     const dstMeta = await readMeta(dst, live.map(([k]) => k));
     // 대상에 같은 타입으로 이미 있는 키만 값을 읽어 비교한다(멱등).
     const dstSame = live.filter(([k, m]) => dstMeta.get(k)?.type === m.type);
@@ -518,8 +567,9 @@ async function applyCopy(src, dst, opt) {
 
     const plan = [];
     for (const [k, m] of live) {
+      if (lossy.has(k)) continue;                // 위에서 이미 실패로 셌다
       const value = srcVals.get(k);
-      if (value === null || value === undefined) { stat.vanished++; continue; }
+      if (isEmptyValue(m.type, value)) { stat.vanished++; continue; }
       const dm = dstMeta.get(k);
       const same = dm && dm.type === m.type
         && canon(m.type, dstVals.get(k)) === canon(m.type, value)

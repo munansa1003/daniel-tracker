@@ -27,7 +27,7 @@ const DST_TOKEN = "dst-token-bbbbbbbbbbbbbbbbbbbb";
 function createFake(token) {
   const data = new Map();          // key -> { type, value, expireAt(ms|null) }
   const seen = [];                 // 이 서버가 받은 모든 명령(읽기 전용 검증용)
-  const flags = { scanDuplicates: false, vanishAfterScan: null };
+  const flags = { scanDuplicates: false, vanishAfterScan: null, byteLen: new Map() };
 
   const now = () => Date.now();
   const alive = (key) => {
@@ -104,7 +104,10 @@ function createFake(token) {
       }
       case "STRLEN": {
         const e = typed(a[0], "string");
-        return e ? Buffer.byteLength(e.value, "utf8") : 0;
+        if (!e) return 0;
+        // 비UTF-8 값 재현: 실제 저장 바이트 수는 이만큼인데 REST가 U+FFFD로 바꿔 돌려주는 상황
+        if (flags.byteLen.has(a[0])) return flags.byteLen.get(a[0]);
+        return Buffer.byteLength(e.value, "utf8");
       }
       case "SET": {
         const [k, v, ...rest] = a;
@@ -242,7 +245,7 @@ function createFake(token) {
   return {
     server, data, seen, flags,
     url: () => `http://127.0.0.1:${server.address().port}`,
-    reset() { data.clear(); seen.length = 0; flags.scanDuplicates = false; flags.vanishAfterScan = null; },
+    reset() { data.clear(); seen.length = 0; flags.scanDuplicates = false; flags.vanishAfterScan = null; flags.byteLen.clear(); },
     // 씨앗 심기 — TTL은 남은 밀리초로 준다(null = 영구)
     seed(key, type, value, ttlMs = null) {
       const stored = type === "hash" ? new Map(Object.entries(value))
@@ -334,7 +337,9 @@ function seedSource() {
   src.seed("push:state:daniel", "string", JSON.stringify({ reminders: true, lastSentAt: "2026-09-06" }));
   src.seed("share:tok-abc123", "string", JSON.stringify({ uid: "daniel", days: 7 }), 7 * DAY);
   src.seed("share:hits:tok-abc123", "string", "5", 7 * DAY);
-  src.seed("import:body-cloud-lock:daniel", "string", "2026-09-07T02:00:00.000Z", 30000);
+  src.seed("share:tok-1h", "string", JSON.stringify({ uid: "daniel", days: 1 }), 3600 * 1000);
+  // 60초 뮤텍스 — 기본 제외 대상(옮기면 새 DB가 최대 1분간 잠긴 채로 시작한다)
+  src.seed("import:body-cloud-lock:daniel", "string", "2026-09-07T02:00:00.000Z", 60000);
   src.seed("zset:sample", "zset", { alpha: 1, beta: 2.5 });          // 코드는 안 쓰지만 방어
   src.seed("rl:analyze-food:203.0.113.9", "string", "7", 60000);     // 제외 대상
   src.seed("rl:import-inbox:198.51.100.4", "string", "3", 60000);    // 제외 대상
@@ -361,7 +366,7 @@ describe("kv-migrate — 점검(dry-run)", () => {
     const r = await run([]);
     expect(r.code).toBe(0);
     expect(r.out).toContain("점검(dry-run)");
-    expect(r.out).toMatch(/키 13개 \(제외 접두사 rl: → 2개 제외\)/);
+    expect(r.out).toMatch(/키 13개 \(제외 접두사 rl: import:body-cloud-lock: → 3개 제외\)/);
     expect(r.out).toContain("import:seen:* — 운동 중복 도장(영구)");
     expect(r.out).toContain("share:hits:* — 공유 링크 조회수");   // share:* 보다 먼저 매치돼야 한다
     expect(r.out).toMatch(/TTL 분포:.*영구 \d+/);
@@ -396,7 +401,6 @@ describe("kv-migrate — 복사(--apply)", () => {
 
     const after = dst.snapshot();
     expect(Object.keys(after).sort()).toEqual([
-      "import:body-cloud-lock:daniel",
       "import:body-inbox:daniel",
       "import:body-log:daniel",
       "import:body-seen:daniel:inbody-2026-08-02",
@@ -407,6 +411,7 @@ describe("kv-migrate — 복사(--apply)", () => {
       "push:sub:daniel",
       "push:uids",
       "share:hits:tok-abc123",
+      "share:tok-1h",
       "share:tok-abc123",
       "zset:sample",
     ].sort());
@@ -457,6 +462,50 @@ describe("kv-migrate — 복사(--apply)", () => {
   });
 });
 
+describe("kv-migrate — 복사 순서(중간에 끊겼을 때 남는 상태)", () => {
+  // 순서가 왜 값비싼지: 도장(import:seen)이 먼저 넘어가고 사서함이 안 넘어가면 그 수신분은
+  // 영영 못 받는다(도장이 재수신을 막는다). push:uids가 먼저 넘어가고 구독이 없으면
+  // 첫 크론이 그 uid를 목록에서 영구 삭제한다(cron-reminders.js:76).
+  const firstIndexOf = (pred) => dst.seen.findIndex(pred);
+
+  it("사서함(hash)을 도장(seen)보다 먼저 쓴다", async () => {
+    expect((await run(["--apply"])).code).toBe(0);
+    const inbox = firstIndexOf((c) => c[0] === "HSET" && c[1] === "import:inbox:daniel");
+    const seen = firstIndexOf((c) => c[0] === "SET" && c[1].startsWith("import:seen:"));
+    expect(inbox).toBeGreaterThanOrEqual(0);
+    expect(seen).toBeGreaterThanOrEqual(0);
+    expect(inbox).toBeLessThan(seen);
+
+    const bodyInbox = firstIndexOf((c) => c[0] === "HSET" && c[1] === "import:body-inbox:daniel");
+    const bodySeen = firstIndexOf((c) => c[0] === "SET" && c[1].startsWith("import:body-seen:"));
+    expect(bodyInbox).toBeLessThan(bodySeen);
+  });
+
+  it("push:sub 을 push:uids 보다 먼저 쓴다", async () => {
+    expect((await run(["--apply"])).code).toBe(0);
+    const sub = firstIndexOf((c) => c[0] === "SET" && c[1] === "push:sub:daniel");
+    const uids = firstIndexOf((c) => c[0] === "SADD" && c[1] === "push:uids");
+    expect(sub).toBeGreaterThanOrEqual(0);
+    expect(uids).toBeGreaterThanOrEqual(0);
+    expect(sub).toBeLessThan(uids);
+  });
+});
+
+describe("kv-migrate — 비UTF-8 값", () => {
+  // Upstash REST는 유효하지 않은 UTF-8 바이트를 U+FFFD(?)로 **조용히** 바꿔서 돌려준다.
+  // 그대로 옮기면 에러 없이 값만 상한다 — 이관에서 가장 무서운 실패 방식이라 반드시 멈춰야 한다.
+  it("원본 바이트 수와 읽어온 값의 바이트 수가 다르면 복사하지 않고 실패로 보고한다", async () => {
+    src.flags.byteLen.set("push:sub:daniel", 99999);   // 실제 저장 바이트는 이만큼이었다고 가정
+    const r = await run(["--apply"]);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("push:sub:daniel: 비UTF-8 값");
+    expect(r.out).toMatch(/실패 1개/);
+    // 상한 값은 대상에 쓰지 않는다 — 나머지는 정상 복사된다
+    expect(Object.keys(dst.snapshot())).not.toContain("push:sub:daniel");
+    expect(Object.keys(dst.snapshot())).toContain("import:inbox:daniel");
+  });
+});
+
 describe("kv-migrate — TTL", () => {
   it("TTL은 남은 시간으로 유지하고, 영구 키는 영구로 남긴다", async () => {
     const r = await run(["--apply"]);
@@ -466,9 +515,9 @@ describe("kv-migrate — TTL", () => {
     expect(after["share:tok-abc123"].ttlMs).toBeGreaterThan(7 * DAY - 5000);
     expect(after["share:tok-abc123"].ttlMs).toBeLessThanOrEqual(7 * DAY);
     expect(after["share:hits:tok-abc123"].ttlMs).toBeGreaterThan(7 * DAY - 5000);
-    // 30초짜리 인바디 락
-    expect(after["import:body-cloud-lock:daniel"].ttlMs).toBeGreaterThan(20000);
-    expect(after["import:body-cloud-lock:daniel"].ttlMs).toBeLessThanOrEqual(30000);
+    // 1시간짜리 공유 링크
+    expect(after["share:tok-1h"].ttlMs).toBeGreaterThan(3600 * 1000 - 5000);
+    expect(after["share:tok-1h"].ttlMs).toBeLessThanOrEqual(3600 * 1000);
     // 영구 도장은 영구로
     expect(after["import:seen:daniel:hae-2026-08-01-run"].ttlMs).toBe(-1);
     expect(after["push:sub:daniel"].ttlMs).toBe(-1);
@@ -495,10 +544,11 @@ describe("kv-migrate — TTL", () => {
 });
 
 describe("kv-migrate — 제외", () => {
-  it("rl:* 은 기본으로 옮기지 않는다", async () => {
+  it("rl:* 과 60초 인바디 락은 기본으로 옮기지 않는다", async () => {
     await run(["--apply"]);
     const keys = Object.keys(dst.snapshot());
     expect(keys.filter((k) => k.startsWith("rl:"))).toEqual([]);
+    expect(keys).not.toContain("import:body-cloud-lock:daniel");   // 새 DB가 잠긴 채 시작하지 않게
     expect(keys.length).toBe(COPYABLE_KEYS);
   });
 
@@ -507,6 +557,7 @@ describe("kv-migrate — 제외", () => {
     expect(r.code).toBe(0);
     const keys = Object.keys(dst.snapshot());
     expect(keys.filter((k) => k.startsWith("rl:")).length).toBe(2);
+    expect(keys).toContain("import:body-cloud-lock:daniel");       // 기본값을 갈아끼웠으므로 따라온다
     expect(keys.filter((k) => k.startsWith("share:"))).toEqual([]);
   });
 });
