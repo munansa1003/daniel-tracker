@@ -430,20 +430,7 @@ if (u.protocol !== "https:" || !PUSH_HOSTS.some(re => re.test(u.hostname)))
 | P1-10 | 저장소 **public + 브랜치 보호 없음** + CI에 보안 스캔 없음 | medium | GitHub 설정 |
 | P1-11 | KV 단일 인스턴스·단일 전권 토큰에 모든 것이 혼재 | medium | `kv.js` |
 | P1-12 | 크론 루프에 **uid 단위 예외 격리가 없음** — 한 명의 오류가 전원 발송을 취소 | medium | `cron-reminders.js:68-132` |
-
-### P1-12. 크론 루프 예외 격리 없음
-
-`api/cron-reminders.js:68`의 `try` 하나가 `:70`의 uid 루프 **전체**를 감싸고, `:129-132`의 `catch`는
-`return res.status(500)`으로 루프를 통째로 끝낸다. 루프 안에서 개별 `try`가 붙은 곳은
-`:113-125`의 `sendNotification` 하나뿐이다. 나머지는 무방비다:
-`:72-75` KV GET 2회, `:76` `SREM`, `:78-79` **`JSON.parse(subRaw)`·`JSON.parse(stRaw)`**, `:118-119` DEL/SREM.
-
-즉 **한 uid의 KV 일시 오류나 깨진 JSON 하나가 나머지 구독자 전원의 그날 발송을 취소한다.**
-P0-3 때문에 비회원도 `push:state`에 임의 객체를 쓸 수 있으므로(§P0-4 말미) 이 트리거를
-만드는 것은 어렵지 않다.
-
-**수정**: 루프 본문을 `try/catch`로 감싸 실패한 uid를 건너뛰고 계속 진행한다(5줄).
-P0-4의 `Promise.allSettled` 배치화와 같은 작업으로 처리하면 된다.
+| P1-13 | 초대·멤버십 모델에 만료·사용횟수·결제 연동이 없음 | medium | `firestore.rules:51-60` |
 
 ### P1-1. rateLimit fail-open
 
@@ -532,6 +519,38 @@ X-Content-Type-Options·Permissions-Policy는 없다**. 현재 XSS 방어가 Rea
 배포 시 `src/store.js:462`의 레거시 원형 복사가 거부될 수 있으니 마이그레이션 완료를 먼저 확인할 것.
 **배포·테스트 체계 자체는 §2 P0-10으로 승격했다.**
 
+### P1-8~P1-11. 나머지
+
+- **사서함 병합 무검증**: 서버 검문소는 범위를 검사하지만 클라이언트 병합
+  (`src/importMerge.js:60`)은 재검증하지 않는다. KV 내용이 곧 신뢰 경계가 된다.
+  → 서버와 같은 상수를 클라이언트에서 import해 재검증.
+- **토큰 검증 외부 호출**: 요청마다 Google `accounts:lookup`을 호출한다. 캐시가 없고 쿼터에
+  의존하며, 웹 API 키에 리퍼러 제한을 걸면 **서버 인증이 통째로 깨진다**(현재 제한 없음을 실측).
+  → `jose`로 JWKS 기반 로컬 JWT 검증(`iss`/`aud`/`exp`/`sub` + `sign_in_provider` 확인)으로 전환하면
+  외부 호출 0회가 되고 키 제한도 걸 수 있다.
+- **저장소 public**: 코드·엔드포인트·KV 키 구조가 전부 공개다(비밀값 유출은 없음을 확인).
+  10개 브랜치 전부 보호 없음. → main 브랜치 보호(리뷰 필수·CI 통과 필수), Secret scanning +
+  Push protection, Dependabot 활성화. 상용화 시점에 비공개 전환 검토.
+- **KV blast radius**: 하나의 Upstash 인스턴스·하나의 전권 토큰에 rate limit·공유 스냅샷(건강 데이터)·
+  수신 사서함·푸시 구독이 전부 들어 있다. 토큰 1개 유출 = 전 사용자 건강 데이터 + 방어 체계 동시 붕괴.
+  → 최소한 공유 스냅샷 암호화(P1-4)로 평문 노출을 줄이고, eviction 정책을 `noeviction`으로 확인한다.
+
+---
+
+### P1-12. 크론 루프 예외 격리 없음
+
+`api/cron-reminders.js:68`의 `try` 하나가 `:70`의 uid 루프 **전체**를 감싸고, `:129-132`의 `catch`는
+`return res.status(500)`으로 루프를 통째로 끝낸다. 루프 안에서 개별 `try`가 붙은 곳은
+`:113-125`의 `sendNotification` 하나뿐이다. 나머지는 무방비다:
+`:72-75` KV GET 2회, `:76` `SREM`, `:78-79` **`JSON.parse(subRaw)`·`JSON.parse(stRaw)`**, `:118-119` DEL/SREM.
+
+즉 **한 uid의 KV 일시 오류나 깨진 JSON 하나가 나머지 구독자 전원의 그날 발송을 취소한다.**
+P0-3 때문에 비회원도 `push:state`에 임의 객체를 쓸 수 있으므로(§P0-4 말미) 이 트리거를
+만드는 것은 어렵지 않다.
+
+**수정**: 루프 본문을 `try/catch`로 감싸 실패한 uid를 건너뛰고 계속 진행한다(5줄).
+P0-4의 `Promise.allSettled` 배치화와 같은 작업으로 처리하면 된다.
+
 ### P1-13. 초대·멤버십 모델이 유료 서비스에 맞지 않음
 
 `firestore.rules:51-60`의 `members` create 조건은 본인 uid + 키 화이트리스트 + 이메일 일치 +
@@ -561,24 +580,6 @@ X-Content-Type-Options·Permissions-Policy는 없다**. 현재 XSS 방어가 Rea
 결제 웹훅이 클레임을 갱신하면 규칙은 `request.auth.token.member == true`만 보면 되고,
 `exists()` 과금 읽기도 사라진다(§2 P0-3의 정석 수정과 같은 작업). 초대 코드에는
 `expiresAt`·`maxUses`·`boundEmail`을 넣고 규칙에서 강제한다.
-
-### P1-8~P1-11. 나머지
-
-- **사서함 병합 무검증**: 서버 검문소는 범위를 검사하지만 클라이언트 병합
-  (`src/importMerge.js:60`)은 재검증하지 않는다. KV 내용이 곧 신뢰 경계가 된다.
-  → 서버와 같은 상수를 클라이언트에서 import해 재검증.
-- **토큰 검증 외부 호출**: 요청마다 Google `accounts:lookup`을 호출한다. 캐시가 없고 쿼터에
-  의존하며, 웹 API 키에 리퍼러 제한을 걸면 **서버 인증이 통째로 깨진다**(현재 제한 없음을 실측).
-  → `jose`로 JWKS 기반 로컬 JWT 검증(`iss`/`aud`/`exp`/`sub` + `sign_in_provider` 확인)으로 전환하면
-  외부 호출 0회가 되고 키 제한도 걸 수 있다.
-- **저장소 public**: 코드·엔드포인트·KV 키 구조가 전부 공개다(비밀값 유출은 없음을 확인).
-  10개 브랜치 전부 보호 없음. → main 브랜치 보호(리뷰 필수·CI 통과 필수), Secret scanning +
-  Push protection, Dependabot 활성화. 상용화 시점에 비공개 전환 검토.
-- **KV blast radius**: 하나의 Upstash 인스턴스·하나의 전권 토큰에 rate limit·공유 스냅샷(건강 데이터)·
-  수신 사서함·푸시 구독이 전부 들어 있다. 토큰 1개 유출 = 전 사용자 건강 데이터 + 방어 체계 동시 붕괴.
-  → 최소한 공유 스냅샷 암호화(P1-4)로 평문 노출을 줄이고, eviction 정책을 `noeviction`으로 확인한다.
-
----
 
 ## 4. 위생 항목 (P2)
 
