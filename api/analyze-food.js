@@ -4,6 +4,7 @@
 // API 키는 Vercel 환경변수(ANTHROPIC_API_KEY)에서 가져옵니다.
 
 import { checkOrigin, rateLimit } from "./_lib/security.js";
+import { requireAiAuth } from "./_lib/ai-auth.js";
 
 export default async function handler(req, res) {
   if (!checkOrigin(req, res)) return;
@@ -17,6 +18,8 @@ export default async function handler(req, res) {
   const limitKey = isPhoto ? "analyze-food-photo" : "analyze-food-text";
   const limitMax = isPhoto ? 10 : 30;
   if (!(await rateLimit(req, res, { key: limitKey, max: limitMax, windowSec: 60 }))) return;
+  // 로그인 확인 — AI_ALLOWED_UIDS가 없으면 그냥 통과(기존 동작)
+  if (!(await requireAiAuth(req, res))) return;
 
   if (!isPhoto && (!query || !query.trim())) {
     return res.status(400).json({ error: "query or image is required" });

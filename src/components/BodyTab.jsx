@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, ReferenceLine } from "recharts";
 import store, { getCurrentUserId } from "../store.js";
+import { postAI } from "../aiApi.js";
 import { isCompletedDay } from "../utils.js";
 import { bodyMetrics } from "../bodyMetrics.js";
 import { checkSmmLbm, sampleTimeLabel, isEveningSample } from "../bodyDraft.js";
@@ -129,15 +130,12 @@ export function BodyTab({ bodyLog, addBody, date, onEditBody, onDeleteBody, user
   const fetchCoaching = async (current, previous) => {
     setCoachLoading(true); setCoaching("");
     try {
-      const res = await fetch("/api/analyze-body", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const res = await postAI("/api/analyze-body", {
           current: { weight: current.weight, muscle: current.muscle, fatPct: current.fatPct, score: current.score },
           previous: previous ? { date: previous.date, weight: previous.weight, muscle: previous.muscle, fatPct: previous.fatPct } : null,
           dietSummary: periodSummary ? { avgP: periodSummary.avgP, avgK: periodSummary.avgK, days: periodSummary.days } : null,
           exerciseSummary: periodSummary ? { totalSessions: periodSummary.totalSessions, avgBurn: periodSummary.avgBurn } : null,
           goals: goals ? { weight: goals.weight, fatPct: goals.fatPct, muscle: goals.muscle } : null
-        })
       });
       const data = await res.json();
       if (data.success && data.coaching) {
