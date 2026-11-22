@@ -2,6 +2,7 @@
 // 체성분 변화를 분석하고 AI 코칭 피드백을 제공합니다.
 
 import { checkOrigin, rateLimit } from "./_lib/security.js";
+import { requireAiAuth } from "./_lib/ai-auth.js";
 
 export default async function handler(req, res) {
   if (!checkOrigin(req, res)) return;
@@ -10,6 +11,8 @@ export default async function handler(req, res) {
 
   // 분당 20회 제한 (체성분 분석은 식단보다 호출 빈도 낮음)
   if (!(await rateLimit(req, res, { key: "analyze-body", max: 20, windowSec: 60 }))) return;
+  // 로그인 확인 — AI_ALLOWED_UIDS가 없으면 그냥 통과(기존 동작)
+  if (!(await requireAiAuth(req, res))) return;
 
   const { current, previous, dietSummary, exerciseSummary, goals } = req.body;
   if (!current) return res.status(400).json({ error: "current body data required" });

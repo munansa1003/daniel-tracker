@@ -3,6 +3,7 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, 
 import store, { getCurrentUserId, setUserId, logout, getMembership, joinWithInvite, getMigratedMark, getSharedFoods, addSharedFood, getSharedExercises, addSharedExercise } from "./store.js";
 import { addTombstone, getTombstoneIds } from "./syncQueue.js";
 import { watchAuth, signInWithGoogle, signOutUser, isOwnerEmail, getIdToken } from "./auth.js";
+import { postAI } from "./aiApi.js";
 import { mergeImports, recalcExerciseKcal, findWatchOverlap } from "./importMerge.js";
 import { mergeBodyDrafts, draftToRecord, autoConfirmDrafts, lastMeasuredDate } from "./bodyDraft.js";
 import { planAutoDelete } from "./bulkDelete.js";
@@ -951,11 +952,7 @@ function MainApp({ user, profile, onProfileRestore, onLogout }) {
   const analyzeFood = async (query) => {
     setAiLoading(true); setAiError(""); setAiResult(null);
     try {
-      const res = await fetch("/api/analyze-food", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query })
-      });
+      const res = await postAI("/api/analyze-food", { query });
       const data = await res.json();
       if (data.success && data.food) {
         setAiResult(data.food);
@@ -1036,11 +1033,7 @@ function MainApp({ user, profile, onProfileRestore, onLogout }) {
     try {
       const { base64, preview } = await compressImage(file);
       setPhotoPreview(preview);
-      const res = await fetch("/api/analyze-food", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: base64, mediaType: "image/jpeg" })
-      });
+      const res = await postAI("/api/analyze-food", { image: base64, mediaType: "image/jpeg" });
       const data = await res.json();
       if (data.success && data.foods) {
         setPhotoResults(data.foods.map(f => ({ ...f, checked: true, adjG: f.g || 100 })));
@@ -1089,11 +1082,7 @@ function MainApp({ user, profile, onProfileRestore, onLogout }) {
   const analyzeExercise = async (query) => {
     setAiExLoading(true); setAiExError(""); setAiExResults(null);
     try {
-      const res = await fetch("/api/analyze-exercise", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query })
-      });
+      const res = await postAI("/api/analyze-exercise", { query });
       const data = await res.json();
       if (data.success && data.exercises && data.exercises.length > 0) {
         setAiExResults(data.exercises);
